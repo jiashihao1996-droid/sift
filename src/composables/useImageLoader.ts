@@ -167,7 +167,7 @@ export function useImageLoader() {
     () => session.currentIndex,
     () => {
       loadCurrentImage()
-    }
+    },
   )
 
   // Initial load (immediate: true ensures first image loads when component mounts with existing data)
@@ -178,7 +178,7 @@ export function useImageLoader() {
         loadCurrentImage()
       }
     },
-    { immediate: true }
+    { immediate: true },
   )
 
   return {

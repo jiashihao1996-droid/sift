@@ -52,36 +52,30 @@ function startCulling() {
     <!-- Background gradient -->
     <div
       class="absolute inset-0 bg-gradient-radial from-sift-surface/50 to-sift-bg"
-      style="background: radial-gradient(ellipse at center, rgba(26,26,26,0.5) 0%, #0D0D0D 70%)"
+      style="background: radial-gradient(ellipse at center, rgba(26, 26, 26, 0.5) 0%, #0d0d0d 70%)"
     />
 
     <!-- Content -->
     <div class="relative z-10 flex flex-col items-center max-w-xl w-full px-6">
       <!-- Logo & Slogan -->
       <div class="mb-12 text-center">
-        <h1 class="text-4xl font-bold text-white mb-2 tracking-tight">
-          Sift
-        </h1>
-        <p class="text-sm text-sift-muted font-light">
-          RAW + JPG 一键筛选
-        </p>
-        <div class="h-0.5 w-12 mx-auto mt-3 bg-gradient-to-r from-sift-accent to-blue-400 rounded-full" />
+        <h1 class="text-4xl font-bold text-white mb-2 tracking-tight">Sift</h1>
+        <p class="text-sm text-sift-muted font-light">RAW + JPG 一键筛选</p>
+        <div
+          class="h-0.5 w-12 mx-auto mt-3 bg-gradient-to-r from-sift-accent to-blue-400 rounded-full"
+        />
       </div>
 
       <!-- Scanning State -->
       <div v-if="session.isScanning" class="w-full">
         <div
-          class="border border-sift-border rounded-2xl p-12 flex flex-col items-center gap-6
-                 bg-sift-surface/30 backdrop-blur-xl"
+          class="border border-sift-border rounded-2xl p-12 flex flex-col items-center gap-6 bg-sift-surface/30 backdrop-blur-xl"
         >
           <!-- Spinning loader -->
           <div class="relative w-16 h-16">
+            <div class="absolute inset-0 rounded-full border-2 border-sift-border" />
             <div
-              class="absolute inset-0 rounded-full border-2 border-sift-border"
-            />
-            <div
-              class="absolute inset-0 rounded-full border-2 border-transparent border-t-sift-accent
-                     animate-spin"
+              class="absolute inset-0 rounded-full border-2 border-transparent border-t-sift-accent animate-spin"
             />
           </div>
           <p class="text-sift-muted text-sm">正在扫描文件...</p>
@@ -98,8 +92,7 @@ function startCulling() {
           >
             <!-- Paired -->
             <div
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-success
-                     transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-success transform transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 0ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -113,8 +106,7 @@ function startCulling() {
 
             <!-- JPG Only -->
             <div
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-star
-                     transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-star transform transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -129,8 +121,7 @@ function startCulling() {
             <!-- RAW Only -->
             <div
               v-if="session.scanResult.rawOnlyCount > 0"
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-amber-500
-                     transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-amber-500 transform transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 150ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -144,8 +135,7 @@ function startCulling() {
 
             <!-- Total Files -->
             <div
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-accent
-                     transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-accent transform transition-all duration-500"
               :style="`animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) ${session.scanResult.rawOnlyCount > 0 ? 200 : 200}ms both`"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -166,11 +156,7 @@ function startCulling() {
           <!-- Start Button -->
           <button
             v-if="session.scanResult.pairs.length > 0"
-            class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500
-                   text-white font-medium text-sm flex items-center justify-center gap-2
-                   hover:from-blue-500 hover:to-blue-400 btn-spring btn-glow
-                   shadow-lg shadow-sift-accent/20
-                   transition-shadow duration-300"
+            class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-blue-500 hover:to-blue-400 btn-spring btn-glow shadow-lg shadow-sift-accent/20 transition-shadow duration-300"
             style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 300ms both"
             @click="startCulling"
           >
@@ -179,18 +165,13 @@ function startCulling() {
           </button>
 
           <!-- No photos found -->
-          <p
-            v-else
-            class="text-center text-sift-muted text-sm py-4"
-          >
+          <p v-else class="text-center text-sift-muted text-sm py-4">
             该文件夹中未找到可处理的图片文件
           </p>
 
           <!-- Rescan button -->
           <button
-            class="w-full h-10 rounded-xl border border-sift-border text-sift-muted
-                   text-sm hover:text-white hover:border-sift-muted/50 transition-colors
-                   btn-spring"
+            class="w-full h-10 rounded-xl border border-sift-border text-sift-muted text-sm hover:text-white hover:border-sift-muted/50 transition-colors btn-spring"
             @click="selectFolder"
           >
             选择其他文件夹
@@ -201,13 +182,11 @@ function startCulling() {
       <!-- Initial State - Folder picker -->
       <div v-else class="w-full">
         <button
-          class="w-full border-2 border-dashed rounded-2xl p-16 flex flex-col items-center gap-4
-                 transition-all duration-300 cursor-pointer group
-                 bg-sift-surface/10"
+          class="w-full border-2 border-dashed rounded-2xl p-16 flex flex-col items-center gap-4 transition-all duration-300 cursor-pointer group bg-sift-surface/10"
           :class="[
             isHovering
               ? 'border-sift-accent bg-sift-accent/5 scale-[1.01]'
-              : 'border-sift-border hover:border-sift-muted/60'
+              : 'border-sift-border hover:border-sift-muted/60',
           ]"
           @click="selectFolder"
           @mouseenter="isHovering = true"
@@ -220,9 +199,7 @@ function startCulling() {
           />
           <div class="text-center">
             <p class="text-sm text-sift-text mb-1">选择照片文件夹</p>
-            <p class="text-xs text-sift-muted">
-              支持散落图片或已归档的 JPG / RAW 子文件夹
-            </p>
+            <p class="text-xs text-sift-muted">支持散落图片或已归档的 JPG / RAW 子文件夹</p>
           </div>
         </button>
 
@@ -241,9 +218,7 @@ function startCulling() {
     <!-- Version badge: click to open GitHub release notes -->
     <button
       type="button"
-      class="absolute bottom-3 right-4 z-10 text-xs font-mono
-             text-sift-muted/60 hover:text-sift-muted
-             transition-colors select-none"
+      class="absolute bottom-3 right-4 z-10 text-xs font-mono text-sift-muted/60 hover:text-sift-muted transition-colors select-none"
       :title="`查看 v${version} 发布说明`"
       @click="openReleases"
     >

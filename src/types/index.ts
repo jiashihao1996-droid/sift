@@ -11,7 +11,7 @@ export enum PhotoStatus {
 }
 
 /** Photo source type */
-export type PhotoSource = 'jpg' | 'rawPreview';
+export type PhotoSource = 'jpg' | 'rawPreview'
 
 /** A paired photo (JPG + optional RAW) */
 export interface PhotoPair {

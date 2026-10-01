@@ -24,7 +24,7 @@ export async function deletePair(
   jpgPath: string,
   rawPath: string | null,
   source?: PhotoSource,
-  xmpPaths?: string[]
+  xmpPaths?: string[],
 ): Promise<void> {
   return invoke<void>('delete_pair', { jpgPath, rawPath, source, xmpPaths })
 }
@@ -32,7 +32,13 @@ export async function deletePair(
 /** Archive surviving photos into RAW/ and JPG/ subfolders */
 export async function archivePhotos(
   folderPath: string,
-  pairs: { jpgPath: string; rawPath: string | null; status: string; source: PhotoSource; xmpPaths: string[] }[]
+  pairs: {
+    jpgPath: string
+    rawPath: string | null
+    status: string
+    source: PhotoSource
+    xmpPaths: string[]
+  }[],
 ): Promise<ArchiveResult> {
   return invoke<ArchiveResult>('archive_photos', { folderPath, pairs })
 }
@@ -40,14 +46,14 @@ export async function archivePhotos(
 /** Export starred photos to a target directory */
 export async function exportPicks(
   pairs: { jpgPath: string; rawPath: string | null; source: PhotoSource; xmpPaths: string[] }[],
-  targetFolder: string
+  targetFolder: string,
 ): Promise<ExportResult> {
   return invoke<ExportResult>('export_picks', { pairs, targetFolder })
 }
 
 /** Generate thumbnails and extract dominant colors */
 export async function generateThumbnails(
-  pairs: { id: string; jpgPath: string }[]
+  pairs: { id: string; jpgPath: string }[],
 ): Promise<ThumbnailResult[]> {
   return invoke<ThumbnailResult[]>('generate_thumbnails', { pairs })
 }
@@ -56,15 +62,13 @@ export async function generateThumbnails(
 export async function readExif(
   jpgPath: string,
   rawPath?: string | null,
-  source?: PhotoSource
+  source?: PhotoSource,
 ): Promise<ExifData> {
   return invoke<ExifData>('read_exif', { jpgPath, rawPath, source })
 }
 
 /** Listen for archive progress events */
-export function onArchiveProgress(
-  callback: (progress: ArchiveProgress) => void
-) {
+export function onArchiveProgress(callback: (progress: ArchiveProgress) => void) {
   return listen<ArchiveProgress>('archive-progress', (event) => {
     callback(event.payload)
   })
@@ -72,18 +76,16 @@ export function onArchiveProgress(
 
 /** Show a file in the system file manager (Finder / Explorer) */
 export async function showInFolder(path: string): Promise<void> {
-  return invoke<void>('show_in_folder', { path });
+  return invoke<void>('show_in_folder', { path })
 }
 
 /** Copy an image file to the system clipboard */
 export async function copyImageToClipboard(path: string): Promise<void> {
-  return invoke<void>('copy_image_to_clipboard', { path });
+  return invoke<void>('copy_image_to_clipboard', { path })
 }
 
 /** Listen for export progress events */
-export function onExportProgress(
-  callback: (progress: ArchiveProgress) => void
-) {
+export function onExportProgress(callback: (progress: ArchiveProgress) => void) {
   return listen<ArchiveProgress>('export-progress', (event) => {
     callback(event.payload)
   })
@@ -91,5 +93,5 @@ export function onExportProgress(
 
 /** Clean up temporary cache directories (sift-thumbnails, sift-raw-previews) */
 export async function cleanupCache(): Promise<void> {
-  return invoke<void>('cleanup_cache');
+  return invoke<void>('cleanup_cache')
 }

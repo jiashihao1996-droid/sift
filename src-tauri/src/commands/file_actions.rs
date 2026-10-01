@@ -94,7 +94,7 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
 
         #[cfg(target_os = "windows")]
         {
-            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
 
             let ps_script = format!(
                 "Add-Type -AssemblyName System.Windows.Forms; \
@@ -105,7 +105,10 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
 
             // Encode as UTF-16LE Base64 to avoid shell escaping issues
             // with special chars like backticks, $, etc. in file paths
-            let utf16le: Vec<u8> = ps_script.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+            let utf16le: Vec<u8> = ps_script
+                .encode_utf16()
+                .flat_map(|c| c.to_le_bytes())
+                .collect();
             let encoded = STANDARD.encode(&utf16le);
 
             let output = std::process::Command::new("powershell")

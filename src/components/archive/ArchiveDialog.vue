@@ -25,25 +25,17 @@ const exportFolder = ref('')
 const resultMessage = ref('')
 
 const survivingPairs = computed(() =>
-  session.pairs.filter(
-    (p) => p.status === PhotoStatus.Starred || p.status === PhotoStatus.Skipped
-  )
+  session.pairs.filter((p) => p.status === PhotoStatus.Starred || p.status === PhotoStatus.Skipped),
 )
 
-const starredPairs = computed(() =>
-  session.pairs.filter((p) => p.status === PhotoStatus.Starred)
-)
+const starredPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Starred))
 
-const deletedPairs = computed(() =>
-  session.pairs.filter((p) => p.status === PhotoStatus.Deleted)
-)
+const deletedPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Deleted))
 
-const rawOnlyCount = computed(
-  () => session.pairs.filter((p) => p.source === 'rawPreview').length
-)
+const rawOnlyCount = computed(() => session.pairs.filter((p) => p.source === 'rawPreview').length)
 
 const unprocessedCount = computed(
-  () => session.pairs.filter((p) => p.status === PhotoStatus.Unprocessed).length
+  () => session.pairs.filter((p) => p.status === PhotoStatus.Unprocessed).length,
 )
 
 async function handleArchive() {
@@ -54,9 +46,10 @@ async function handleArchive() {
     // Step 1: Delete pairs marked as Deleted
     const toDelete = deletedPairs.value
     for (const pair of toDelete) {
-      currentFile.value = pair.source === 'rawPreview' && pair.rawPath
-        ? pair.rawPath.split('/').pop() || pair.rawPath
-        : pair.jpgPath.split('/').pop() || pair.jpgPath
+      currentFile.value =
+        pair.source === 'rawPreview' && pair.rawPath
+          ? pair.rawPath.split('/').pop() || pair.rawPath
+          : pair.jpgPath.split('/').pop() || pair.jpgPath
       await deletePair(pair.jpgPath, pair.rawPath, pair.source, pair.xmpPaths)
     }
 
@@ -136,29 +129,26 @@ const progressPercent = computed(() => {
 
 <template>
   <Transition name="backdrop">
-    <div
-      v-if="view.showArchiveDialog"
-      class="fixed inset-0 z-50 flex items-center justify-center"
-    >
+    <div v-if="view.showArchiveDialog" class="fixed inset-0 z-50 flex items-center justify-center">
       <!-- Backdrop -->
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="close" />
 
       <!-- Dialog -->
       <Transition name="modal">
         <div
-          class="relative max-w-lg w-full mx-4 p-6 rounded-2xl
-                 bg-sift-surface border border-white/5 shadow-2xl"
+          class="relative max-w-lg w-full mx-4 p-6 rounded-2xl bg-sift-surface border border-white/5 shadow-2xl"
         >
           <!-- Complete State -->
           <div v-if="isComplete" class="text-center py-4">
-            <div class="mx-auto w-16 h-16 rounded-full bg-sift-success/20 flex items-center justify-center mb-4">
+            <div
+              class="mx-auto w-16 h-16 rounded-full bg-sift-success/20 flex items-center justify-center mb-4"
+            >
               <CheckCircle :size="32" class="text-sift-success" />
             </div>
             <h3 class="text-lg font-bold text-white mb-2">完成！</h3>
             <p class="text-sm text-sift-muted mb-6">{{ resultMessage }}</p>
             <button
-              class="w-full h-11 rounded-xl bg-sift-card text-white text-sm
-                     hover:bg-sift-border transition-colors btn-spring"
+              class="w-full h-11 rounded-xl bg-sift-card text-white text-sm hover:bg-sift-border transition-colors btn-spring"
               @click="done"
             >
               返回首页
@@ -173,8 +163,7 @@ const progressPercent = computed(() => {
             <!-- Progress Bar -->
             <div class="h-2 bg-sift-card rounded-full overflow-hidden mb-3">
               <div
-                class="h-full rounded-full bg-gradient-to-r from-sift-accent to-blue-400
-                       transition-all duration-300 relative overflow-hidden"
+                class="h-full rounded-full bg-gradient-to-r from-sift-accent to-blue-400 transition-all duration-300 relative overflow-hidden"
                 :style="{ width: `${progressPercent}%` }"
               >
                 <div class="absolute inset-0 shimmer-bar" />
@@ -187,12 +176,8 @@ const progressPercent = computed(() => {
 
           <!-- Default: Archive Options -->
           <div v-else>
-            <h3 class="text-lg font-bold text-white text-center mb-1">
-              归档与导出
-            </h3>
-            <p class="text-xs text-sift-muted text-center mb-5">
-              整理你的照片
-            </p>
+            <h3 class="text-lg font-bold text-white text-center mb-1">归档与导出</h3>
+            <p class="text-xs text-sift-muted text-center mb-5">整理你的照片</p>
 
             <!-- Stats Summary -->
             <div class="grid grid-cols-3 gap-3 mb-5">
@@ -219,8 +204,7 @@ const progressPercent = computed(() => {
             <!-- RAW Only info -->
             <div
               v-if="rawOnlyCount > 0"
-              class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5
-                     flex items-start gap-2"
+              class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
             >
               <span class="text-amber-400 text-xs mt-0.5">📷</span>
               <p class="text-xs text-amber-200/80">
@@ -238,8 +222,7 @@ const progressPercent = computed(() => {
             <!-- Unprocessed warning -->
             <div
               v-if="unprocessedCount > 0"
-              class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5
-                     flex items-start gap-2"
+              class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
             >
               <span class="text-amber-400 text-xs mt-0.5">⚠️</span>
               <p class="text-xs text-amber-200/80">
@@ -250,9 +233,7 @@ const progressPercent = computed(() => {
             <!-- Actions -->
             <div class="space-y-3">
               <button
-                class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500
-                       text-white font-medium text-sm flex items-center justify-center gap-2
-                       btn-spring btn-glow shadow-lg shadow-sift-accent/20"
+                class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20"
                 @click="handleArchive"
               >
                 <Archive :size="16" />
@@ -261,9 +242,7 @@ const progressPercent = computed(() => {
 
               <button
                 v-if="starredPairs.length > 0"
-                class="w-full h-11 rounded-xl border border-sift-border
-                       text-sift-text text-sm flex items-center justify-center gap-2
-                       hover:bg-sift-card/50 transition-colors btn-spring"
+                class="w-full h-11 rounded-xl border border-sift-border text-sift-text text-sm flex items-center justify-center gap-2 hover:bg-sift-card/50 transition-colors btn-spring"
                 @click="handleExport"
               >
                 <Download :size="16" />

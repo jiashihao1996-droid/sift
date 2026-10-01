@@ -16,7 +16,12 @@ pub async fn delete_pair(
     xmp_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        delete_pair_sync(&jpg_path, raw_path.as_deref(), source.as_deref(), xmp_paths.as_deref())
+        delete_pair_sync(
+            &jpg_path,
+            raw_path.as_deref(),
+            source.as_deref(),
+            xmp_paths.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?

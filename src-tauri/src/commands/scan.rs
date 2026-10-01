@@ -60,7 +60,10 @@ fn collect_files(
                     .to_string();
 
                 // Store under both the full stem and base stem for matching
-                xmp_map.entry(base_stem.clone()).or_default().push(full_path.clone());
+                xmp_map
+                    .entry(base_stem.clone())
+                    .or_default()
+                    .push(full_path.clone());
                 if file_stem != base_stem {
                     xmp_map.entry(file_stem).or_default().push(full_path);
                 }
@@ -119,8 +122,7 @@ fn scan_folder_sync(folder_path: &str) -> Result<ScanResult, String> {
     let mut raw_only_count: usize = 0;
 
     // Track which RAW stems have been paired
-    let mut paired_raw_stems: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut paired_raw_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Route 1 & 2: JPG+RAW paired / JPG-only
     for (stem, jpg_path) in &jpg_map {
@@ -167,8 +169,8 @@ fn scan_folder_sync(folder_path: &str) -> Result<ScanResult, String> {
         let raw_only_pairs: Vec<PhotoPair> = pool.install(|| {
             unpaired_raws
                 .par_iter()
-                .filter_map(|(stem, raw_path, ext)| {
-                    match extract_raw_preview(raw_path) {
+                .filter_map(
+                    |(stem, raw_path, ext)| match extract_raw_preview(raw_path) {
                         Ok(preview_path) => {
                             let xmp_paths = collect_xmp_for_stem(stem, &xmp_map);
                             Some(PhotoPair {
@@ -187,8 +189,8 @@ fn scan_folder_sync(folder_path: &str) -> Result<ScanResult, String> {
                             eprintln!("[Sift] Failed to extract preview from {}: {}", raw_path, e);
                             None
                         }
-                    }
-                })
+                    },
+                )
                 .collect()
         });
 

@@ -3,64 +3,88 @@
 // FilterGallery - Bottom drawer gallery filtered by photo status
 // ============================================================
 
-import { computed } from 'vue';
-import { useSessionStore } from '@/stores/sessionStore';
-import { useViewStore } from '@/stores/viewStore';
-import { PhotoStatus } from '@/types';
-import { convertFileSrc } from '@tauri-apps/api/core';
-import { Star, Trash2, SkipForward, Circle, X } from 'lucide-vue-next';
+import { computed } from 'vue'
+import { useSessionStore } from '@/stores/sessionStore'
+import { useViewStore } from '@/stores/viewStore'
+import { PhotoStatus } from '@/types'
+import { convertFileSrc } from '@tauri-apps/api/core'
+import { Star, Trash2, SkipForward, Circle, X } from 'lucide-vue-next'
 
-const session = useSessionStore();
-const view = useViewStore();
+const session = useSessionStore()
+const view = useViewStore()
 
 const categories = [
-  { key: PhotoStatus.Starred, label: '已标记', icon: Star, color: 'text-sift-star', bgColor: 'bg-sift-star' },
-  { key: PhotoStatus.Deleted, label: '已删除', icon: Trash2, color: 'text-sift-delete', bgColor: 'bg-sift-delete' },
-  { key: PhotoStatus.Skipped, label: '已跳过', icon: SkipForward, color: 'text-sift-muted', bgColor: 'bg-sift-skip' },
-  { key: PhotoStatus.Unprocessed, label: '未处理', icon: Circle, color: 'text-sift-accent', bgColor: 'bg-sift-accent' },
-];
+  {
+    key: PhotoStatus.Starred,
+    label: '已标记',
+    icon: Star,
+    color: 'text-sift-star',
+    bgColor: 'bg-sift-star',
+  },
+  {
+    key: PhotoStatus.Deleted,
+    label: '已删除',
+    icon: Trash2,
+    color: 'text-sift-delete',
+    bgColor: 'bg-sift-delete',
+  },
+  {
+    key: PhotoStatus.Skipped,
+    label: '已跳过',
+    icon: SkipForward,
+    color: 'text-sift-muted',
+    bgColor: 'bg-sift-skip',
+  },
+  {
+    key: PhotoStatus.Unprocessed,
+    label: '未处理',
+    icon: Circle,
+    color: 'text-sift-accent',
+    bgColor: 'bg-sift-accent',
+  },
+]
 
-const isOpen = computed(() => view.filterCategory !== null);
+const isOpen = computed(() => view.filterCategory !== null)
 
-const activeCategory = computed(() => view.filterCategory);
+const activeCategory = computed(() => view.filterCategory)
 
 function getCategoryCount(key: PhotoStatus): number {
-  return session.pairs.filter(p => p.status === key).length;
+  return session.pairs.filter((p) => p.status === key).length
 }
 
 const filteredPairs = computed(() => {
-  if (!view.filterCategory) return [];
+  if (!view.filterCategory) return []
   return session.pairs
     .map((pair, index) => ({ pair, originalIndex: index }))
-    .filter(({ pair }) => pair.status === view.filterCategory);
-});
+    .filter(({ pair }) => pair.status === view.filterCategory)
+})
 
 function getThumbnailSrc(pair: { thumbnailPath?: string; jpgPath: string }): string {
   if (pair.thumbnailPath) {
-    return convertFileSrc(pair.thumbnailPath);
+    return convertFileSrc(pair.thumbnailPath)
   }
-  return convertFileSrc(pair.jpgPath);
+  return convertFileSrc(pair.jpgPath)
 }
 
 function getFileName(pair: { jpgPath: string; rawPath?: string | null; source?: string }): string {
   // For RAW-only photos, show the RAW filename
   if (pair.source === 'rawPreview' && pair.rawPath) {
-    return pair.rawPath.split('/').pop()?.split('\\').pop() || '';
+    return pair.rawPath.split('/').pop()?.split('\\').pop() || ''
   }
-  return pair.jpgPath.split('/').pop()?.split('\\').pop() || '';
+  return pair.jpgPath.split('/').pop()?.split('\\').pop() || ''
 }
 
 function handleSelect(originalIndex: number) {
-  session.goTo(originalIndex);
-  view.closeFilterGallery();
+  session.goTo(originalIndex)
+  view.closeFilterGallery()
 }
 
 function handleBackdropClick() {
-  view.closeFilterGallery();
+  view.closeFilterGallery()
 }
 
 function switchCategory(key: PhotoStatus) {
-  view.openFilterGallery(key);
+  view.openFilterGallery(key)
 }
 </script>
 
@@ -68,23 +92,14 @@ function switchCategory(key: PhotoStatus) {
   <Teleport to="body">
     <!-- Backdrop (semi-transparent, no blur) -->
     <Transition name="backdrop">
-      <div
-        v-if="isOpen"
-        class="fixed inset-0 z-[100] bg-black/50"
-        @click="handleBackdropClick"
-      />
+      <div v-if="isOpen" class="fixed inset-0 z-[100] bg-black/50" @click="handleBackdropClick" />
     </Transition>
 
     <!-- Bottom Drawer -->
     <Transition name="drawer">
       <div
         v-if="isOpen"
-        class="fixed bottom-10 left-0 right-0 z-[101]
-               max-h-[70vh] flex flex-col
-               bg-[#161616]/95 backdrop-blur-2xl
-               border-t border-white/[0.06]
-               rounded-t-2xl overflow-hidden
-               shadow-[0_-8px_40px_rgba(0,0,0,0.5)]"
+        class="fixed bottom-10 left-0 right-0 z-[101] max-h-[70vh] flex flex-col bg-[#161616]/95 backdrop-blur-2xl border-t border-white/[0.06] rounded-t-2xl overflow-hidden shadow-[0_-8px_40px_rgba(0,0,0,0.5)]"
         @click.stop
       >
         <!-- Drag Handle -->
@@ -97,8 +112,7 @@ function switchCategory(key: PhotoStatus) {
           <button
             v-for="cat in categories"
             :key="cat.key"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-                   transition-all duration-200"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200"
             :class="[
               activeCategory === cat.key
                 ? `bg-white/10 ${cat.color}`
@@ -109,8 +123,7 @@ function switchCategory(key: PhotoStatus) {
             <component :is="cat.icon" :size="13" />
             <span>{{ cat.label }}</span>
             <span
-              class="ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center
-                     transition-colors duration-200"
+              class="ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center transition-colors duration-200"
               :class="[
                 activeCategory === cat.key
                   ? 'bg-white/10 text-white/80'
@@ -123,8 +136,7 @@ function switchCategory(key: PhotoStatus) {
 
           <!-- Close button (pushed right) -->
           <button
-            class="ml-auto p-1.5 rounded-lg text-sift-muted hover:text-sift-text
-                   hover:bg-white/5 transition-colors"
+            class="ml-auto p-1.5 rounded-lg text-sift-muted hover:text-sift-text hover:bg-white/5 transition-colors"
             @click="view.closeFilterGallery()"
           >
             <X :size="14" />
@@ -141,7 +153,7 @@ function switchCategory(key: PhotoStatus) {
             class="flex flex-col items-center justify-center h-32 gap-2"
           >
             <component
-              :is="categories.find(c => c.key === activeCategory)?.icon"
+              :is="categories.find((c) => c.key === activeCategory)?.icon"
               :size="24"
               class="text-sift-muted/30"
             />
@@ -155,14 +167,8 @@ function switchCategory(key: PhotoStatus) {
             <div
               v-for="{ pair, originalIndex } in filteredPairs"
               :key="pair.id"
-              class="group relative aspect-[4/3] rounded-lg overflow-hidden cursor-pointer
-                     bg-sift-card/50 transition-all duration-200
-                     hover:ring-1.5 hover:ring-white/20 hover:scale-[1.02]"
-              :class="[
-                originalIndex === session.currentIndex
-                  ? 'ring-1.5 ring-sift-accent'
-                  : '',
-              ]"
+              class="group relative aspect-[4/3] rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-1.5 hover:ring-white/20 hover:scale-[1.02]"
+              :class="[originalIndex === session.currentIndex ? 'ring-1.5 ring-sift-accent' : '']"
               @click="handleSelect(originalIndex)"
             >
               <img
@@ -173,8 +179,7 @@ function switchCategory(key: PhotoStatus) {
               />
               <!-- Filename overlay -->
               <div
-                class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent
-                       px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <span class="text-[10px] text-white/80 truncate block">
                   {{ getFileName(pair) }}

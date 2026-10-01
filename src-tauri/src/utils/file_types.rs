@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashSet;
 
 /// All recognized RAW file extensions (lowercase), cached statically
+#[rustfmt::skip]
 static RAW_EXTENSIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [
         // Canon
@@ -51,9 +52,8 @@ static RAW_EXTENSIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 /// JPG/JPEG extensions (lowercase), cached statically
-static JPG_EXTENSIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    ["jpg", "jpeg"].iter().copied().collect()
-});
+static JPG_EXTENSIONS: Lazy<HashSet<&'static str>> =
+    Lazy::new(|| ["jpg", "jpeg"].iter().copied().collect());
 
 /// Check if a file extension is a known RAW format
 pub fn is_raw(ext: &str) -> bool {

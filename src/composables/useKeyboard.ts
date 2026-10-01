@@ -30,14 +30,14 @@ export function useKeyboard() {
     // ESC: compare mode > filter gallery
     if (e.key === 'Escape') {
       if (view.compareMode) {
-        e.preventDefault();
-        view.exitCompare();
-        return;
+        e.preventDefault()
+        view.exitCompare()
+        return
       }
       if (view.filterCategory) {
-        e.preventDefault();
-        view.closeFilterGallery();
-        return;
+        e.preventDefault()
+        view.closeFilterGallery()
+        return
       }
     }
 
@@ -48,12 +48,12 @@ export function useKeyboard() {
 
     // Cmd/Ctrl + Enter: open archive dialog
     if (isCtrlOrCmd && e.key === 'Enter') {
-      const processed = session.starredCount + session.deletedCount + session.skippedCount;
+      const processed = session.starredCount + session.deletedCount + session.skippedCount
       if (processed > 0) {
-        e.preventDefault();
-        view.toggleArchiveDialog();
+        e.preventDefault()
+        view.toggleArchiveDialog()
       }
-      return;
+      return
     }
 
     switch (e.key) {

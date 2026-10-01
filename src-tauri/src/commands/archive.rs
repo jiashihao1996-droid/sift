@@ -166,7 +166,11 @@ fn archive_photos_sync(
             }
 
             // Move XMP sidecars: if RAW exists, follow RAW to RAW/; otherwise follow JPG to JPG/
-            let xmp_target_dir = if pair.raw_path.is_some() { &raw_dir } else { &jpg_dir };
+            let xmp_target_dir = if pair.raw_path.is_some() {
+                &raw_dir
+            } else {
+                &jpg_dir
+            };
             for xmp_path_str in &pair.xmp_paths {
                 let xmp_path = Path::new(xmp_path_str);
                 if xmp_path.exists() && !is_already_in_dir(xmp_path, xmp_target_dir) {
@@ -204,14 +208,8 @@ fn unique_path(path: &Path) -> std::path::PathBuf {
         return path.to_path_buf();
     }
 
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let parent = path.parent().unwrap_or(path);
 
     let mut counter = 1;

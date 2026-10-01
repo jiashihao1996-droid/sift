@@ -10,10 +10,12 @@ const props = defineProps<{
 }>()
 
 const digits = computed(() => {
-  return String(props.value).split('').map((d, i) => ({
-    key: i,
-    digit: parseInt(d),
-  }))
+  return String(props.value)
+    .split('')
+    .map((d, i) => ({
+      key: i,
+      digit: parseInt(d),
+    }))
 })
 </script>
 
@@ -27,7 +29,10 @@ const digits = computed(() => {
     >
       <span
         class="rolling-digit absolute left-0 top-0 w-full"
-        :style="{ transform: `translateY(${-d.digit * 1.25}em)`, transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)' }"
+        :style="{
+          transform: `translateY(${-d.digit * 1.25}em)`,
+          transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)',
+        }"
       >
         <span
           v-for="n in 10"
