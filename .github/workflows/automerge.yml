@@ -1,0 +1,73 @@
+name: Auto-merge
+
+# Rebase-merges a PR labeled `automerge` once every CI check on its head
+# commit has passed. Stands in for GitHub's native auto-merge, which is not
+# available for private repos on the free plan.
+#
+# Notes:
+# - workflow_run always runs the copy of this file on main.
+# - GITHUB_TOKEN cannot merge PRs that change .github/workflows/; merge
+#   those by hand.
+# - Merges made with GITHUB_TOKEN do not trigger a push CI run on main.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: automerge-${{ github.event.pull_request.number || github.event.workflow_run.head_branch }}
+
+jobs:
+  merge:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'automerge') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge when labeled and all CI checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$PR" ]; then
+            echo "No pull request associated with this run."
+            exit 0
+          fi
+
+          pr=$(gh pr view "$PR" --json state,isDraft,labels,headRefOid)
+          if [ "$(jq -r .state <<<"$pr")" != "OPEN" ] || [ "$(jq -r .isDraft <<<"$pr")" = "true" ]; then
+            echo "PR #$PR is not an open, ready-for-review PR."
+            exit 0
+          fi
+          if ! jq -e '.labels | map(.name) | index("automerge")' <<<"$pr" >/dev/null; then
+            echo "PR #$PR is not labeled automerge."
+            exit 0
+          fi
+          head=$(jq -r .headRefOid <<<"$pr")
+
+          # Exits non-zero while checks are pending or failing; the JSON is still printed
+          checks=$(gh pr checks "$PR" --json name,bucket,workflow || true)
+          checks=$(jq '[.[] | select(.workflow != "Auto-merge")]' <<<"$checks")
+          ci_count=$(jq '[.[] | select(.workflow == "CI")] | length' <<<"$checks")
+          not_green=$(jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$checks")
+
+          if [ "$ci_count" -eq 0 ] || [ "$not_green" -ne 0 ]; then
+            echo "Not merging PR #$PR yet:"
+            jq -r '.[] | "  \(.bucket)\t\(.workflow) / \(.name)"' <<<"$checks"
+            exit 0
+          fi
+
+          # --match-head-commit: refuse if a new commit landed after the checks ran
+          gh pr merge "$PR" --rebase --delete-branch --match-head-commit "$head"
