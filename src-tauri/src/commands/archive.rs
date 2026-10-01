@@ -4,6 +4,7 @@
 // Supports RAW-only pairs: RAW → RAW/, preview JPG → JPG/
 // ============================================================
 
+use super::cache;
 use crate::models::photo::{ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,11 @@ use tauri::{AppHandle, Emitter};
 
 /// Move a file to the destination, falling back to copy+remove if rename fails
 /// (e.g. cross-volume moves on Windows).
+///
+/// The fallback removes `src` only after `fs::copy` has returned Ok, so a
+/// failed copy never loses the original. If the remove then fails, both copies
+/// exist and an error is returned: duplicated, never lost. `dest` must already
+/// be a fresh path from `unique_path`.
 fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
     let src_str = src.to_string_lossy();
     let dest_str = dest.to_string_lossy();
@@ -35,9 +41,15 @@ pub async fn archive_photos(
     pairs: Vec<ArchivePairInput>,
 ) -> Result<ArchiveResult, String> {
     tokio::task::spawn_blocking(move || {
-        archive_pairs(Path::new(&folder_path), &pairs, &mut |progress| {
-            let _ = app.emit("archive-progress", progress);
-        })
+        let preview_cache = cache::raw_preview_cache_dir();
+        archive_pairs(
+            Path::new(&folder_path),
+            &pairs,
+            &preview_cache,
+            &mut |progress| {
+                let _ = app.emit("archive-progress", progress);
+            },
+        )
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -48,6 +60,25 @@ type OnProgress<'a> = dyn FnMut(ArchiveProgress) + 'a;
 struct ArchiveDirs {
     jpg: PathBuf,
     raw: PathBuf,
+    preview_cache: PathBuf,
+}
+
+/// A RAW-only pair's `jpg_path` comes from the frontend and is removed after
+/// being copied, so it must be one of our cached previews. Anything else may
+/// be a user photo: refuse the whole archive rather than guess.
+fn ensure_previews_are_cached(pairs: &[ArchivePairInput], cache: &Path) -> Result<(), String> {
+    let stray = pairs
+        .iter()
+        .filter(|p| p.status != "deleted" && p.source == PhotoSource::RawPreview)
+        .map(|p| Path::new(&p.jpg_path))
+        .find(|jpg| jpg.exists() && !cache::is_inside_dir(jpg, cache));
+    match stray {
+        Some(jpg) => Err(format!(
+            "Refusing to archive {}: not a cached RAW preview",
+            jpg.display()
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Move every non-deleted pair under `base` into `JPG/` and `RAW/`.
@@ -55,11 +86,17 @@ struct ArchiveDirs {
 fn archive_pairs(
     base: &Path,
     pairs: &[ArchivePairInput],
+    preview_cache: &Path,
     on_progress: &mut OnProgress,
 ) -> Result<ArchiveResult, String> {
+    // Validate before creating folders or moving anything, so a bad request
+    // leaves the user's folder exactly as it was.
+    ensure_previews_are_cached(pairs, preview_cache)?;
+
     let dirs = ArchiveDirs {
         jpg: base.join("JPG"),
         raw: base.join("RAW"),
+        preview_cache: preview_cache.to_path_buf(),
     };
     fs::create_dir_all(&dirs.jpg).map_err(|e| format!("Failed to create JPG dir: {}", e))?;
     fs::create_dir_all(&dirs.raw).map_err(|e| format!("Failed to create RAW dir: {}", e))?;
@@ -119,13 +156,32 @@ fn archive_raw_preview_pair(
         let dest = unique_path(&dirs.jpg.join(preview_dest_name(pair)));
         // Copy rather than rename since it's a temp file
         fs::copy(preview, &dest).map_err(|e| format!("Failed to copy preview JPG: {}", e))?;
-        // Clean up the temp preview
-        let _ = fs::remove_file(preview);
         moved += 1;
+        remove_cached_preview(preview, &dirs.preview_cache);
     }
 
     move_all_into(&pair.xmp_paths, &dirs.raw)?;
     Ok(moved)
+}
+
+/// Best-effort cleanup once the preview has been copied into JPG/. A failure
+/// is logged, not returned: the archive itself succeeded, and the cache dir is
+/// wiped on exit anyway. Re-checks the cache dir right at the remove site.
+fn remove_cached_preview(preview: &Path, cache: &Path) {
+    if !cache::is_inside_dir(preview, cache) {
+        eprintln!(
+            "[Sift] Not removing {}: outside the RAW preview cache",
+            preview.display()
+        );
+        return;
+    }
+    if let Err(e) = fs::remove_file(preview) {
+        eprintln!(
+            "[Sift] Failed to remove cached preview {}: {}",
+            preview.display(),
+            e
+        );
+    }
 }
 
 /// Destination file name for a RAW-only pair's preview: `<raw stem>.jpg`.
@@ -256,9 +312,15 @@ mod tests {
         }
     }
 
+    /// Previews live in a `cache` dir next to `base`.
+    fn try_archive(base: &Path, pairs: &[ArchivePairInput]) -> Result<ArchiveResult, String> {
+        archive_pairs(base, pairs, &base.with_file_name("cache"), &mut |_| {})
+    }
+
     fn archive(base: &Path, pairs: &[ArchivePairInput]) -> (ArchiveResult, Vec<ArchiveProgress>) {
         let mut events = Vec::new();
-        let result = archive_pairs(base, pairs, &mut |p| events.push(p)).unwrap();
+        let cache = base.with_file_name("cache");
+        let result = archive_pairs(base, pairs, &cache, &mut |p| events.push(p)).unwrap();
         (result, events)
     }
 
@@ -401,5 +463,55 @@ mod tests {
 
         assert!(!src.exists());
         assert_eq!(read(&dest), "data");
+    }
+
+    #[test]
+    fn refuses_a_raw_only_pair_whose_preview_is_outside_the_cache() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("photos");
+        fs::create_dir_all(tmp.path().join("cache")).unwrap();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let user_jpg = touch_with(&base.join("IMG_3.jpg"), "user jpg");
+        let raw = touch(&base.join("IMG_3.CR3"));
+        let pairs = [
+            pair(&jpg, None, PhotoSource::Jpg, &[]),
+            pair(&user_jpg, Some(&raw), PhotoSource::RawPreview, &[]),
+        ];
+
+        let err = try_archive(&base, &pairs).unwrap_err();
+
+        assert!(err.contains("not a cached RAW preview"), "{}", err);
+        assert_eq!(read(Path::new(&user_jpg)), "user jpg");
+        assert!(Path::new(&raw).exists());
+        assert!(
+            Path::new(&jpg).exists(),
+            "nothing may move before validation"
+        );
+        assert!(!base.join("JPG").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_preview_cleanup_does_not_fail_the_archive() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("photos");
+        let cache = tmp.path().join("cache");
+        let preview = touch_with(&cache.join("abc.jpg"), "preview");
+        let raw = touch(&base.join("IMG_2.CR3"));
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = try_archive(
+            &base,
+            &[pair(&preview, Some(&raw), PhotoSource::RawPreview, &[])],
+        );
+
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result.unwrap().moved_count, 2);
+        assert_eq!(read(&base.join("JPG/IMG_2.jpg")), "preview");
+        assert!(
+            Path::new(&preview).exists(),
+            "read-only cache keeps the preview"
+        );
     }
 }
