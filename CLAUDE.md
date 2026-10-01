@@ -34,6 +34,7 @@ Rust（`src-tauri/src/`）：
 
 前端：
 
+- `src/core/` 放纯 TS 规则（如 `review.ts`：标记切换、下一张、计数、分批），不引入 Vue/Pinia/Tauri；store 只管响应式状态并调用它。
 - `src/services/tauriCommands.ts` 是前端**唯一**调用 `invoke()` 的地方。
 - `src/types/index.ts` 与 `src-tauri/src/models/photo.rs` 手工保持一致；改一边必须改另一边。
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
@@ -76,6 +77,11 @@ Rust（`src-tauri/src/`）：
 - stem 区分大小写：`img_1.jpg` 与 `IMG_1.CR3` 不配对。
 - 同 stem 同类型有两个文件（`IMG_1.jpg` + `IMG_1.jpeg`，或 `.CR3` + `.DNG`）时只保留后扫到的一个。
 - 提取不出内嵌预览的 RAW-only 文件会被静默排除在会话之外。
+
+筛图交互的现状（`src/stores/sessionStore.test.ts` 有记录）：
+
+- 取消标记（再按一次同一个键）不进撤销栈；此时 Ctrl+Z 撤销的是更早一次已记录的标记。
+- 回绕到前面的未处理照片时，切换动画方向仍是 `left`。
 
 其他：
 
