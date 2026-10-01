@@ -123,7 +123,7 @@ fn extract_via_exif(raw_path: &str) -> Result<Vec<u8>, String> {
 
     // Scan IFD0~IFD9: different camera brands store full-size JPEG previews in different IFDs
     // (e.g. Nikon NEF uses IFD#2/3, Canon CR2 uses IFD#3). Extra non-existent IFDs simply return None.
-    let ifds: Vec<exif::In> = (0..10).map(|i| exif::In(i)).collect();
+    let ifds: Vec<exif::In> = (0..10).map(exif::In).collect();
     let mut best_jpeg: Option<Vec<u8>> = None;
     let mut best_size: usize = 0;
 
@@ -275,7 +275,7 @@ fn find_jpeg_end(data: &[u8], start: usize) -> Option<usize> {
                         } else if next == 0xD9 {
                             // EOI found
                             return Some(pos + 2);
-                        } else if next >= 0xD0 && next <= 0xD7 {
+                        } else if (0xD0..=0xD7).contains(&next) {
                             // RST markers — skip
                             pos += 2;
                         } else {

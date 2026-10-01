@@ -61,7 +61,7 @@ fn try_extract_exif_thumbnail(jpg_path: &str) -> Option<Vec<u8>> {
     };
 
     // Sanity check
-    if length < 1024 || length > 1_048_576 {
+    if !(1024..=1_048_576).contains(&length) {
         return None;
     }
 

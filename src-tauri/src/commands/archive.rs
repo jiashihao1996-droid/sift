@@ -113,10 +113,10 @@ fn archive_photos_sync(
                 if !is_already_in_dir(jpg_path, &jpg_dir) {
                     let dest = unique_path(&jpg_dir.join(&dest_name));
                     // Copy rather than rename since it's a temp file
-                    fs::copy(&jpg_path, &dest)
+                    fs::copy(jpg_path, &dest)
                         .map_err(|e| format!("Failed to copy preview JPG: {}", e))?;
                     // Clean up the temp preview
-                    let _ = fs::remove_file(&jpg_path);
+                    let _ = fs::remove_file(jpg_path);
                     moved_count += 1;
                 }
             }
