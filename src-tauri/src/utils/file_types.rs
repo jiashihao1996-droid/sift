@@ -69,3 +69,30 @@ pub fn is_jpg(ext: &str) -> bool {
 pub fn raw_format_name(ext: &str) -> String {
     ext.to_uppercase()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_raw_extensions_case_insensitively() {
+        for ext in ["ARW", "arw", "Cr3", "NEF", "dng", "RAF"] {
+            assert!(is_raw(ext), "{ext} should be RAW");
+        }
+    }
+
+    #[test]
+    fn rejects_non_raw_extensions() {
+        for ext in ["jpg", "png", "xmp", "heic", ""] {
+            assert!(!is_raw(ext), "{ext} should not be RAW");
+        }
+    }
+
+    #[test]
+    fn recognizes_jpg_variants_only() {
+        assert!(is_jpg("JPG"));
+        assert!(is_jpg("jpeg"));
+        assert!(!is_jpg("jpe"));
+        assert!(!is_jpg("png"));
+    }
+}

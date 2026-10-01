@@ -52,7 +52,7 @@ fn export_picks_sync(
                         },
                     );
 
-                    fs::copy(&raw_path, &dest).map_err(|e| format!("Failed to copy RAW: {}", e))?;
+                    fs::copy(raw_path, &dest).map_err(|e| format!("Failed to copy RAW: {}", e))?;
                     exported_count += 1;
                 }
             }
@@ -82,7 +82,7 @@ fn export_picks_sync(
                     },
                 );
 
-                fs::copy(&jpg_path, &dest).map_err(|e| format!("Failed to copy JPG: {}", e))?;
+                fs::copy(jpg_path, &dest).map_err(|e| format!("Failed to copy JPG: {}", e))?;
                 exported_count += 1;
             }
 
@@ -92,7 +92,7 @@ fn export_picks_sync(
                 if raw_path.exists() {
                     let filename = raw_path.file_name().unwrap_or_default();
                     let dest = target.join(filename);
-                    fs::copy(&raw_path, &dest).map_err(|e| format!("Failed to copy RAW: {}", e))?;
+                    fs::copy(raw_path, &dest).map_err(|e| format!("Failed to copy RAW: {}", e))?;
                     exported_count += 1;
                 }
             }
