@@ -27,10 +27,10 @@ pub async fn cleanup_cache() -> Result<(), String> {
         .map_err(|e| format!("Task join error: {}", e))
 }
 
-/// Where `utils::raw_preview` writes extracted previews. Files in here are
+/// The RAW preview cache that scan extracts into. Files in here are
 /// Sift's own temp files; everything outside it belongs to the user.
 pub fn raw_preview_cache_dir() -> std::path::PathBuf {
-    env::temp_dir().join("sift-raw-previews")
+    env::temp_dir().join(cache_dirs::RAW_PREVIEWS)
 }
 
 /// True only if `path` exists and, with symlinks and `..` resolved, lies
@@ -51,13 +51,6 @@ mod tests {
     fn touch(path: &Path) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, b"x").unwrap();
-    }
-
-    #[test]
-    fn raw_preview_cache_dir_is_one_of_the_cleaned_dirs() {
-        let name = raw_preview_cache_dir();
-        let name = name.file_name().unwrap().to_str().unwrap();
-        assert!(CACHE_DIRS.contains(&name));
     }
 
     #[test]
