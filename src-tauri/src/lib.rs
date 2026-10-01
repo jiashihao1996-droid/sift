@@ -7,6 +7,8 @@ mod catalog;
 mod commands;
 mod media;
 mod models;
+#[cfg(test)]
+mod test_support;
 
 use commands::{archive, cache, delete, exif, export, file_actions, scan, thumbnail};
 

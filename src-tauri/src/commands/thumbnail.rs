@@ -225,3 +225,81 @@ fn extract_dominant_color_from_image(img: &image::DynamicImage) -> Result<String
 
     Ok(format!("#{:02X}{:02X}{:02X}", avg_r, avg_g, avg_b))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media::raw_preview::ensure_jpeg_orientation;
+    use crate::test_support::{solid_jpeg, write};
+    use image::{DynamicImage, Rgb, RgbImage};
+    use tempfile::tempdir;
+
+    fn thumbnail_for(jpeg: &[u8]) -> (ThumbnailResult, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let src = write(dir.path(), "photo.jpg", jpeg);
+        let input = ThumbnailInput {
+            id: "p1".into(),
+            jpg_path: src.to_string_lossy().into(),
+        };
+        (process_thumbnail(dir.path(), &input).unwrap(), dir)
+    }
+
+    #[test]
+    fn rotates_portrait_photos_upright() {
+        // Regression (1.0.2): portrait shots stored as landscape pixels + EXIF
+        // Orientation=6 produced sideways thumbnails.
+        let jpeg = ensure_jpeg_orientation(solid_jpeg(400, 300, [90, 90, 90]), 6);
+        let (result, _dir) = thumbnail_for(&jpeg);
+
+        let thumb = image::open(&result.path).unwrap();
+        assert_eq!(thumb.dimensions(), (150, 200));
+    }
+
+    #[test]
+    fn keeps_landscape_photos_without_orientation() {
+        let (result, _dir) = thumbnail_for(&solid_jpeg(400, 300, [90, 90, 90]));
+        assert_eq!(image::open(&result.path).unwrap().dimensions(), (200, 150));
+    }
+
+    #[test]
+    fn reuses_cached_thumbnail() {
+        let dir = tempdir().unwrap();
+        let src = write(dir.path(), "photo.jpg", &solid_jpeg(40, 30, [1, 2, 3]));
+        let input = ThumbnailInput {
+            id: "p1".into(),
+            jpg_path: src.to_string_lossy().into(),
+        };
+        let first = process_thumbnail(dir.path(), &input).unwrap();
+        std::fs::remove_file(&src).unwrap();
+
+        let second = process_thumbnail(dir.path(), &input).unwrap();
+        assert_eq!(second.path, first.path);
+    }
+
+    #[test]
+    fn dominant_color_is_average_hex() {
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(16, 16, Rgb([200, 40, 10])));
+        assert_eq!(extract_dominant_color_from_image(&img).unwrap(), "#C8280A");
+    }
+
+    #[test]
+    fn apply_orientation_maps_exif_values_to_transforms() {
+        // 2x1 image: red on the left, blue on the right
+        let mut img = RgbImage::new(2, 1);
+        img.put_pixel(0, 0, Rgb([255, 0, 0]));
+        img.put_pixel(1, 0, Rgb([0, 0, 255]));
+        let img = DynamicImage::ImageRgb8(img);
+
+        let cw = apply_orientation(img.clone(), 6).to_rgb8();
+        assert_eq!(cw.dimensions(), (1, 2));
+        assert_eq!(cw.get_pixel(0, 0), &Rgb([255, 0, 0]), "6 = rotate 90° CW");
+
+        let ccw = apply_orientation(img.clone(), 8).to_rgb8();
+        assert_eq!(ccw.get_pixel(0, 0), &Rgb([0, 0, 255]), "8 = rotate 90° CCW");
+
+        let flipped = apply_orientation(img.clone(), 2).to_rgb8();
+        assert_eq!(flipped.get_pixel(0, 0), &Rgb([0, 0, 255]), "2 = mirror");
+
+        assert_eq!(apply_orientation(img.clone(), 1).to_rgb8(), img.to_rgb8());
+    }
+}
