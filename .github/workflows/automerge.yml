@@ -60,15 +60,23 @@ jobs:
           fi
           head=$(jq -r .headRefOid <<<"$pr")
 
-          # Exits non-zero while checks are pending or failing; the JSON is still printed
-          checks=$(gh pr checks "$PR" --json name,bucket,workflow || true)
-          checks=$(jq '[.[] | select(.workflow != "Auto-merge")]' <<<"$checks")
-          ci_count=$(jq '[.[] | select(.workflow == "CI")] | length' <<<"$checks")
-          not_green=$(jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$checks")
+          # Gate on the CI *run* for this exact commit, not on the list of check
+          # runs: right after a push, matrix jobs still waiting for a runner
+          # may not be listed yet, so a partial list can look all-green.
+          ci_run=$(gh run list --workflow ci.yml --commit "$head" --limit 1 --json status,conclusion)
+          ci_state=$(jq -r '.[0] | "\(.status)/\(.conclusion)"' <<<"$ci_run")
+          if [ "$ci_state" != "completed/success" ]; then
+            echo "Not merging PR #$PR yet: latest CI run for $head is ${ci_state:-missing}."
+            exit 0
+          fi
 
-          if [ "$ci_count" -eq 0 ] || [ "$not_green" -ne 0 ]; then
+          # Also refuse if any other check (outside this workflow) is failing or pending.
+          # gh exits non-zero while checks are pending or failing; the JSON is still printed.
+          checks=$(gh pr checks "$PR" --json name,bucket,workflow || true)
+          not_green=$(jq '[.[] | select(.workflow != "Auto-merge") | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$checks")
+          if [ "$not_green" -ne 0 ]; then
             echo "Not merging PR #$PR yet:"
-            jq -r '.[] | "  \(.bucket)\t\(.workflow) / \(.name)"' <<<"$checks"
+            jq -r '.[] | select(.workflow != "Auto-merge") | "  \(.bucket)\t\(.workflow) / \(.name)"' <<<"$checks"
             exit 0
           fi
 
