@@ -231,10 +231,11 @@ mod tests {
     #[test]
     fn attaches_both_xmp_naming_styles_without_duplicates() {
         let idx = index(&["IMG_1.JPG", "IMG_1.CR3", "IMG_1.xmp", "IMG_1.CR3.xmp"]);
-        let mut xmps: Vec<String> = idx.xmps_for("IMG_1");
-        xmps.sort();
+        let xmps = idx.xmps_for("IMG_1");
+        let mut names: Vec<&str> = xmps.iter().map(|p| file_name(p)).collect();
+        names.sort();
 
-        assert_eq!(xmps, ["/photos/IMG_1.CR3.xmp", "/photos/IMG_1.xmp"]);
+        assert_eq!(names, ["IMG_1.CR3.xmp", "IMG_1.xmp"]);
     }
 
     #[test]
