@@ -113,8 +113,7 @@ pub fn extract_raw_preview(raw_path: &str) -> Result<String, String> {
 /// Works for TIFF-based RAW formats: NEF, CR2, ARW, DNG, ORF, PEF, RW2, etc.
 /// Checks both PRIMARY and THUMBNAIL IFDs, returns the largest valid JPEG.
 fn extract_via_exif(raw_path: &str) -> Result<Vec<u8>, String> {
-    let file =
-        File::open(raw_path).map_err(|e| format!("Failed to open RAW for EXIF: {}", e))?;
+    let file = File::open(raw_path).map_err(|e| format!("Failed to open RAW for EXIF: {}", e))?;
     let mut reader = BufReader::new(file);
 
     let exif_reader = exif::Reader::new();
@@ -232,7 +231,8 @@ fn is_valid_jpeg_marker(marker: u8) -> bool {
         | 0xDD // DRI - Define Restart Interval
         | 0xE0 // APP0 (JFIF)
         | 0xE1 // APP1 (EXIF)
-        | 0xE2..=0xEF // APP2-APP15
+        | 0xE2
+            ..=0xEF // APP2-APP15
         | 0xFE // COM - Comment
     )
 }
@@ -262,8 +262,7 @@ fn find_jpeg_end(data: &[u8], start: usize) -> Option<usize> {
                 if pos + 3 >= len {
                     return None;
                 }
-                let seg_len =
-                    ((data[pos + 2] as usize) << 8) | (data[pos + 3] as usize);
+                let seg_len = ((data[pos + 2] as usize) << 8) | (data[pos + 3] as usize);
                 pos = pos + 2 + seg_len;
 
                 // Now scan through entropy-coded data
@@ -304,8 +303,7 @@ fn find_jpeg_end(data: &[u8], start: usize) -> Option<usize> {
                 if pos + 3 >= len {
                     return None;
                 }
-                let seg_len =
-                    ((data[pos + 2] as usize) << 8) | (data[pos + 3] as usize);
+                let seg_len = ((data[pos + 2] as usize) << 8) | (data[pos + 3] as usize);
                 pos = pos + 2 + seg_len;
             }
         }
@@ -522,10 +520,8 @@ fn inject_orientation_app1(jpeg: Vec<u8>, orientation: u16) -> Vec<u8> {
     //   00 00 00 00                       next IFD offset = 0
     let o = orientation.to_le_bytes();
     let tiff: [u8; 26] = [
-        b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
-        0x01, 0x00,
-        0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, o[0], o[1], 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+        b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01,
+        0x00, 0x00, 0x00, o[0], o[1], 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     // APP1 payload = "Exif\0\0" + tiff

@@ -26,7 +26,7 @@ export function useAmbientColor() {
         currentColor.value = pair.dominantColor
       }
     },
-    { immediate: true }
+    { immediate: true },
   )
 
   return {

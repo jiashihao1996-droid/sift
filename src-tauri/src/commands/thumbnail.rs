@@ -21,9 +21,7 @@ pub async fn generate_thumbnails(
         .map_err(|e| format!("Task join error: {}", e))?
 }
 
-fn generate_thumbnails_sync(
-    pairs: Vec<ThumbnailInput>,
-) -> Result<Vec<ThumbnailResult>, String> {
+fn generate_thumbnails_sync(pairs: Vec<ThumbnailInput>) -> Result<Vec<ThumbnailResult>, String> {
     let cache_dir = env::temp_dir().join("sift-thumbnails");
     fs::create_dir_all(&cache_dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
 
@@ -45,7 +43,9 @@ fn try_extract_exif_thumbnail(jpg_path: &str) -> Option<Vec<u8>> {
     // Find EXIF APP1 marker and parse
     let file = std::io::Cursor::new(&file_bytes);
     let exif_reader = exif::Reader::new();
-    let exif_data = exif_reader.read_from_container(&mut std::io::BufReader::new(file)).ok()?;
+    let exif_data = exif_reader
+        .read_from_container(&mut std::io::BufReader::new(file))
+        .ok()?;
 
     // Get thumbnail offset and length from IFD1
     let offset_field = exif_data.get_field(exif::Tag::JPEGInterchangeFormat, exif::In(1))?;
@@ -126,10 +126,7 @@ fn apply_orientation(img: image::DynamicImage, orientation: u16) -> image::Dynam
     }
 }
 
-fn process_thumbnail(
-    cache_dir: &Path,
-    input: &ThumbnailInput,
-) -> Result<ThumbnailResult, String> {
+fn process_thumbnail(cache_dir: &Path, input: &ThumbnailInput) -> Result<ThumbnailResult, String> {
     // Cache key v2: previous cache stored sensor-native (unrotated) pixels with
     // no EXIF, which rendered sideways for portrait shots. v2 stores pixels
     // already rotated to the upright orientation.
@@ -154,7 +151,9 @@ fn process_thumbnail(
     // Strategy 1: Try EXIF embedded thumbnail (fast path, ~5ms)
     if let Some(thumb_bytes) = try_extract_exif_thumbnail(&input.jpg_path) {
         // Validate it's a real JPEG and decode
-        if let Ok(thumb_img) = image::load_from_memory_with_format(&thumb_bytes, image::ImageFormat::Jpeg) {
+        if let Ok(thumb_img) =
+            image::load_from_memory_with_format(&thumb_bytes, image::ImageFormat::Jpeg)
+        {
             // Skip tiny embedded thumbs (typically 160x120). Camera vendors
             // letterbox/pillarbox them to fit a fixed frame, baking black bars
             // into pixels that we can't strip. Anything under 240px on the
@@ -178,8 +177,7 @@ fn process_thumbnail(
     }
 
     // Strategy 2: Full decode fallback
-    let img = image::open(&input.jpg_path)
-        .map_err(|e| format!("Failed to open image: {}", e))?;
+    let img = image::open(&input.jpg_path).map_err(|e| format!("Failed to open image: {}", e))?;
 
     let rotated = apply_orientation(img, orientation);
     let thumb = rotated.thumbnail(200, 200);

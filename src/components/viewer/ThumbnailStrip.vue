@@ -4,112 +4,111 @@
 // Navigation via gradient edge hotzone buttons
 // ============================================================
 
-import { ref, watch, nextTick, onMounted } from 'vue';
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
-import { useSessionStore } from '@/stores/sessionStore';
-import { useViewStore } from '@/stores/viewStore';
-import { PhotoStatus } from '@/types';
-import { convertFileSrc } from '@tauri-apps/api/core';
-import ContextMenu from '@/components/common/ContextMenu.vue';
-import { useContextMenu } from '@/composables/useContextMenu';
+import { ref, watch, nextTick, onMounted } from 'vue'
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { useSessionStore } from '@/stores/sessionStore'
+import { useViewStore } from '@/stores/viewStore'
+import { PhotoStatus } from '@/types'
+import { convertFileSrc } from '@tauri-apps/api/core'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import { useContextMenu } from '@/composables/useContextMenu'
 
-const session = useSessionStore();
-const view = useViewStore();
-const contextMenu = useContextMenu();
+const session = useSessionStore()
+const view = useViewStore()
+const contextMenu = useContextMenu()
 
-const scrollContainer = ref<HTMLElement | null>(null);
-const thumbnailRefs = ref<HTMLElement[]>([]);
-const isHovering = ref(false);
+const scrollContainer = ref<HTMLElement | null>(null)
+const thumbnailRefs = ref<HTMLElement[]>([])
+const isHovering = ref(false)
 
 function setThumbnailRef(el: HTMLElement | null, index: number) {
   if (el) {
-    thumbnailRefs.value[index] = el;
+    thumbnailRefs.value[index] = el
   }
 }
 
 function scrollToActive() {
-  const container = scrollContainer.value;
-  const activeEl = thumbnailRefs.value[session.currentIndex];
-  if (!container || !activeEl) return;
+  const container = scrollContainer.value
+  const activeEl = thumbnailRefs.value[session.currentIndex]
+  if (!container || !activeEl) return
 
-  const containerRect = container.getBoundingClientRect();
-  const elRect = activeEl.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect()
+  const elRect = activeEl.getBoundingClientRect()
 
-  const elCenter = elRect.left + elRect.width / 2;
-  const containerCenter = containerRect.left + containerRect.width / 2;
-  const offset = elCenter - containerCenter;
+  const elCenter = elRect.left + elRect.width / 2
+  const containerCenter = containerRect.left + containerRect.width / 2
+  const offset = elCenter - containerCenter
 
-  container.scrollBy({ left: offset, behavior: 'smooth' });
+  container.scrollBy({ left: offset, behavior: 'smooth' })
 }
 
 /** Page left: scroll by 60% of the container width */
 function pageLeft() {
-  const container = scrollContainer.value;
-  if (!container) return;
-  const scrollAmount = container.clientWidth * 0.6;
-  container.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+  const container = scrollContainer.value
+  if (!container) return
+  const scrollAmount = container.clientWidth * 0.6
+  container.scrollBy({ left: -scrollAmount, behavior: 'smooth' })
 }
 
 /** Page right: scroll by 60% of the container width */
 function pageRight() {
-  const container = scrollContainer.value;
-  if (!container) return;
-  const scrollAmount = container.clientWidth * 0.6;
-  container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  const container = scrollContainer.value
+  if (!container) return
+  const scrollAmount = container.clientWidth * 0.6
+  container.scrollBy({ left: scrollAmount, behavior: 'smooth' })
 }
 
 function handleClick(index: number) {
-  session.goTo(index);
+  session.goTo(index)
 }
 
 /** Whether we can scroll left */
-const canScrollLeft = ref(false);
+const canScrollLeft = ref(false)
 /** Whether we can scroll right */
-const canScrollRight = ref(false);
+const canScrollRight = ref(false)
 
 function updateScrollState() {
-  const container = scrollContainer.value;
-  if (!container) return;
-  canScrollLeft.value = container.scrollLeft > 0;
-  canScrollRight.value =
-    container.scrollLeft + container.clientWidth < container.scrollWidth - 1;
+  const container = scrollContainer.value
+  if (!container) return
+  canScrollLeft.value = container.scrollLeft > 0
+  canScrollRight.value = container.scrollLeft + container.clientWidth < container.scrollWidth - 1
 }
 
 function getStatusColor(status: PhotoStatus): string {
   switch (status) {
     case PhotoStatus.Starred:
-      return 'bg-sift-star';
+      return 'bg-sift-star'
     case PhotoStatus.Deleted:
-      return 'bg-sift-delete';
+      return 'bg-sift-delete'
     case PhotoStatus.Skipped:
-      return 'bg-sift-skip';
+      return 'bg-sift-skip'
     default:
-      return '';
+      return ''
   }
 }
 
 function getDominantColor(pair: { dominantColor?: string }): string {
-  return pair.dominantColor || '#2a2a2a';
+  return pair.dominantColor || '#2a2a2a'
 }
 
 watch(
   () => session.currentIndex,
   async () => {
-    await nextTick();
-    scrollToActive();
-  }
-);
+    await nextTick()
+    scrollToActive()
+  },
+)
 
 onMounted(async () => {
-  await nextTick();
-  scrollToActive();
+  await nextTick()
+  scrollToActive()
 
-  const container = scrollContainer.value;
+  const container = scrollContainer.value
   if (container) {
-    container.addEventListener('scroll', updateScrollState, { passive: true });
-    updateScrollState();
+    container.addEventListener('scroll', updateScrollState, { passive: true })
+    updateScrollState()
   }
-});
+})
 </script>
 
 <template>
@@ -124,10 +123,7 @@ onMounted(async () => {
       <!-- Left page hotzone -->
       <div
         v-show="canScrollLeft"
-        class="absolute left-0 top-0 bottom-0 w-14 z-10
-               flex items-center justify-center cursor-pointer
-               bg-gradient-to-r from-[#121212] via-[#121212]/60 to-transparent
-               transition-opacity duration-200"
+        class="absolute left-0 top-0 bottom-0 w-14 z-10 flex items-center justify-center cursor-pointer bg-gradient-to-r from-[#121212] via-[#121212]/60 to-transparent transition-opacity duration-200"
         :class="isHovering ? 'opacity-100' : 'opacity-0'"
         @click="pageLeft"
       >
@@ -141,10 +137,7 @@ onMounted(async () => {
       <!-- Right page hotzone -->
       <div
         v-show="canScrollRight"
-        class="absolute right-0 top-0 bottom-0 w-14 z-10
-               flex items-center justify-center cursor-pointer
-               bg-gradient-to-l from-[#121212] via-[#121212]/60 to-transparent
-               transition-opacity duration-200"
+        class="absolute right-0 top-0 bottom-0 w-14 z-10 flex items-center justify-center cursor-pointer bg-gradient-to-l from-[#121212] via-[#121212]/60 to-transparent transition-opacity duration-200"
         :class="isHovering ? 'opacity-100' : 'opacity-0'"
         @click="pageRight"
       >
@@ -164,8 +157,7 @@ onMounted(async () => {
           v-for="(pair, index) in session.pairs"
           :key="pair.id"
           :ref="(el) => setThumbnailRef(el as HTMLElement, index)"
-          class="relative shrink-0 h-11 w-16 rounded-md overflow-hidden cursor-pointer
-                 transition-[opacity,transform,ring-color] duration-200 ease-out group"
+          class="relative shrink-0 h-11 w-16 rounded-md overflow-hidden cursor-pointer transition-[opacity,transform,ring-color] duration-200 ease-out group"
           :class="[
             index === session.currentIndex
               ? 'ring-2 ring-sift-accent ring-offset-1 ring-offset-[#121212] opacity-100 scale-105'
@@ -177,10 +169,7 @@ onMounted(async () => {
           @contextmenu.prevent="contextMenu.show($event, pair)"
         >
           <!-- Dominant color placeholder -->
-          <div
-            class="absolute inset-0"
-            :style="{ backgroundColor: getDominantColor(pair) }"
-          />
+          <div class="absolute inset-0" :style="{ backgroundColor: getDominantColor(pair) }" />
 
           <!-- Thumbnail image: prefer thumbnail, fallback to jpgPath with lazy loading -->
           <img
@@ -204,7 +193,9 @@ onMounted(async () => {
             v-if="view.compareMode && index === view.compareIndex"
             class="absolute top-0 left-0 right-0 flex justify-center z-10"
           >
-            <span class="text-[8px] bg-blue-500/80 text-white px-1 rounded-b leading-tight">基准</span>
+            <span class="text-[8px] bg-blue-500/80 text-white px-1 rounded-b leading-tight"
+              >基准</span
+            >
           </div>
         </div>
       </div>

@@ -52,8 +52,7 @@ fn export_picks_sync(
                         },
                     );
 
-                    fs::copy(&raw_path, &dest)
-                        .map_err(|e| format!("Failed to copy RAW: {}", e))?;
+                    fs::copy(&raw_path, &dest).map_err(|e| format!("Failed to copy RAW: {}", e))?;
                     exported_count += 1;
                 }
             }
@@ -64,8 +63,7 @@ fn export_picks_sync(
                 if xmp_path.exists() {
                     let xmp_filename = xmp_path.file_name().unwrap_or_default();
                     let dest = target.join(xmp_filename);
-                    fs::copy(xmp_path, &dest)
-                        .map_err(|e| format!("Failed to copy XMP: {}", e))?;
+                    fs::copy(xmp_path, &dest).map_err(|e| format!("Failed to copy XMP: {}", e))?;
                 }
             }
         } else {
@@ -84,8 +82,7 @@ fn export_picks_sync(
                     },
                 );
 
-                fs::copy(&jpg_path, &dest)
-                    .map_err(|e| format!("Failed to copy JPG: {}", e))?;
+                fs::copy(&jpg_path, &dest).map_err(|e| format!("Failed to copy JPG: {}", e))?;
                 exported_count += 1;
             }
 
@@ -95,8 +92,7 @@ fn export_picks_sync(
                 if raw_path.exists() {
                     let filename = raw_path.file_name().unwrap_or_default();
                     let dest = target.join(filename);
-                    fs::copy(&raw_path, &dest)
-                        .map_err(|e| format!("Failed to copy RAW: {}", e))?;
+                    fs::copy(&raw_path, &dest).map_err(|e| format!("Failed to copy RAW: {}", e))?;
                     exported_count += 1;
                 }
             }
@@ -107,8 +103,7 @@ fn export_picks_sync(
                 if xmp_path.exists() {
                     let xmp_filename = xmp_path.file_name().unwrap_or_default();
                     let dest = target.join(xmp_filename);
-                    fs::copy(xmp_path, &dest)
-                        .map_err(|e| format!("Failed to copy XMP: {}", e))?;
+                    fs::copy(xmp_path, &dest).map_err(|e| format!("Failed to copy XMP: {}", e))?;
                 }
             }
         }

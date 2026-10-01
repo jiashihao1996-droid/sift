@@ -37,7 +37,7 @@ export default {
       animation: {
         'pulse-slow': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         shimmer: 'shimmer 1.5s infinite',
-        'breathe': 'breathe 2s ease-in-out infinite',
+        breathe: 'breathe 2s ease-in-out infinite',
       },
       keyframes: {
         shimmer: {
