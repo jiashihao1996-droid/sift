@@ -15,8 +15,8 @@
 
 ```bash
 # 克隆你的 fork
-git clone https://github.com/<your-username>/Sift.git
-cd Sift
+git clone https://github.com/<your-username>/sift.git
+cd sift
 
 # 安装前端依赖
 npm install
@@ -50,8 +50,8 @@ src-tauri/        # Rust 后端
 
 ## 代码规范
 
-- **前端**：TypeScript + Vue 3 Composition API，遵循项目 ESLint/Prettier 配置
-- **后端**：Rust，遵循 `cargo fmt` + `cargo clippy` 标准
+- **前端**：TypeScript + Vue 3 Composition API，遵循 `eslint.config.js` / `.prettierrc.json`（`npm run format` 自动格式化）
+- **后端**：Rust，`cargo fmt` + `cargo clippy -- -D warnings` 零警告
 - **样式**：Tailwind CSS，暗色主题
 - **命名**：变量/函数用 camelCase，组件/类用 PascalCase，常量用 UPPER_SNAKE_CASE
 
@@ -73,15 +73,16 @@ docs(readme): update installation guide
 
 1. Fork 仓库并创建你的分支（`git checkout -b feat/my-feature`）
 2. 在你的分支上进行开发
-3. 确保代码能正常编译：
-   - 前端：`npm run build`
-   - 后端：`cd src-tauri && cargo build`
+3. 确保本地检查全部通过（CI 会跑同一套）：
+   - 前端：`npm run check`（typecheck + lint + format + test）
+   - 后端：`npm run check:rust`（fmt + clippy + test，首次需先 `npm run build` 生成 `dist/`）
+   - 面向用户的改动更新 `CHANGELOG.md` 的 `[Unreleased]`
 4. 提交 PR 到 `main` 分支
 5. 在 PR 描述中说明改动内容和动机
 
 ## Bug 报告
 
-请使用 [Bug Report](https://github.com/sankigan/Sift/issues/new?template=bug_report.md) 模板提交 Issue，包含以下信息：
+请使用 [Bug Report](https://github.com/jiashihao1996-droid/sift/issues/new?template=bug_report.md) 模板提交 Issue，包含以下信息：
 
 - 操作系统及版本
 - Sift 版本
@@ -91,7 +92,7 @@ docs(readme): update installation guide
 
 ## Feature Request
 
-欢迎通过 [Feature Request](https://github.com/sankigan/Sift/issues/new?template=feature_request.md) 模板提出新功能建议。
+欢迎通过 [Feature Request](https://github.com/jiashihao1996-droid/sift/issues/new?template=feature_request.md) 模板提出新功能建议。
 
 ## License
 
