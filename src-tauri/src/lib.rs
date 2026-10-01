@@ -21,6 +21,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .setup(|app| Ok(cache::allow_cache_dirs(app)?))
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 cache::cleanup_cache_sync();
