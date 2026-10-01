@@ -1,9 +1,8 @@
 // ============================================================
-// Sift - Recently opened folders (persisted in localStorage)
+// Sift - Recently opened folders: list rules (storage lives in useRecentFolders)
 // ============================================================
 
 export const MAX_RECENT_FOLDERS = 5
-const STORAGE_KEY = 'sift.recentFolders'
 
 /** Most recent first, without duplicates, capped at `max` */
 export function addRecentFolder(
@@ -29,22 +28,5 @@ export function parseRecentFolders(raw: string | null): string[] {
       .slice(0, MAX_RECENT_FOLDERS)
   } catch {
     return []
-  }
-}
-
-export function loadRecentFolders(): string[] {
-  try {
-    return parseRecentFolders(localStorage.getItem(STORAGE_KEY))
-  } catch (e) {
-    console.warn('[Sift] Failed to read recent folders', e)
-    return []
-  }
-}
-
-export function saveRecentFolders(list: readonly string[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-  } catch (e) {
-    console.warn('[Sift] Failed to save recent folders', e)
   }
 }

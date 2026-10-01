@@ -11,12 +11,7 @@ import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getErrorMessage } from '@/utils/error'
 import { useFolderDrop } from '@/composables/useFolderDrop'
-import {
-  addRecentFolder,
-  loadRecentFolders,
-  removeRecentFolder,
-  saveRecentFolders,
-} from '@/utils/recentFolders'
+import { useRecentFolders } from '@/composables/useRecentFolders'
 import RecentFolders from './RecentFolders.vue'
 
 const session = useSessionStore()
@@ -31,14 +26,9 @@ function openReleases() {
 const isHovering = ref(false)
 const scanComplete = ref(false)
 const scanError = ref('')
-const recentFolders = ref<string[]>(loadRecentFolders())
+const recentFolders = useRecentFolders()
 
 const { isDragOver } = useFolderDrop(openFolder)
-
-function setRecentFolders(list: string[]) {
-  recentFolders.value = list
-  saveRecentFolders(list)
-}
 
 async function openFolder(path: string) {
   if (session.isScanning) return
@@ -47,7 +37,7 @@ async function openFolder(path: string) {
   try {
     await session.startScan(path)
     scanComplete.value = true
-    setRecentFolders(addRecentFolder(recentFolders.value, path))
+    recentFolders.remember(path)
   } catch (e) {
     scanError.value = getErrorMessage(e, '扫描文件夹失败')
   }
@@ -237,9 +227,9 @@ function startCulling() {
         </p>
 
         <RecentFolders
-          :folders="recentFolders"
+          :folders="recentFolders.folders.value"
           @open="openFolder"
-          @remove="setRecentFolders(removeRecentFolder(recentFolders, $event))"
+          @remove="recentFolders.forget"
         />
       </div>
 
