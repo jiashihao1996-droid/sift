@@ -9,6 +9,7 @@ RAW + JPG 筛图桌面应用。Tauri 2（Rust）+ Vue 3 + Pinia + Tailwind。
 npm run tauri dev       # 开发（前端 + Rust）
 npm run check           # typecheck + lint + format:check + vitest
 npm run check:rust      # cargo fmt --check + clippy -D warnings + cargo test
+SIFT_RAW_SAMPLES=~/raws npm run test:raw-samples   # 可选：用本地真实 RAW 验证预览提取
 npm run format          # Prettier 写入；Rust 用 cd src-tauri && cargo fmt
 npm run release -- 1.2.0
 ```
@@ -18,12 +19,27 @@ Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端
 
 ## 架构
 
+Rust（`src-tauri/src/`）：
+
+| 模块        | 职责                                                                          | 依赖 Tauri |
+| ----------- | ----------------------------------------------------------------------------- | ---------- |
+| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                          | 是         |
+| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）                       | 否         |
+| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs` | 否         |
+| `models/`   | 与前端共享的 serde 结构体                                                     | 否         |
+
+- 新逻辑写进 `catalog/` 或 `media/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
+- 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名只在 `media/cache_dirs.rs` 定义。
+- 测试样本在代码里合成（`src/test_support.rs`：噪点 JPEG、最小 TIFF RAW），不提交二进制文件。
+
+前端：
+
 - `src/services/tauriCommands.ts` 是前端**唯一**调用 `invoke()` 的地方。
 - `src/types/index.ts` 与 `src-tauri/src/models/photo.rs` 手工保持一致；改一边必须改另一边。
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
-- 缓存目录（`sift-thumbnails`、`sift-raw-previews`）在启动和窗口销毁时同步清理（`commands/cache.rs`）。
+- 缓存目录在启动和窗口销毁时同步清理（`commands/cache.rs`，目录名见 `media/cache_dirs.rs`）。
 
 ## 用户照片安全（最高优先级）
 
@@ -35,8 +51,8 @@ Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端
 ## 代码规范
 
 - 前端：Prettier（无分号、单引号、100 列）+ ESLint（`eslint.config.js`）。禁止 `any`，外部输入用 `unknown` 再收窄。
-- Rust：`cargo fmt` + `clippy -D warnings`。需要保留手工排版时用 `#[rustfmt::skip]`（例：`utils/file_types.rs`）。
-- 单文件 > 400 行就考虑按职责拆分，800 行是硬上限。当前最大：`utils/raw_preview.rs`（~550）。
+- Rust：`cargo fmt` + `clippy -D warnings`。需要保留手工排版时用 `#[rustfmt::skip]`（例：`catalog/file_types.rs`）。
+- 单文件 > 400 行就考虑按职责拆分，800 行是硬上限。
 - 纯逻辑与框架分离：可测试的逻辑不要写进 Vue 组件或 `#[tauri::command]` 函数体。
 - 测试文件与源码同目录：`foo.ts` ↔ `foo.test.ts`；Rust 用文件内 `#[cfg(test)] mod tests`。
 
@@ -54,6 +70,14 @@ Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端
 - 给 PR 打 `automerge` 标签，CI 全绿后由 `.github/workflows/automerge.yml` 自动 rebase 合并并删除分支。改动 `.github/workflows/` 的 PR 不能自动合并（`GITHUB_TOKEN` 无权合并 workflow 变更），需手动合并。
 
 ## 已知待办
+
+配对规则的现状（`catalog/pairing.rs` 测试里有记录，改动前先想清楚是否算 bug）：
+
+- stem 区分大小写：`img_1.jpg` 与 `IMG_1.CR3` 不配对。
+- 同 stem 同类型有两个文件（`IMG_1.jpg` + `IMG_1.jpeg`，或 `.CR3` + `.DNG`）时只保留后扫到的一个。
+- 提取不出内嵌预览的 RAW-only 文件会被静默排除在会话之外。
+
+其他：
 
 - `assetProtocol.scope` 为 `/**`，webview 可读整盘；应改为运行时只放行所选目录和缓存目录。
 - `export.rs` 用 `fs::copy` 直接写入 `target.join(filename)`，会覆盖导出目录中的同名文件。

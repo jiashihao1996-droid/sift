@@ -259,4 +259,57 @@ mod tests {
 
         assert_eq!(exif_orientation(&second), Some(8));
     }
+
+    /// Opt-in check against real camera files, which are too large for the repo:
+    ///   SIFT_RAW_SAMPLES=/path/to/raws cargo test real_raw -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs SIFT_RAW_SAMPLES pointing at a folder of real RAW files"]
+    fn real_raw_samples_yield_decodable_upright_previews() {
+        let samples = std::env::var("SIFT_RAW_SAMPLES").expect("set SIFT_RAW_SAMPLES");
+        let cache = tempdir().unwrap();
+        let mut checked = 0;
+        let mut failures = Vec::new();
+
+        for entry in fs::read_dir(&samples).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            let is_raw_file = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(crate::catalog::file_types::is_raw);
+            if !is_raw_file {
+                continue;
+            }
+            checked += 1;
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            match check_real_sample(&path, cache.path()) {
+                Ok(summary) => println!("ok   {name}: {summary}"),
+                Err(e) => failures.push(format!("{name}: {e}")),
+            }
+        }
+
+        assert!(checked > 0, "no RAW files found in {samples}");
+        assert!(
+            failures.is_empty(),
+            "{} of {checked} failed:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    fn check_real_sample(raw: &Path, cache: &Path) -> Result<String, String> {
+        let raw_str = raw.to_str().unwrap();
+        let bytes = fs::read(extract_raw_preview(raw_str, cache)?).unwrap();
+        let img = image::load_from_memory(&bytes).map_err(|e| format!("undecodable: {e}"))?;
+        let outer = read_orientation(raw_str).unwrap_or(1);
+        let embedded = exif_orientation::read_orientation(&bytes).unwrap_or(1);
+        if outer > 1 && embedded != outer {
+            return Err(format!("orientation {embedded}, RAW says {outer}"));
+        }
+        Ok(format!(
+            "{}x{}, {} KB, orientation {embedded}",
+            img.width(),
+            img.height(),
+            bytes.len() / 1024
+        ))
+    }
 }
