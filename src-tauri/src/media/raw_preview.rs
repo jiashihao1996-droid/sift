@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 const MIN_PREVIEW_SIZE: usize = 50 * 1024;
 
 /// Get the cache directory for RAW previews
-fn preview_cache_dir() -> Result<PathBuf, String> {
+pub fn preview_cache_dir() -> Result<PathBuf, String> {
     let dir = std::env::temp_dir().join("sift-raw-previews");
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create preview cache dir: {}", e))?;
     Ok(dir)
@@ -42,7 +42,7 @@ fn simple_hash(data: &[u8]) -> u64 {
 }
 
 /// Extract an embedded JPEG preview from a RAW file.
-/// Returns the path to the cached preview JPEG on success.
+/// Returns the path to the cached preview JPEG (inside `cache_dir`) on success.
 ///
 /// Strategy:
 /// 1. Try EXIF-based extraction (fast, ~5ms)
@@ -54,13 +54,12 @@ fn simple_hash(data: &[u8]) -> u64 {
 /// the outer TIFF IFD0. To make the preview display correctly in a plain
 /// `<img>`, we sync that Orientation into the preview JPEG's own APP1/EXIF
 /// before caching.
-pub fn extract_raw_preview(raw_path: &str) -> Result<String, String> {
+pub fn extract_raw_preview(raw_path: &str, cache_dir: &Path) -> Result<String, String> {
     let path = Path::new(raw_path);
     if !path.exists() {
         return Err(format!("RAW file not found: {}", raw_path));
     }
 
-    let cache_dir = preview_cache_dir()?;
     let cache_name = cache_filename(path);
     let cache_path = cache_dir.join(&cache_name);
 
@@ -344,7 +343,7 @@ fn jpeg_orientation(jpeg: &[u8]) -> Option<u16> {
 ///   - JPEG already has an APP1/EXIF with a writable Orientation tag: patch it in place.
 ///   - JPEG has no APP1/EXIF (or APP1 without Orientation tag): inject a minimal
 ///     APP1 segment containing just the Orientation tag right after SOI.
-fn ensure_jpeg_orientation(jpeg: Vec<u8>, outer_orientation: u16) -> Vec<u8> {
+pub(crate) fn ensure_jpeg_orientation(jpeg: Vec<u8>, outer_orientation: u16) -> Vec<u8> {
     if outer_orientation <= 1 {
         return jpeg;
     }
@@ -545,4 +544,174 @@ fn inject_orientation_app1(jpeg: Vec<u8>, orientation: u16) -> Vec<u8> {
     out.extend_from_slice(&jpeg[2..]);
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{noise_jpeg, opaque_raw_with_preview, tiff_raw_with_preview, write};
+    use std::io::Cursor;
+    use tempfile::tempdir;
+
+    /// Orientation as seen by an independent parser (kamadak-exif).
+    fn exif_orientation(jpeg: &[u8]) -> Option<u16> {
+        let exif = exif::Reader::new()
+            .read_from_container(&mut Cursor::new(jpeg))
+            .ok()?;
+        match exif
+            .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
+            .value
+        {
+            exif::Value::Short(ref v) => v.first().copied(),
+            _ => None,
+        }
+    }
+
+    fn extract(raw: &Path, cache: &Path) -> Result<Vec<u8>, String> {
+        let out = extract_raw_preview(raw.to_str().unwrap(), cache)?;
+        Ok(fs::read(out).unwrap())
+    }
+
+    #[test]
+    fn fixture_preview_exceeds_minimum_size() {
+        assert!(noise_jpeg(256, 256).len() >= MIN_PREVIEW_SIZE);
+    }
+
+    #[test]
+    fn extracts_preview_from_tiff_based_raw() {
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let raw = write(dir.path(), "a.NEF", &tiff_raw_with_preview(&preview, None));
+
+        assert_eq!(extract(&raw, dir.path()).unwrap(), preview);
+    }
+
+    #[test]
+    fn syncs_outer_raw_orientation_into_preview() {
+        // Regression (1.0.2): Sony ARW previews rendered sideways because the
+        // rotation lives only in the outer IFD0, not in the preview JPEG.
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let raw = write(
+            dir.path(),
+            "a.ARW",
+            &tiff_raw_with_preview(&preview, Some(6)),
+        );
+
+        let out = extract(&raw, dir.path()).unwrap();
+
+        assert_eq!(exif_orientation(&out), Some(6));
+        assert!(image::load_from_memory(&out).is_ok());
+    }
+
+    #[test]
+    fn falls_back_to_binary_scan_for_non_tiff_containers() {
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let raw = write(dir.path(), "a.CR3", &opaque_raw_with_preview(&preview));
+
+        assert_eq!(extract(&raw, dir.path()).unwrap(), preview);
+    }
+
+    #[test]
+    fn rejects_previews_below_minimum_size() {
+        let dir = tempdir().unwrap();
+        let tiny = noise_jpeg(16, 16);
+        let raw = write(dir.path(), "a.NEF", &tiff_raw_with_preview(&tiny, None));
+
+        assert!(extract(&raw, dir.path()).is_err());
+    }
+
+    #[test]
+    fn errors_when_raw_is_missing() {
+        let dir = tempdir().unwrap();
+        assert!(extract(&dir.path().join("missing.ARW"), dir.path()).is_err());
+    }
+
+    #[test]
+    fn refreshes_cached_preview_missing_orientation() {
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let raw = write(dir.path(), "a.ARW", &tiff_raw_with_preview(&preview, None));
+        let first = extract(&raw, dir.path()).unwrap();
+        assert_eq!(exif_orientation(&first), None);
+
+        // Same path, now carrying an outer orientation: the stale cache must be replaced
+        write(
+            dir.path(),
+            "a.ARW",
+            &tiff_raw_with_preview(&preview, Some(8)),
+        );
+        let second = extract(&raw, dir.path()).unwrap();
+
+        assert_eq!(exif_orientation(&second), Some(8));
+    }
+
+    #[test]
+    fn find_jpeg_end_skips_stuffed_bytes_and_restart_markers() {
+        let jpeg = [
+            0xFF, 0xD8, // SOI
+            0xFF, 0xDB, 0x00, 0x04, 0xAA, 0xBB, // DQT, 2-byte payload
+            0xFF, 0xDA, 0x00, 0x02, // SOS header
+            0x11, 0xFF, 0x00, 0x22, 0xFF, 0xD0, 0x33, // entropy data, FF00 + RST0
+            0xFF, 0xD9, // EOI
+            0x99, 0x99, // trailing junk
+        ];
+        assert_eq!(find_jpeg_end(&jpeg, 0), Some(jpeg.len() - 2));
+    }
+
+    #[test]
+    fn find_jpeg_end_returns_none_without_eoi() {
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02, 0x11, 0x22];
+        assert_eq!(find_jpeg_end(&jpeg, 0), None);
+    }
+
+    #[test]
+    fn ensure_orientation_is_noop_for_normal_orientation() {
+        let jpeg = noise_jpeg(32, 32);
+        assert_eq!(ensure_jpeg_orientation(jpeg.clone(), 1), jpeg);
+    }
+
+    #[test]
+    fn ensure_orientation_injects_app1_when_absent() {
+        let jpeg = noise_jpeg(32, 32);
+        let out = ensure_jpeg_orientation(jpeg, 6);
+
+        assert_eq!(jpeg_orientation(&out), Some(6));
+        assert_eq!(exif_orientation(&out), Some(6));
+        assert!(image::load_from_memory(&out).is_ok());
+    }
+
+    #[test]
+    fn ensure_orientation_patches_existing_tag_in_place() {
+        let with_tag = ensure_jpeg_orientation(noise_jpeg(32, 32), 6);
+        let out = ensure_jpeg_orientation(with_tag.clone(), 8);
+
+        assert_eq!(out.len(), with_tag.len());
+        assert_eq!(exif_orientation(&out), Some(8));
+    }
+
+    #[test]
+    fn ensure_orientation_patches_big_endian_tiff() {
+        // APP1 with a Motorola-order TIFF carrying Orientation = 1
+        let tiff: [u8; 26] = [
+            b'M', b'M', 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08, // header
+            0x00, 0x01, // 1 entry
+            0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+            0x00, // Orientation
+            0x00, 0x00, 0x00, 0x00, // next IFD
+        ];
+        let jpeg = noise_jpeg(32, 32);
+        let app1_len = (2 + 6 + tiff.len()) as u16;
+        let mut input = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        input.extend_from_slice(&app1_len.to_be_bytes());
+        input.extend_from_slice(b"Exif\0\0");
+        input.extend_from_slice(&tiff);
+        input.extend_from_slice(&jpeg[2..]);
+
+        let out = ensure_jpeg_orientation(input.clone(), 3);
+
+        assert_eq!(out.len(), input.len());
+        assert_eq!(exif_orientation(&out), Some(3));
+    }
 }
