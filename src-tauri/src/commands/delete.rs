@@ -6,6 +6,7 @@
 // Async: uses spawn_blocking to avoid blocking IPC on Windows
 // ============================================================
 
+use super::cache;
 use std::path::{Path, PathBuf};
 
 #[tauri::command]
@@ -21,6 +22,7 @@ pub async fn delete_pair(
             raw_path.as_deref(),
             source.as_deref(),
             xmp_paths.as_deref().unwrap_or_default(),
+            &cache::raw_preview_cache_dir(),
         )?;
         execute_delete(&plan, |path| trash::delete(path).map_err(|e| e.to_string()))
     })
@@ -45,12 +47,14 @@ struct DeletePlan {
 }
 
 /// Build the delete plan from frontend-supplied paths. Files that no longer
-/// exist are skipped, except a normal pair's JPG, which must exist.
+/// exist are skipped, except a normal pair's JPG, which must exist. A RAW-only
+/// pair's preview must sit inside `preview_cache_dir`, or the plan is refused.
 fn plan_delete(
     jpg_path: &str,
     raw_path: Option<&str>,
     source: Option<&str>,
     xmp_paths: &[String],
+    preview_cache_dir: &Path,
 ) -> Result<DeletePlan, String> {
     let is_raw_preview = source == Some("rawPreview");
     let jpg = Path::new(jpg_path);
@@ -59,6 +63,15 @@ fn plan_delete(
 
     if is_raw_preview {
         if jpg.exists() {
+            // jpg_path comes from the frontend. Only a file we extracted
+            // ourselves may be removed outright; anything else could be a
+            // user photo, so refuse the whole request before touching disk.
+            if !cache::is_inside_dir(jpg, preview_cache_dir) {
+                return Err(format!(
+                    "Refusing to delete {}: not a cached RAW preview",
+                    jpg_path
+                ));
+            }
             preview = Some(jpg.to_path_buf());
         }
     } else {
@@ -127,6 +140,17 @@ mod tests {
         move |path| fs::rename(path, bin.join(path.file_name().unwrap())).map_err(|e| e.to_string())
     }
 
+    /// Previews live in `<tmp>/cache`, user photos anywhere else.
+    fn plan_in(
+        tmp: &TempDir,
+        jpg: &str,
+        raw: Option<&str>,
+        source: Option<&str>,
+        xmps: &[String],
+    ) -> Result<DeletePlan, String> {
+        plan_delete(jpg, raw, source, xmps, &tmp.path().join("cache"))
+    }
+
     fn labels(plan: &DeletePlan) -> Vec<&str> {
         plan.trash.iter().map(|item| item.label).collect()
     }
@@ -138,7 +162,7 @@ mod tests {
         let raw = touch(&tmp.path().join("IMG_1.ARW"));
         let xmp = touch(&tmp.path().join("IMG_1.xmp"));
 
-        let plan = plan_delete(&jpg, Some(&raw), None, &[xmp]).unwrap();
+        let plan = plan_in(&tmp, &jpg, Some(&raw), None, &[xmp]).unwrap();
 
         assert_eq!(labels(&plan), ["JPG", "RAW", "XMP"]);
         assert_eq!(plan.preview, None);
@@ -149,7 +173,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let jpg = tmp.path().join("gone.jpg");
 
-        let err = plan_delete(&jpg.to_string_lossy(), None, None, &[]).unwrap_err();
+        let err = plan_in(&tmp, &jpg.to_string_lossy(), None, None, &[]).unwrap_err();
 
         assert!(err.contains("JPG file not found"), "{}", err);
     }
@@ -161,7 +185,7 @@ mod tests {
         let raw = tmp.path().join("IMG_1.ARW").to_string_lossy().to_string();
         let xmp = tmp.path().join("IMG_1.xmp").to_string_lossy().to_string();
 
-        let plan = plan_delete(&jpg, Some(&raw), None, &[xmp]).unwrap();
+        let plan = plan_in(&tmp, &jpg, Some(&raw), None, &[xmp]).unwrap();
 
         assert_eq!(labels(&plan), ["JPG"]);
     }
@@ -173,7 +197,7 @@ mod tests {
         let jpg = touch(&tmp.path().join("IMG_1.jpg"));
         let raw = touch(&tmp.path().join("IMG_1.ARW"));
         let xmp = touch(&tmp.path().join("IMG_1.xmp"));
-        let plan = plan_delete(&jpg, Some(&raw), None, std::slice::from_ref(&xmp)).unwrap();
+        let plan = plan_in(&tmp, &jpg, Some(&raw), None, std::slice::from_ref(&xmp)).unwrap();
 
         execute_delete(&plan, fake_trash(&bin)).unwrap();
 
@@ -194,7 +218,7 @@ mod tests {
         let preview = touch(&tmp.path().join("cache/abc.jpg"));
         let raw = touch(&tmp.path().join("photos/IMG_2.CR3"));
         let xmp = touch(&tmp.path().join("photos/IMG_2.xmp"));
-        let plan = plan_delete(&preview, Some(&raw), Some("rawPreview"), &[xmp]).unwrap();
+        let plan = plan_in(&tmp, &preview, Some(&raw), Some("rawPreview"), &[xmp]).unwrap();
 
         assert_eq!(labels(&plan), ["RAW", "XMP"]);
         execute_delete(&plan, fake_trash(&bin)).unwrap();
@@ -213,12 +237,76 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let preview = touch(&tmp.path().join("cache/abc.jpg"));
         let raw = touch(&tmp.path().join("photos/IMG_2.CR3"));
-        let plan = plan_delete(&preview, Some(&raw), Some("rawPreview"), &[]).unwrap();
+        let plan = plan_in(&tmp, &preview, Some(&raw), Some("rawPreview"), &[]).unwrap();
 
         let err = execute_delete(&plan, |_| Err("trash unavailable".into())).unwrap_err();
 
         assert!(err.contains("Failed to trash RAW"), "{}", err);
         assert!(Path::new(&raw).exists());
         assert!(Path::new(&preview).exists());
+    }
+
+    #[test]
+    fn refuses_a_raw_preview_outside_the_cache_and_touches_nothing() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("cache")).unwrap();
+        let user_jpg = touch(&tmp.path().join("photos/IMG_3.jpg"));
+        let raw = touch(&tmp.path().join("photos/IMG_3.CR3"));
+
+        let err = plan_in(&tmp, &user_jpg, Some(&raw), Some("rawPreview"), &[]).unwrap_err();
+
+        assert!(err.contains("not a cached RAW preview"), "{}", err);
+        assert!(Path::new(&user_jpg).exists());
+        assert!(Path::new(&raw).exists());
+    }
+
+    #[test]
+    fn refuses_a_raw_preview_that_escapes_the_cache_with_dot_dot() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("cache")).unwrap();
+        touch(&tmp.path().join("photos/IMG_3.jpg"));
+        let sneaky = tmp.path().join("cache/../photos/IMG_3.jpg");
+
+        let result = plan_in(
+            &tmp,
+            &sneaky.to_string_lossy(),
+            None,
+            Some("rawPreview"),
+            &[],
+        );
+
+        assert!(result.is_err());
+        assert!(sneaky.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_cache_symlink_that_points_at_a_user_file() {
+        let tmp = TempDir::new().unwrap();
+        let user_jpg = touch(&tmp.path().join("photos/IMG_3.jpg"));
+        let link = tmp.path().join("cache/abc.jpg");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&user_jpg, &link).unwrap();
+
+        let result = plan_in(&tmp, &link.to_string_lossy(), None, Some("rawPreview"), &[]);
+
+        assert!(result.is_err());
+        assert!(Path::new(&user_jpg).exists());
+    }
+
+    #[test]
+    fn still_trashes_the_raw_when_its_preview_was_already_cleaned_up() {
+        let tmp = TempDir::new().unwrap();
+        let preview = tmp
+            .path()
+            .join("cache/abc.jpg")
+            .to_string_lossy()
+            .to_string();
+        let raw = touch(&tmp.path().join("photos/IMG_2.CR3"));
+
+        let plan = plan_in(&tmp, &preview, Some(&raw), Some("rawPreview"), &[]).unwrap();
+
+        assert_eq!(labels(&plan), ["RAW"]);
+        assert_eq!(plan.preview, None);
     }
 }
