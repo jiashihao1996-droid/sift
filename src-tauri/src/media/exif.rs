@@ -6,6 +6,23 @@ use crate::models::photo::{Dimensions, ExifData};
 use std::fs::{self, File};
 use std::io::BufReader;
 
+/// Read the EXIF Orientation (1=normal, 3=180°, 6=CW 90°, 8=CCW 90°, ...)
+/// from the primary IFD of a JPEG or TIFF-based RAW file.
+/// Returns None if the file isn't EXIF-readable or the tag is absent.
+pub fn read_orientation(path: &str) -> Option<u16> {
+    let file = File::open(path).ok()?;
+    let exif = exif::Reader::new()
+        .read_from_container(&mut BufReader::new(file))
+        .ok()?;
+    match &exif
+        .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
+        .value
+    {
+        exif::Value::Short(v) => v.first().copied(),
+        _ => None,
+    }
+}
+
 pub fn read_exif_data(jpg_path: &str) -> Result<ExifData, String> {
     let file = File::open(jpg_path).map_err(|e| format!("Failed to open file: {}", e))?;
     let file_size = fs::metadata(jpg_path).map(|m| m.len()).unwrap_or(0);
