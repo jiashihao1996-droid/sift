@@ -8,7 +8,9 @@ name: Auto-merge
 # - workflow_run always runs the copy of this file on main.
 # - GITHUB_TOKEN cannot merge PRs that change .github/workflows/; merge
 #   those by hand.
-# - Merges made with GITHUB_TOKEN do not trigger a push CI run on main.
+# - Merges made with GITHUB_TOKEN do not trigger a push CI run on main, so
+#   CI is dispatched on main explicitly after merging (this also refreshes
+#   the Rust cache that PRs restore from).
 
 on:
   workflow_run:
@@ -18,6 +20,7 @@ on:
     types: [labeled]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -71,3 +74,4 @@ jobs:
 
           # --match-head-commit: refuse if a new commit landed after the checks ran
           gh pr merge "$PR" --rebase --delete-branch --match-head-commit "$head"
+          gh workflow run ci.yml --ref main
