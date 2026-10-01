@@ -7,6 +7,9 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { AppView } from '@/types'
 import { PhotoStatus } from '@/types'
+import { clampZoom, isActualSize, zoomAt, type Point } from '@/utils/zoom'
+
+const PANE_CENTER: Point = { x: 0, y: 0 }
 
 export const useViewStore = defineStore('view', () => {
   const currentView = ref<AppView>('welcome')
@@ -19,6 +22,10 @@ export const useViewStore = defineStore('view', () => {
   const zoomOffsetX = ref(0)
   const zoomOffsetY = ref(0)
   const rotation = ref(0)
+  /** Zoom level for 1 image px = 1 device px; null until the image is measured */
+  const actualZoom = ref<number | null>(null)
+  /** Last cursor position relative to the hovered pane's center */
+  const zoomAnchor = ref<Point>({ ...PANE_CENTER })
 
   // Compare mode state
   const compareMode = ref(false)
@@ -49,6 +56,31 @@ export const useViewStore = defineStore('view', () => {
     zoomOffsetX.value = 0
     zoomOffsetY.value = 0
     rotation.value = 0
+  }
+
+  function setZoom(next: number, anchor: Point = PANE_CENTER) {
+    const state = zoomAt(
+      { zoom: zoomLevel.value, offsetX: zoomOffsetX.value, offsetY: zoomOffsetY.value },
+      clampZoom(next, actualZoom.value),
+      anchor,
+    )
+    zoomLevel.value = state.zoom
+    zoomOffsetX.value = state.offsetX
+    zoomOffsetY.value = state.offsetY
+  }
+
+  function zoomToActualSize(anchor: Point = zoomAnchor.value) {
+    if (actualZoom.value === null) return
+    setZoom(actualZoom.value, anchor)
+  }
+
+  /** Lightroom-style Z: toggle between fit and 1:1 at the cursor */
+  function toggleActualSize(anchor: Point = zoomAnchor.value) {
+    if (isActualSize(zoomLevel.value, actualZoom.value)) {
+      setZoom(1)
+    } else {
+      zoomToActualSize(anchor)
+    }
   }
 
   function rotateBy(delta: number) {
@@ -102,6 +134,8 @@ export const useViewStore = defineStore('view', () => {
     zoomOffsetX,
     zoomOffsetY,
     rotation,
+    actualZoom,
+    zoomAnchor,
     compareMode,
     compareIndex,
     toastMessage,
@@ -112,6 +146,9 @@ export const useViewStore = defineStore('view', () => {
     toggleExifPanel,
     toggleArchiveDialog,
     resetZoom,
+    setZoom,
+    zoomToActualSize,
+    toggleActualSize,
     rotateBy,
     showToast,
     toggleCompare,
