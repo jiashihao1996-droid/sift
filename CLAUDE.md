@@ -14,6 +14,7 @@ npm run release -- 1.2.0
 ```
 
 提交前两个 check 都必须通过；CI（`.github/workflows/ci.yml`）跑的是同一套。
+PR 上 Rust job 只跑 macOS；Windows 只在 push 到 main 时跑（或在 Actions 页手动 `workflow_dispatch` 指定分支）。改了 `cfg(windows)` 代码、路径处理或文件操作时，合并前手动触发一次。
 Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端），首次先 `npm run build`。
 
 ## 架构

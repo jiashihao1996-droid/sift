@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -32,7 +33,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest]
+        # Windows is the slowest runner; skip it on PRs and run it on main
+        # pushes (or manually via workflow_dispatch) to catch breakage there.
+        platform: ${{ github.event_name == 'pull_request' && fromJSON('["macos-latest"]') || fromJSON('["macos-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
