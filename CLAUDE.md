@@ -27,6 +27,7 @@ Rust（`src-tauri/src/`）：
 | `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）                       | 否         |
 | `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs` | 否         |
 | `models/`   | 与前端共享的 serde 结构体                                                     | 否         |
+| `paths.rs`  | 不覆盖的目标路径：一组 JPG/RAW/XMP 共用 `_N` 后缀（export 在用）              | 否         |
 
 - 新逻辑写进 `catalog/` 或 `media/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
 - 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名只在 `media/cache_dirs.rs` 定义。
@@ -45,7 +46,7 @@ Rust（`src-tauri/src/`）：
 ## 用户照片安全（最高优先级）
 
 - 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件。
-- 移动/复制**永不覆盖**已有文件：目标路径一律经过 `unique_path()`（`commands/archive.rs`）。
+- 移动/复制**永不覆盖**已有文件：目标路径一律经过 `unique_path()`（`commands/archive.rs`）或 `unique_paths_sharing_stem()`（`paths.rs`，一组 JPG/RAW/XMP 共用同一后缀）。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
 - 命令接收的路径来自前端，视为不可信输入。
 
@@ -86,5 +87,4 @@ Rust（`src-tauri/src/`）：
 其他：
 
 - `assetProtocol.scope` 为 `/**`，webview 可读整盘；应改为运行时只放行所选目录和缓存目录。
-- `export.rs` 用 `fs::copy` 直接写入 `target.join(filename)`，会覆盖导出目录中的同名文件。
 - `ArchiveDialog.vue` 内层 `<Transition name="modal">` 从不切换，弹窗动画可能从未生效。

@@ -7,6 +7,7 @@ mod catalog;
 mod commands;
 mod media;
 mod models;
+mod paths;
 #[cfg(test)]
 mod test_support;
 
