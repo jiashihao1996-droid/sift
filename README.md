@@ -69,8 +69,8 @@ Canon (CR2/CR3) · Nikon (NEF/NRW) · Sony (ARW/SR2/SRF) · Fujifilm (RAF) · Ol
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # 克隆项目
-git clone https://github.com/sankigan/Sift.git
-cd Sift
+git clone https://github.com/jiashihao1996-droid/sift.git
+cd sift
 
 # 安装前端依赖
 npm install
@@ -134,4 +134,4 @@ src-tauri/
 
 ## License
 
-MIT
+MIT。本项目基于 [sankigan/Sift](https://github.com/sankigan/Sift) fork 后独立演进。
