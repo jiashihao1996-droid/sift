@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "check:rust": "cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "test:raw-samples": "cd src-tauri && cargo test real_raw -- --ignored --nocapture",
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
