@@ -226,3 +226,180 @@ fn unique_path(path: &Path) -> PathBuf {
         counter += 1;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn touch(path: &Path) -> String {
+        touch_with(path, &path.to_string_lossy())
+    }
+
+    fn touch_with(path: &Path, contents: &str) -> String {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+        path.to_string_lossy().to_string()
+    }
+
+    fn read(path: &Path) -> String {
+        fs::read_to_string(path).unwrap()
+    }
+
+    fn pair(jpg: &str, raw: Option<&str>, source: PhotoSource, xmps: &[&str]) -> ArchivePairInput {
+        ArchivePairInput {
+            jpg_path: jpg.to_string(),
+            raw_path: raw.map(str::to_string),
+            status: "starred".to_string(),
+            source,
+            xmp_paths: xmps.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn archive(base: &Path, pairs: &[ArchivePairInput]) -> (ArchiveResult, Vec<ArchiveProgress>) {
+        let mut events = Vec::new();
+        let result = archive_pairs(base, pairs, &mut |p| events.push(p)).unwrap();
+        (result, events)
+    }
+
+    #[test]
+    fn moves_a_normal_pair_into_jpg_and_raw_folders() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("IMG_1.ARW"));
+        let xmp = touch(&base.join("IMG_1.xmp"));
+
+        let (result, events) = archive(base, &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp])]);
+
+        assert_eq!(result.moved_count, 2);
+        assert_eq!(read(&base.join("JPG/IMG_1.jpg")), jpg);
+        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), raw);
+        assert_eq!(read(&base.join("RAW/IMG_1.xmp")), xmp);
+        assert!(!Path::new(&jpg).exists() && !Path::new(&raw).exists());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].current_file, "IMG_1.jpg");
+    }
+
+    #[test]
+    fn xmp_of_a_jpg_only_pair_follows_the_jpg() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let xmp = touch(&base.join("IMG_1.xmp"));
+
+        archive(base, &[pair(&jpg, None, PhotoSource::Jpg, &[&xmp])]);
+
+        assert!(base.join("JPG/IMG_1.xmp").exists());
+    }
+
+    #[test]
+    fn leaves_deleted_pairs_alone() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let mut deleted = pair(&jpg, None, PhotoSource::Jpg, &[]);
+        deleted.status = "deleted".to_string();
+
+        let (result, _) = archive(base, &[deleted]);
+
+        assert_eq!(result.moved_count, 0);
+        assert!(Path::new(&jpg).exists());
+    }
+
+    #[test]
+    fn renames_on_collision_and_never_overwrites() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+        touch_with(&base.join("JPG/IMG_1.jpg"), "already archived");
+        touch_with(&base.join("RAW/IMG_1.ARW"), "already archived");
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("IMG_1.ARW"));
+
+        archive(base, &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[])]);
+
+        assert_eq!(read(&base.join("JPG/IMG_1.jpg")), "already archived");
+        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), "already archived");
+        assert_eq!(read(&base.join("JPG/IMG_1_1.jpg")), jpg);
+        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW")), raw);
+    }
+
+    #[test]
+    fn skips_files_already_in_their_target_folder() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+        let jpg = touch(&base.join("JPG/IMG_1.jpg"));
+        let raw = touch(&base.join("RAW/IMG_1.ARW"));
+
+        let (result, _) = archive(base, &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[])]);
+
+        assert_eq!(result.moved_count, 0);
+        assert!(Path::new(&jpg).exists() && Path::new(&raw).exists());
+        assert!(!base.join("JPG/IMG_1_1.jpg").exists());
+    }
+
+    #[test]
+    fn archives_a_raw_only_pair_and_cleans_up_its_cached_preview() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("photos");
+        let preview = touch_with(&tmp.path().join("cache/abc.jpg"), "preview");
+        let raw = touch(&base.join("IMG_2.CR3"));
+        let xmp = touch(&base.join("IMG_2.xmp"));
+
+        let (result, events) = archive(
+            &base,
+            &[pair(&preview, Some(&raw), PhotoSource::RawPreview, &[&xmp])],
+        );
+
+        assert_eq!(result.moved_count, 2);
+        assert_eq!(read(&base.join("RAW/IMG_2.CR3")), raw);
+        assert_eq!(read(&base.join("JPG/IMG_2.jpg")), "preview");
+        assert_eq!(read(&base.join("RAW/IMG_2.xmp")), xmp);
+        assert!(!Path::new(&preview).exists());
+        assert_eq!(events[0].current_file, "IMG_2.CR3");
+    }
+
+    #[test]
+    fn raw_only_preview_is_renamed_on_collision() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("photos");
+        touch_with(&base.join("JPG/IMG_2.jpg"), "user jpg");
+        let preview = touch_with(&tmp.path().join("cache/abc.jpg"), "preview");
+        let raw = touch(&base.join("IMG_2.CR3"));
+
+        archive(
+            &base,
+            &[pair(&preview, Some(&raw), PhotoSource::RawPreview, &[])],
+        );
+
+        assert_eq!(read(&base.join("JPG/IMG_2.jpg")), "user jpg");
+        assert_eq!(read(&base.join("JPG/IMG_2_1.jpg")), "preview");
+    }
+
+    #[test]
+    fn unique_path_appends_the_first_free_counter() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        touch(&dir.join("a.jpg"));
+        touch(&dir.join("a_1.jpg"));
+        touch(&dir.join("noext"));
+
+        assert_eq!(unique_path(&dir.join("b.jpg")), dir.join("b.jpg"));
+        assert_eq!(unique_path(&dir.join("a.jpg")), dir.join("a_2.jpg"));
+        assert_eq!(unique_path(&dir.join("noext")), dir.join("noext_1"));
+    }
+
+    #[test]
+    fn move_file_moves_contents_and_removes_the_source() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("a.jpg");
+        touch_with(&src, "data");
+        let dest = tmp.path().join("sub/a.jpg");
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+
+        move_file(&src, &dest).unwrap();
+
+        assert!(!src.exists());
+        assert_eq!(read(&dest), "data");
+    }
+}
