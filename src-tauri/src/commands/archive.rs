@@ -6,7 +6,7 @@
 
 use crate::models::photo::{ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 /// Move a file to the destination, falling back to copy+remove if rename fails
@@ -34,159 +34,159 @@ pub async fn archive_photos(
     folder_path: String,
     pairs: Vec<ArchivePairInput>,
 ) -> Result<ArchiveResult, String> {
-    let app_clone = app.clone();
-    tokio::task::spawn_blocking(move || archive_photos_sync(app_clone, &folder_path, &pairs))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?
+    tokio::task::spawn_blocking(move || {
+        archive_pairs(Path::new(&folder_path), &pairs, &mut |progress| {
+            let _ = app.emit("archive-progress", progress);
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
-fn archive_photos_sync(
-    app: AppHandle,
-    folder_path: &str,
-    pairs: &[ArchivePairInput],
-) -> Result<ArchiveResult, String> {
-    let base = Path::new(folder_path);
-    let jpg_dir = base.join("JPG");
-    let raw_dir = base.join("RAW");
+type OnProgress<'a> = dyn FnMut(ArchiveProgress) + 'a;
 
-    // Create subdirectories
-    fs::create_dir_all(&jpg_dir).map_err(|e| format!("Failed to create JPG dir: {}", e))?;
-    fs::create_dir_all(&raw_dir).map_err(|e| format!("Failed to create RAW dir: {}", e))?;
+struct ArchiveDirs {
+    jpg: PathBuf,
+    raw: PathBuf,
+}
+
+/// Move every non-deleted pair under `base` into `JPG/` and `RAW/`.
+/// `on_progress` is called once per pair whose primary file exists.
+fn archive_pairs(
+    base: &Path,
+    pairs: &[ArchivePairInput],
+    on_progress: &mut OnProgress,
+) -> Result<ArchiveResult, String> {
+    let dirs = ArchiveDirs {
+        jpg: base.join("JPG"),
+        raw: base.join("RAW"),
+    };
+    fs::create_dir_all(&dirs.jpg).map_err(|e| format!("Failed to create JPG dir: {}", e))?;
+    fs::create_dir_all(&dirs.raw).map_err(|e| format!("Failed to create RAW dir: {}", e))?;
 
     let total = pairs.len();
     let mut moved_count: usize = 0;
 
     for (i, pair) in pairs.iter().enumerate() {
-        // Only archive non-deleted pairs
         if pair.status == "deleted" {
             continue;
         }
-
-        let is_raw_preview = pair.source == PhotoSource::RawPreview;
-
-        if is_raw_preview {
-            // RAW Only: move RAW to RAW/, move preview JPG to JPG/
-            // (so re-opening folder later creates a proper JPG+RAW pair)
-
-            // Move RAW first
-            if let Some(raw_path_str) = &pair.raw_path {
-                let raw_path = Path::new(raw_path_str);
-                if raw_path.exists() {
-                    let filename = raw_path.file_name().unwrap_or_default();
-
-                    // Emit progress with RAW filename
-                    let _ = app.emit(
-                        "archive-progress",
-                        ArchiveProgress {
-                            current: i + 1,
-                            total,
-                            current_file: filename.to_string_lossy().to_string(),
-                        },
-                    );
-
-                    if !is_already_in_dir(raw_path, &raw_dir) {
-                        let dest = unique_path(&raw_dir.join(filename));
-                        move_file(raw_path, &dest)?;
-                        moved_count += 1;
-                    }
-                }
-            }
-
-            // Move preview JPG to JPG/ (so user sees it paired next time)
-            let jpg_path = Path::new(&pair.jpg_path);
-            if jpg_path.exists() {
-                // Use the RAW stem with .jpg extension for the destination
-                let dest_name = if let Some(raw_path_str) = &pair.raw_path {
-                    let raw_stem = Path::new(raw_path_str)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("preview");
-                    format!("{}.jpg", raw_stem)
-                } else {
-                    jpg_path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string()
-                };
-
-                if !is_already_in_dir(jpg_path, &jpg_dir) {
-                    let dest = unique_path(&jpg_dir.join(&dest_name));
-                    // Copy rather than rename since it's a temp file
-                    fs::copy(jpg_path, &dest)
-                        .map_err(|e| format!("Failed to copy preview JPG: {}", e))?;
-                    // Clean up the temp preview
-                    let _ = fs::remove_file(jpg_path);
-                    moved_count += 1;
-                }
-            }
-
-            // Move XMP sidecars to RAW/ (they belong with the RAW file)
-            for xmp_path_str in &pair.xmp_paths {
-                let xmp_path = Path::new(xmp_path_str);
-                if xmp_path.exists() && !is_already_in_dir(xmp_path, &raw_dir) {
-                    let xmp_filename = xmp_path.file_name().unwrap_or_default();
-                    let dest = unique_path(&raw_dir.join(xmp_filename));
-                    move_file(xmp_path, &dest)?;
-                }
-            }
+        let mut report = |file: &Path| on_progress(progress(i + 1, total, file));
+        moved_count += if pair.source == PhotoSource::RawPreview {
+            archive_raw_preview_pair(pair, &dirs, &mut report)?
         } else {
-            // Normal: move JPG to JPG/, RAW to RAW/
-            let jpg_path = Path::new(&pair.jpg_path);
-            if jpg_path.exists() {
-                let filename = jpg_path.file_name().unwrap_or_default();
-
-                // Emit progress
-                let _ = app.emit(
-                    "archive-progress",
-                    ArchiveProgress {
-                        current: i + 1,
-                        total,
-                        current_file: filename.to_string_lossy().to_string(),
-                    },
-                );
-
-                // Skip if file is already in the target directory
-                if !is_already_in_dir(jpg_path, &jpg_dir) {
-                    let dest = unique_path(&jpg_dir.join(filename));
-                    move_file(jpg_path, &dest)?;
-                    moved_count += 1;
-                }
-            }
-
-            // Move RAW
-            if let Some(raw_path_str) = &pair.raw_path {
-                let raw_path = Path::new(raw_path_str);
-                if raw_path.exists() && !is_already_in_dir(raw_path, &raw_dir) {
-                    let filename = raw_path.file_name().unwrap_or_default();
-                    let dest = unique_path(&raw_dir.join(filename));
-                    move_file(raw_path, &dest)?;
-                    moved_count += 1;
-                }
-            }
-
-            // Move XMP sidecars: if RAW exists, follow RAW to RAW/; otherwise follow JPG to JPG/
-            let xmp_target_dir = if pair.raw_path.is_some() {
-                &raw_dir
-            } else {
-                &jpg_dir
-            };
-            for xmp_path_str in &pair.xmp_paths {
-                let xmp_path = Path::new(xmp_path_str);
-                if xmp_path.exists() && !is_already_in_dir(xmp_path, xmp_target_dir) {
-                    let xmp_filename = xmp_path.file_name().unwrap_or_default();
-                    let dest = unique_path(&xmp_target_dir.join(xmp_filename));
-                    move_file(xmp_path, &dest)?;
-                }
-            }
-        }
+            archive_normal_pair(pair, &dirs, &mut report)?
+        };
     }
 
     Ok(ArchiveResult {
         moved_count,
-        jpg_folder: jpg_dir.to_string_lossy().to_string(),
-        raw_folder: raw_dir.to_string_lossy().to_string(),
+        jpg_folder: dirs.jpg.to_string_lossy().to_string(),
+        raw_folder: dirs.raw.to_string_lossy().to_string(),
     })
+}
+
+fn progress(current: usize, total: usize, file: &Path) -> ArchiveProgress {
+    ArchiveProgress {
+        current,
+        total,
+        current_file: file
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+    }
+}
+
+/// RAW-only pair: RAW → RAW/, cached preview → JPG/ named after the RAW
+/// (so re-opening the folder later yields a proper JPG+RAW pair), XMP → RAW/.
+fn archive_raw_preview_pair(
+    pair: &ArchivePairInput,
+    dirs: &ArchiveDirs,
+    report: &mut dyn FnMut(&Path),
+) -> Result<usize, String> {
+    let mut moved = 0;
+
+    if let Some(raw) = pair.raw_path.as_deref().map(Path::new) {
+        if raw.exists() {
+            report(raw);
+            moved += usize::from(move_into(raw, &dirs.raw)?);
+        }
+    }
+
+    let preview = Path::new(&pair.jpg_path);
+    if preview.exists() && !is_already_in_dir(preview, &dirs.jpg) {
+        let dest = unique_path(&dirs.jpg.join(preview_dest_name(pair)));
+        // Copy rather than rename since it's a temp file
+        fs::copy(preview, &dest).map_err(|e| format!("Failed to copy preview JPG: {}", e))?;
+        // Clean up the temp preview
+        let _ = fs::remove_file(preview);
+        moved += 1;
+    }
+
+    move_all_into(&pair.xmp_paths, &dirs.raw)?;
+    Ok(moved)
+}
+
+/// Destination file name for a RAW-only pair's preview: `<raw stem>.jpg`.
+fn preview_dest_name(pair: &ArchivePairInput) -> String {
+    match &pair.raw_path {
+        Some(raw) => {
+            let stem = Path::new(raw).file_stem().and_then(|s| s.to_str());
+            format!("{}.jpg", stem.unwrap_or("preview"))
+        }
+        None => Path::new(&pair.jpg_path)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+    }
+}
+
+/// Normal pair: JPG → JPG/, RAW → RAW/. XMP follows the RAW if there is one,
+/// otherwise the JPG.
+fn archive_normal_pair(
+    pair: &ArchivePairInput,
+    dirs: &ArchiveDirs,
+    report: &mut dyn FnMut(&Path),
+) -> Result<usize, String> {
+    let mut moved = 0;
+
+    let jpg = Path::new(&pair.jpg_path);
+    if jpg.exists() {
+        report(jpg);
+        moved += usize::from(move_into(jpg, &dirs.jpg)?);
+    }
+
+    if let Some(raw) = pair.raw_path.as_deref().map(Path::new) {
+        moved += usize::from(move_into(raw, &dirs.raw)?);
+    }
+
+    let xmp_dir = if pair.raw_path.is_some() {
+        &dirs.raw
+    } else {
+        &dirs.jpg
+    };
+    move_all_into(&pair.xmp_paths, xmp_dir)?;
+    Ok(moved)
+}
+
+/// Move `src` into `dir` under a non-colliding name. Returns false (and does
+/// nothing) if `src` is missing or already in `dir`.
+fn move_into(src: &Path, dir: &Path) -> Result<bool, String> {
+    if !src.exists() || is_already_in_dir(src, dir) {
+        return Ok(false);
+    }
+    let name = src.file_name().unwrap_or_default();
+    move_file(src, &unique_path(&dir.join(name)))?;
+    Ok(true)
+}
+
+fn move_all_into(paths: &[String], dir: &Path) -> Result<(), String> {
+    for path in paths {
+        move_into(Path::new(path), dir)?;
+    }
+    Ok(())
 }
 
 /// Check if a file is already located inside the target directory
@@ -203,7 +203,7 @@ fn is_already_in_dir(file: &Path, dir: &Path) -> bool {
 }
 
 /// Generate a unique file path by appending _1, _2, etc. if file already exists
-fn unique_path(path: &Path) -> std::path::PathBuf {
+fn unique_path(path: &Path) -> PathBuf {
     if !path.exists() {
         return path.to_path_buf();
     }
