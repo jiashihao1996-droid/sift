@@ -6,14 +6,13 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
+import { IS_MAC } from '@/utils/platform'
 
 const KEY_ZOOM_STEP = 1.25
 
 export function useKeyboard() {
   const session = useSessionStore()
   const view = useViewStore()
-
-  const isMac = navigator.platform.toUpperCase().includes('MAC')
 
   function handleKeyDown(e: KeyboardEvent) {
     // Skip if in input/textarea
@@ -28,6 +27,20 @@ export function useKeyboard() {
 
     // Don't handle if summary card is open
     if (view.showSummaryCard) return
+
+    if (view.showShortcutHelp) {
+      if (e.key === 'Escape' || e.key === '?') {
+        e.preventDefault()
+        view.closeShortcutHelp()
+      }
+      return
+    }
+
+    if (e.key === '?') {
+      e.preventDefault()
+      view.openShortcutHelp()
+      return
+    }
 
     // ESC: compare mode > filter gallery
     if (e.key === 'Escape') {
@@ -46,7 +59,7 @@ export function useKeyboard() {
     // Don't handle other keys if filter gallery is open
     if (view.filterCategory) return
 
-    const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey
+    const isCtrlOrCmd = IS_MAC ? e.metaKey : e.ctrlKey
 
     // Cmd/Ctrl + Enter: open archive dialog
     if (isCtrlOrCmd && e.key === 'Enter') {
@@ -161,5 +174,5 @@ export function useKeyboard() {
     window.removeEventListener('keydown', handleKeyDown)
   })
 
-  return { isMac }
+  return { isMac: IS_MAC }
 }

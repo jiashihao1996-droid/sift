@@ -4,7 +4,7 @@
 // ============================================================
 
 import { computed } from 'vue'
-import { ArrowLeft, Info, Archive } from 'lucide-vue-next'
+import { ArrowLeft, Info, Archive, Keyboard } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 
@@ -84,7 +84,7 @@ function openArchive() {
       </span>
     </div>
 
-    <!-- Right: Archive + EXIF toggle -->
+    <!-- Right: Archive + shortcuts + EXIF toggle -->
     <div class="flex items-center gap-2">
       <button
         v-if="processedCount > 0"
@@ -100,7 +100,15 @@ function openArchive() {
         </span>
       </button>
       <button
+        class="p-1.5 rounded-lg transition-colors btn-spring hover:bg-white/10 text-sift-muted"
+        title="键盘快捷键 (?)"
+        @click="view.openShortcutHelp()"
+      >
+        <Keyboard :size="16" />
+      </button>
+      <button
         class="p-1.5 rounded-lg transition-colors btn-spring"
+        title="EXIF 信息 (I)"
         :class="
           view.showExifPanel
             ? 'bg-sift-accent/20 text-sift-accent'

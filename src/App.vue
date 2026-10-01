@@ -20,6 +20,7 @@ const FilterGallery = defineAsyncComponent(() => import('@/components/status/Fil
 const ExifPanel = defineAsyncComponent(() => import('@/components/exif/ExifPanel.vue'))
 const SummaryCard = defineAsyncComponent(() => import('@/components/summary/SummaryCard.vue'))
 const ArchiveDialog = defineAsyncComponent(() => import('@/components/archive/ArchiveDialog.vue'))
+const ShortcutHelp = defineAsyncComponent(() => import('@/components/help/ShortcutHelp.vue'))
 
 const view = useViewStore()
 useKeyboard()
@@ -89,6 +90,9 @@ watch(
 
           <!-- Archive Dialog -->
           <ArchiveDialog />
+
+          <!-- Keyboard Shortcut Reference -->
+          <ShortcutHelp />
 
           <!-- Toast Notifications -->
           <ToastNotification />

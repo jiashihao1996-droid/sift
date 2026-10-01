@@ -16,6 +16,7 @@ export const useViewStore = defineStore('view', () => {
   const showExifPanel = ref(false)
   const showArchiveDialog = ref(false)
   const showSummaryCard = ref(false)
+  const showShortcutHelp = ref(false)
 
   // Zoom state
   const zoomLevel = ref(1)
@@ -49,6 +50,14 @@ export const useViewStore = defineStore('view', () => {
 
   function toggleArchiveDialog() {
     showArchiveDialog.value = !showArchiveDialog.value
+  }
+
+  function openShortcutHelp() {
+    showShortcutHelp.value = true
+  }
+
+  function closeShortcutHelp() {
+    showShortcutHelp.value = false
   }
 
   function resetZoom() {
@@ -130,6 +139,7 @@ export const useViewStore = defineStore('view', () => {
     showExifPanel,
     showArchiveDialog,
     showSummaryCard,
+    showShortcutHelp,
     zoomLevel,
     zoomOffsetX,
     zoomOffsetY,
@@ -145,6 +155,8 @@ export const useViewStore = defineStore('view', () => {
     setView,
     toggleExifPanel,
     toggleArchiveDialog,
+    openShortcutHelp,
+    closeShortcutHelp,
     resetZoom,
     setZoom,
     zoomToActualSize,
