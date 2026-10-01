@@ -14,6 +14,18 @@ import {
   type SlideDirection,
 } from '@/types'
 import { scanFolder, generateThumbnails, cleanupCache } from '@/services/tauriCommands'
+import {
+  countByStatus,
+  indexAfterMark,
+  planBatches,
+  progressPercent,
+  toggledStatus,
+  type MarkType,
+} from '@/core/review'
+
+/** First thumbnail batch covers the visible viewport; the rest stream in chunks */
+const THUMBNAIL_FIRST_BATCH = 10
+const THUMBNAIL_CHUNK_SIZE = 50
 
 export const useSessionStore = defineStore('session', () => {
   // ---- State ----
@@ -32,41 +44,27 @@ export const useSessionStore = defineStore('session', () => {
 
   const totalCount = computed(() => pairs.value.length)
 
-  const starredCount = computed(
-    () => pairs.value.filter((p) => p.status === PhotoStatus.Starred).length,
-  )
-  const deletedCount = computed(
-    () => pairs.value.filter((p) => p.status === PhotoStatus.Deleted).length,
-  )
-  const skippedCount = computed(
-    () => pairs.value.filter((p) => p.status === PhotoStatus.Skipped).length,
-  )
-  const unprocessedCount = computed(
-    () => pairs.value.filter((p) => p.status === PhotoStatus.Unprocessed).length,
-  )
+  const counts = computed(() => countByStatus(pairs.value))
+  const starredCount = computed(() => counts.value[PhotoStatus.Starred])
+  const deletedCount = computed(() => counts.value[PhotoStatus.Deleted])
+  const skippedCount = computed(() => counts.value[PhotoStatus.Skipped])
+  const unprocessedCount = computed(() => counts.value[PhotoStatus.Unprocessed])
 
   /** Active (non-deleted) pairs for browsing */
   const activePairs = computed(() => pairs.value.filter((p) => p.status !== PhotoStatus.Deleted))
 
   /** Progress percentage */
-  const progress = computed(() => {
-    if (totalCount.value === 0) return 0
-    const processed = starredCount.value + deletedCount.value + skippedCount.value
-    return Math.round((processed / totalCount.value) * 100)
-  })
+  const progress = computed(() => progressPercent(counts.value))
 
   const isLastPhoto = computed(() => currentIndex.value >= pairs.value.length - 1)
 
-  const hasReachedEnd = computed(() => {
-    // All photos have been processed
-    return unprocessedCount.value === 0
-  })
+  /** All photos have been processed */
+  const hasReachedEnd = computed(() => unprocessedCount.value === 0)
 
   // ---- Actions ----
 
-  /** Apply thumbnail results to pairs (Map indexed, O(n)) */
+  /** Apply thumbnail results to pairs in place (Map indexed, O(n)) */
   function applyThumbnails(thumbs: ThumbnailResult[]) {
-    console.log(`[Sift] Applying ${thumbs.length} thumbnails`)
     const idToIndex = new Map<string, number>()
     pairs.value.forEach((p, i) => idToIndex.set(p.id, i))
     for (const thumb of thumbs) {
@@ -93,32 +91,22 @@ export const useSessionStore = defineStore('session', () => {
     }
 
     // 分批生成缩略图（后台异步，不阻塞 startScan 返回）
-    // 策略：首批 10 张快速处理（覆盖当前视口），剩余每 50 张一批流式处理
     if (pairs.value.length > 0) {
-      isGeneratingThumbnails.value = true
-      const allInputs = pairs.value.map((p) => ({ id: p.id, jpgPath: p.jpgPath }))
-      const FIRST_BATCH = 10
-      const CHUNK_SIZE = 50
+      void generateAllThumbnails(pairs.value.map((p) => ({ id: p.id, jpgPath: p.jpgPath })))
+    }
+  }
 
-      ;(async () => {
-        try {
-          // 优先处理首批，快速让视口内缩略图可见
-          const firstBatch = allInputs.slice(0, FIRST_BATCH)
-          const firstThumbs = await generateThumbnails(firstBatch)
-          applyThumbnails(firstThumbs)
-
-          // 剩余分批流式处理，每批完成立即更新 UI
-          for (let i = FIRST_BATCH; i < allInputs.length; i += CHUNK_SIZE) {
-            const chunk = allInputs.slice(i, i + CHUNK_SIZE)
-            const chunkThumbs = await generateThumbnails(chunk)
-            applyThumbnails(chunkThumbs)
-          }
-        } catch (e) {
-          console.warn('Thumbnail generation failed:', e)
-        } finally {
-          isGeneratingThumbnails.value = false
-        }
-      })()
+  async function generateAllThumbnails(inputs: { id: string; jpgPath: string }[]) {
+    isGeneratingThumbnails.value = true
+    try {
+      // 每批完成立即更新 UI
+      for (const batch of planBatches(inputs, THUMBNAIL_FIRST_BATCH, THUMBNAIL_CHUNK_SIZE)) {
+        applyThumbnails(await generateThumbnails(batch))
+      }
+    } catch (e) {
+      console.warn('Thumbnail generation failed:', e)
+    } finally {
+      isGeneratingThumbnails.value = false
     }
   }
 
@@ -130,27 +118,11 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** Navigate to the next unprocessed photo (skipping already marked ones) */
-  function goNextUnprocessed() {
-    const len = pairs.value.length
-    // Search forward from current position
-    for (let i = currentIndex.value + 1; i < len; i++) {
-      if (pairs.value[i].status === PhotoStatus.Unprocessed) {
-        slideDirection.value = 'left'
-        currentIndex.value = i
-        return
-      }
-    }
-    // If nothing found ahead, wrap around and search from the beginning
-    for (let i = 0; i < currentIndex.value; i++) {
-      if (pairs.value[i].status === PhotoStatus.Unprocessed) {
-        slideDirection.value = 'left'
-        currentIndex.value = i
-        return
-      }
-    }
-    // No unprocessed photos left — just go to next sequentially
-    goNext()
+  /** Move to `index`, sliding in `direction`; no-op if already there */
+  function moveTo(index: number, direction: SlideDirection) {
+    if (index === currentIndex.value) return
+    slideDirection.value = direction
+    currentIndex.value = index
   }
 
   /** Navigate to previous photo */
@@ -169,79 +141,40 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** Toggle star on current photo */
-  function markStar(): 'starred' | 'unstarred' {
+  /**
+   * Toggle a mark on the current photo, then advance.
+   * Returns whether the photo ended up marked, or null if there is no photo.
+   * Marking records an undo entry; toggling a mark off does not.
+   */
+  function toggleMark(type: MarkType): boolean | null {
     const idx = currentIndex.value
     const pair = pairs.value[idx]
-    if (!pair) return 'starred'
+    if (!pair) return null
 
-    // Toggle: if already starred, revert to unprocessed
-    if (pair.status === PhotoStatus.Starred) {
-      pairs.value[idx] = { ...pair, status: PhotoStatus.Unprocessed }
-      goNextUnprocessed()
-      return 'unstarred'
+    const status = toggledStatus(pair.status, type)
+    const isMarked = status !== PhotoStatus.Unprocessed
+    if (isMarked) {
+      undoStack.value.push({ type, index: idx, previousStatus: pair.status })
+      markActionCount.value++
     }
+    pairs.value[idx] = { ...pair, status }
+    moveTo(indexAfterMark(pairs.value, idx), 'left')
+    return isMarked
+  }
 
-    undoStack.value.push({
-      type: 'star',
-      index: idx,
-      previousStatus: pair.status,
-    })
-
-    pairs.value[idx] = { ...pair, status: PhotoStatus.Starred }
-    markActionCount.value++
-    goNextUnprocessed()
-    return 'starred'
+  /** Toggle star on current photo */
+  function markStar(): 'starred' | 'unstarred' {
+    return toggleMark('star') === false ? 'unstarred' : 'starred'
   }
 
   /** Toggle delete on current photo (only marks status, actual deletion happens during archive) */
   function markDelete(): 'deleted' | 'undeleted' {
-    const idx = currentIndex.value
-    const pair = pairs.value[idx]
-    if (!pair) return 'deleted'
-
-    // Toggle: if already deleted, revert to unprocessed
-    if (pair.status === PhotoStatus.Deleted) {
-      pairs.value[idx] = { ...pair, status: PhotoStatus.Unprocessed }
-      goNextUnprocessed()
-      return 'undeleted'
-    }
-
-    undoStack.value.push({
-      type: 'delete',
-      index: idx,
-      previousStatus: pair.status,
-    })
-
-    pairs.value[idx] = { ...pair, status: PhotoStatus.Deleted }
-    markActionCount.value++
-    goNextUnprocessed()
-    return 'deleted'
+    return toggleMark('delete') === false ? 'undeleted' : 'deleted'
   }
 
   /** Toggle skip on current photo */
   function markSkip(): 'skipped' | 'unskipped' {
-    const idx = currentIndex.value
-    const pair = pairs.value[idx]
-    if (!pair) return 'skipped'
-
-    // Toggle: if already skipped, revert to unprocessed
-    if (pair.status === PhotoStatus.Skipped) {
-      pairs.value[idx] = { ...pair, status: PhotoStatus.Unprocessed }
-      goNextUnprocessed()
-      return 'unskipped'
-    }
-
-    undoStack.value.push({
-      type: 'skip',
-      index: idx,
-      previousStatus: pair.status,
-    })
-
-    pairs.value[idx] = { ...pair, status: PhotoStatus.Skipped }
-    markActionCount.value++
-    goNextUnprocessed()
-    return 'skipped'
+    return toggleMark('skip') === false ? 'unskipped' : 'skipped'
   }
 
   /** Undo last action */
