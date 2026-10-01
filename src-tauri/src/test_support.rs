@@ -6,6 +6,7 @@
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageBuffer, Rgb};
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 /// Encode a deterministic noise image as a baseline JPEG (no APP1/EXIF).
@@ -77,6 +78,21 @@ pub fn opaque_raw_with_preview(preview: &[u8]) -> Vec<u8> {
     out.extend_from_slice(preview);
     out.extend_from_slice(&[0xAB; 4096]);
     out
+}
+
+/// Orientation as seen by an independent parser (kamadak-exif), used to
+/// cross-check our own byte-level APP1 handling.
+pub fn exif_orientation(jpeg: &[u8]) -> Option<u16> {
+    let exif = exif::Reader::new()
+        .read_from_container(&mut Cursor::new(jpeg))
+        .ok()?;
+    match exif
+        .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
+        .value
+    {
+        exif::Value::Short(ref v) => v.first().copied(),
+        _ => None,
+    }
 }
 
 pub fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
