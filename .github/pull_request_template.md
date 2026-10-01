@@ -17,11 +17,21 @@
 -
 -
 
-## 测试
+## 检查
 
-- [ ] 前端编译通过（`npm run build`）
-- [ ] Rust 编译通过（`cd src-tauri && cargo build`）
-- [ ] 功能已在本地测试
+- [ ] `npm run check` 通过（typecheck + lint + format + test）
+- [ ] `npm run check:rust` 通过（fmt + clippy + test）
+- [ ] `CHANGELOG.md` 的 `[Unreleased]` 已更新（纯内部改动可略）
+- [ ] 改动了删除/归档/导出/扫描：已附带 Rust 测试（临时目录）
+
+## 冒烟测试（涉及对应功能时勾选）
+
+- [ ] RAW+JPG 混合目录：扫描、标记、删除、撤销
+- [ ] 纯 RAW 目录：预览方向正确
+- [ ] 大目录（2000+ 张）：缩略图、切图流畅
+- [ ] 对比模式
+- [ ] 归档 / 导出结果正确，原目录无残留或误删
+- [ ] macOS / Windows 均验证（平台相关改动）
 
 ## 截图
 
