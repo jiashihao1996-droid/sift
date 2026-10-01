@@ -69,41 +69,12 @@ fi
 
 # ---- 5. 更新版本号 ----
 info "更新版本号为 ${VERSION} ..."
-
-# package.json
-if command -v node >/dev/null 2>&1; then
-  node -e "
-    const fs = require('fs');
-    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-    pkg.version = '${VERSION}';
-    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-  "
-else
-  # fallback: sed
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" package.json
-fi
-ok "package.json -> ${VERSION}"
-
-# tauri.conf.json
-if command -v node >/dev/null 2>&1; then
-  node -e "
-    const fs = require('fs');
-    const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-    conf.version = '${VERSION}';
-    fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
-  "
-else
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" src-tauri/tauri.conf.json
-fi
-ok "src-tauri/tauri.conf.json -> ${VERSION}"
-
-# Cargo.toml (只改 [package] 下的第一个 version)
-sed -i '' '0,/^version = ".*"/s/^version = ".*"/version = "'"${VERSION}"'"/' src-tauri/Cargo.toml
-ok "src-tauri/Cargo.toml -> ${VERSION}"
+node scripts/sync-version.mjs "$VERSION"
 
 # ---- 6. 同步 Cargo.lock ----
 info "同步 Cargo.lock ..."
-(cd src-tauri && cargo check --quiet 2>/dev/null) || warn "cargo check 失败，Cargo.lock 可能未更新"
+(cd src-tauri && cargo check --quiet) || error "cargo check 失败，Cargo.lock 未更新"
+node scripts/sync-version.mjs --check
 ok "Cargo.lock 已同步"
 
 # ---- 7. 显示变更摘要 ----

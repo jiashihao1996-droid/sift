@@ -26,5 +26,9 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ['scripts/**', '*.config.{js,ts}'],
+    languageOptions: { globals: globals.node },
+  },
   prettier,
 )
