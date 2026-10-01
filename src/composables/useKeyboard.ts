@@ -7,6 +7,8 @@ import { onMounted, onUnmounted } from 'vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 
+const KEY_ZOOM_STEP = 1.25
+
 export function useKeyboard() {
   const session = useSessionStore()
   const view = useViewStore()
@@ -98,6 +100,9 @@ export function useKeyboard() {
           e.preventDefault()
           session.undo()
           view.showToast('已撤销 ↩️', 'undo')
+        } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault()
+          view.toggleActualSize()
         }
         break
 
@@ -132,20 +137,18 @@ export function useKeyboard() {
 
       case '1':
         e.preventDefault()
-        view.zoomLevel = 1
-        view.zoomOffsetX = 0
-        view.zoomOffsetY = 0
+        view.zoomToActualSize()
         break
 
       case '=':
       case '+':
         e.preventDefault()
-        view.zoomLevel = Math.min(view.zoomLevel * 1.25, 10)
+        view.setZoom(view.zoomLevel * KEY_ZOOM_STEP)
         break
 
       case '-':
         e.preventDefault()
-        view.zoomLevel = Math.max(view.zoomLevel / 1.25, 0.5)
+        view.setZoom(view.zoomLevel / KEY_ZOOM_STEP)
         break
     }
   }

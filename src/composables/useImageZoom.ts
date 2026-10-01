@@ -4,9 +4,19 @@
 // Container flex centers the image; no manual left/top calc
 // ============================================================
 
-import { ref, computed, watch, onMounted, onUnmounted, type Ref } from 'vue'
+import { ref, computed, watch, watchEffect, onMounted, onUnmounted, type Ref } from 'vue'
+import { useDevicePixelRatio } from '@vueuse/core'
 import { useViewStore } from '@/stores/viewStore'
 import { useSessionStore } from '@/stores/sessionStore'
+import {
+  actualSizeZoom,
+  fitWidth as computeFitWidth,
+  paneAnchor,
+  zoomPercent as computeZoomPercent,
+  type Point,
+} from '@/utils/zoom'
+
+const ZOOM_TRANSITION = '260ms cubic-bezier(0.22, 1, 0.36, 1)'
 
 export function useImageZoom(
   containerRef: Ref<HTMLElement | null>,
@@ -57,84 +67,90 @@ export function useImageZoom(
     }
   })
 
-  /** Base fit width: image scaled to fit container at zoom=1 (rotation-aware, compare-aware) */
-  const fitWidth = computed(() => {
-    // In compare mode, each image occupies half of the container width
-    const cw = view.compareMode ? containerWidth.value / 2 : containerWidth.value
-    const ch = containerHeight.value
-    const nw = naturalWidth.value
-    const nh = naturalHeight.value
-    if (!cw || !ch || !nw || !nh) return 0
+  const dpr = useDevicePixelRatio().pixelRatio
 
-    // When rotated 90°/270°, image's bounding box is [nh x nw]
-    const swapped = view.rotation % 180 !== 0
-    const ew = swapped ? nh : nw
-    const eh = swapped ? nw : nh
+  /** Fit width of the <img> at zoom=1 (rotation-aware, compare-aware: each pane is half width) */
+  const fitWidth = computed(() =>
+    computeFitWidth(
+      { width: naturalWidth.value, height: naturalHeight.value },
+      {
+        width: view.compareMode ? containerWidth.value / 2 : containerWidth.value,
+        height: containerHeight.value,
+      },
+      view.rotation,
+    ),
+  )
 
-    const imgRatio = ew / eh
-    const containerRatio = cw / ch
-
-    // Effective bounding-box width that fits the container
-    const fitW = imgRatio > containerRatio ? cw : ch * imgRatio
-
-    // Return <img>'s own (unrotated) width:
-    // when swapped, the <img>'s width corresponds to bounding-box's height
-    return swapped ? fitW * (nw / nh) : fitW
+  watchEffect(() => {
+    view.actualZoom = actualSizeZoom(naturalWidth.value, fitWidth.value, dpr.value)
   })
 
-  /** Image style: CSS max-constraints when unrotated at zoom=1, explicit width otherwise */
+  /** Explicit width so zoom renders at native resolution; CSS constraints until measured */
   const imageStyle = computed(() => {
     const fw = fitWidth.value
     const rot = view.rotation
-    const rotated = rot % 180 !== 0
-    const tr = isDragging.value ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+    const tr = isDragging.value ? 'none' : `transform ${ZOOM_TRANSITION}, width ${ZOOM_TRANSITION}`
 
-    // Unrotated zoom=1, or fitWidth not measured yet: pure CSS max-constraints.
-    if ((!rotated && view.zoomLevel === 1) || !fw) {
+    if (!fw) {
       return {
         maxWidth: '100%',
         maxHeight: '100%',
         width: 'auto',
-        transform: `translate(0px, 0px) rotate(${rot}deg)`,
+        transform: `rotate(${rot}deg)`,
         transition: tr,
         willChange: 'auto' as const,
       }
     }
 
-    // Rotated or zoomed: explicit width so rotation never overflows & zoom uses native res
-    const w = fw * view.zoomLevel
     return {
       maxWidth: 'none',
       maxHeight: 'none',
-      width: `${w}px`,
+      width: `${fw * view.zoomLevel}px`,
       transform: `translate(${view.zoomOffsetX * view.zoomLevel}px, ${view.zoomOffsetY * view.zoomLevel}px) rotate(${rot}deg)`,
       transition: tr,
       willChange: view.zoomLevel === 1 ? ('auto' as const) : ('transform' as const),
     }
   })
 
-  /** Zoom percentage for display (relative to fit size) */
-  const zoomPercent = computed(() => {
-    return Math.round(view.zoomLevel * 100)
-  })
+  /** Zoom as a percentage of actual image pixels */
+  const zoomPercent = computed(() => computeZoomPercent(view.zoomLevel, view.actualZoom))
 
   const isZoomed = computed(() => view.zoomLevel !== 1)
+
+  /** Last pointer position in client coords; the anchor is re-derived when the layout changes */
+  let lastPointer: Point | null = null
+
+  function anchorAt(client: Point | null): Point | null {
+    const el = containerRef.value
+    if (!el || !client) return null
+    const rect = el.getBoundingClientRect()
+    return paneAnchor(
+      { x: client.x - rect.left, y: client.y - rect.top },
+      { width: rect.width, height: rect.height },
+      view.compareMode,
+    )
+  }
+
+  function anchorFromEvent(e: MouseEvent): Point | null {
+    return anchorAt({ x: e.clientX, y: e.clientY })
+  }
+
+  function refreshZoomAnchor() {
+    view.zoomAnchor = anchorAt(lastPointer) ?? { x: 0, y: 0 }
+  }
+
+  watch([() => view.compareMode, containerWidth, containerHeight], refreshZoomAnchor, {
+    flush: 'post',
+  })
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault()
     const delta = e.deltaY > 0 ? 0.9 : 1.1
-    const newZoom = Math.max(0.5, Math.min(10, view.zoomLevel * delta))
-    view.zoomLevel = newZoom
+    view.setZoom(view.zoomLevel * delta, anchorFromEvent(e) ?? undefined)
   }
 
-  function handleDoubleClick() {
-    if (view.zoomLevel === 1) {
-      view.zoomLevel = 2
-    } else {
-      view.zoomLevel = 1
-      view.zoomOffsetX = 0
-      view.zoomOffsetY = 0
-    }
+  function handleDoubleClick(e: MouseEvent) {
+    view.toggleActualSize(anchorFromEvent(e) ?? undefined)
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -146,6 +162,8 @@ export function useImageZoom(
   }
 
   function handleMouseMove(e: MouseEvent) {
+    lastPointer = { x: e.clientX, y: e.clientY }
+    refreshZoomAnchor()
     if (!isDragging.value) return
     const dx = (e.clientX - dragStart.value.x) / view.zoomLevel
     const dy = (e.clientY - dragStart.value.y) / view.zoomLevel
