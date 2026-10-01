@@ -14,7 +14,7 @@ import {
   paneAnchor,
   zoomPercent as computeZoomPercent,
   type Point,
-} from '@/utils/zoom'
+} from '@/core/zoom'
 
 const ZOOM_TRANSITION = '260ms cubic-bezier(0.22, 1, 0.36, 1)'
 

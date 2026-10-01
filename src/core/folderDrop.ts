@@ -2,7 +2,7 @@
 // Sift - Resolve what to scan from a drag-and-drop payload
 // ============================================================
 
-/** Mirrors JPG_EXTENSIONS + RAW_EXTENSIONS in the Rust file_types.rs */
+/** Mirrors JPG_EXTENSIONS + RAW_EXTENSIONS in src-tauri/src/catalog/file_types.rs */
 // prettier-ignore
 const PHOTO_EXTENSIONS = new Set([
   'jpg', 'jpeg',

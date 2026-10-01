@@ -7,7 +7,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { AppView } from '@/types'
 import { PhotoStatus } from '@/types'
-import { clampZoom, isActualSize, zoomAt, type Point } from '@/utils/zoom'
+import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
 
 const PANE_CENTER: Point = { x: 0, y: 0 }
 

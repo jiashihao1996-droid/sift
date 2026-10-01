@@ -6,7 +6,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import { resolveDropTarget } from '@/utils/folderDrop'
+import { resolveDropTarget } from '@/core/folderDrop'
 
 export function useFolderDrop(onDrop: (folder: string) => void) {
   const isDragOver = ref(false)
