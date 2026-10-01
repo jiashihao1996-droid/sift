@@ -10,6 +10,14 @@ import { FolderOpen, Camera, Image, Layers, ArrowRight } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getErrorMessage } from '@/utils/error'
+import { useFolderDrop } from '@/composables/useFolderDrop'
+import {
+  addRecentFolder,
+  loadRecentFolders,
+  removeRecentFolder,
+  saveRecentFolders,
+} from '@/utils/recentFolders'
+import RecentFolders from './RecentFolders.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -23,6 +31,27 @@ function openReleases() {
 const isHovering = ref(false)
 const scanComplete = ref(false)
 const scanError = ref('')
+const recentFolders = ref<string[]>(loadRecentFolders())
+
+const { isDragOver } = useFolderDrop(openFolder)
+
+function setRecentFolders(list: string[]) {
+  recentFolders.value = list
+  saveRecentFolders(list)
+}
+
+async function openFolder(path: string) {
+  if (session.isScanning) return
+  scanError.value = ''
+  scanComplete.value = false
+  try {
+    await session.startScan(path)
+    scanComplete.value = true
+    setRecentFolders(addRecentFolder(recentFolders.value, path))
+  } catch (e) {
+    scanError.value = getErrorMessage(e, '扫描文件夹失败')
+  }
+}
 
 async function selectFolder() {
   try {
@@ -31,15 +60,11 @@ async function selectFolder() {
       multiple: false,
       title: '选择照片文件夹',
     })
-
     if (selected && typeof selected === 'string') {
-      scanError.value = ''
-      scanComplete.value = false
-      await session.startScan(selected)
-      scanComplete.value = true
+      await openFolder(selected)
     }
   } catch (e) {
-    scanError.value = getErrorMessage(e, '扫描文件夹失败')
+    scanError.value = getErrorMessage(e, '打开文件夹选择框失败')
   }
 }
 
@@ -185,7 +210,7 @@ function startCulling() {
         <button
           class="w-full border-2 border-dashed rounded-2xl p-16 flex flex-col items-center gap-4 transition-all duration-300 cursor-pointer group bg-sift-surface/10"
           :class="[
-            isHovering
+            isHovering || isDragOver
               ? 'border-sift-accent bg-sift-accent/5 scale-[1.01]'
               : 'border-sift-border hover:border-sift-muted/60',
           ]"
@@ -196,10 +221,12 @@ function startCulling() {
           <FolderOpen
             :size="48"
             class="transition-colors duration-300"
-            :class="isHovering ? 'text-sift-accent' : 'text-sift-muted'"
+            :class="isHovering || isDragOver ? 'text-sift-accent' : 'text-sift-muted'"
           />
           <div class="text-center">
-            <p class="text-sm text-sift-text mb-1">选择照片文件夹</p>
+            <p class="text-sm text-sift-text mb-1">
+              {{ isDragOver ? '松开以打开' : '选择或拖入照片文件夹' }}
+            </p>
             <p class="text-xs text-sift-muted">支持散落图片或已归档的 JPG / RAW 子文件夹</p>
           </div>
         </button>
@@ -208,6 +235,12 @@ function startCulling() {
         <p v-if="scanError" class="text-sift-delete text-xs text-center mt-3">
           {{ scanError }}
         </p>
+
+        <RecentFolders
+          :folders="recentFolders"
+          @open="openFolder"
+          @remove="setRecentFolders(removeRecentFolder(recentFolders, $event))"
+        />
       </div>
 
       <!-- Supported formats hint -->
