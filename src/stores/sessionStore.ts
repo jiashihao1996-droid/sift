@@ -88,8 +88,6 @@ export const useSessionStore = defineStore('session', () => {
       pairs.value = result.pairs
       currentIndex.value = 0
       undoStack.value = []
-    } catch (e) {
-      throw e
     } finally {
       isScanning.value = false // 扫描完立即停止转圈，不等缩略图
     }

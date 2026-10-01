@@ -4,7 +4,7 @@
 // Preloads ±2 adjacent images
 // ============================================================
 
-import { ref, watch, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { useSessionStore } from '@/stores/sessionStore'
 

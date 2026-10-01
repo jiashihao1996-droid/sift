@@ -56,7 +56,7 @@ function openArchive() {
     </div>
 
     <!-- Center: file name + RAW badge -->
-    <div class="flex items-center gap-2" v-if="displayPair">
+    <div v-if="displayPair" class="flex items-center gap-2">
       <span class="text-sm text-white/90 font-medium truncate max-w-[300px]">
         {{
           displayPair.source === 'rawPreview' && displayPair.rawPath

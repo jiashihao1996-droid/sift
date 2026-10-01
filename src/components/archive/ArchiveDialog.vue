@@ -5,12 +5,13 @@
 
 import { ref, computed } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FolderOpen, CheckCircle, Download, Archive } from 'lucide-vue-next'
+import { CheckCircle, Download, Archive } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { archivePhotos, exportPicks, deletePair, onArchiveProgress } from '@/services/tauriCommands'
 import { PhotoStatus, type ArchiveProgress } from '@/types'
 import RollingNumber from '@/components/status/RollingNumber.vue'
+import { getErrorMessage } from '@/utils/error'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -21,7 +22,6 @@ const isComplete = ref(false)
 const archiveProgress = ref(0)
 const archiveTotal = ref(0)
 const currentFile = ref('')
-const exportFolder = ref('')
 const resultMessage = ref('')
 
 const survivingPairs = computed(() =>
@@ -76,8 +76,8 @@ async function handleArchive() {
     } finally {
       unlisten()
     }
-  } catch (e: any) {
-    resultMessage.value = `归档失败：${e.message || e}`
+  } catch (e) {
+    resultMessage.value = `归档失败：${getErrorMessage(e)}`
   } finally {
     isArchiving.value = false
   }
@@ -104,8 +104,8 @@ async function handleExport() {
     const result = await exportPicks(pairsData, selected)
     resultMessage.value = `已导出 ${result.exportedCount} 个标记文件至 ${result.exportFolder}`
     isComplete.value = true
-  } catch (e: any) {
-    resultMessage.value = `导出失败：${e.message || e}`
+  } catch (e) {
+    resultMessage.value = `导出失败：${getErrorMessage(e)}`
   } finally {
     isExporting.value = false
   }
@@ -134,7 +134,9 @@ const progressPercent = computed(() => {
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="close" />
 
       <!-- Dialog -->
+      <!-- TODO: inner Transition never toggles, so the modal animation likely never plays -->
       <Transition name="modal">
+        <!-- eslint-disable-next-line vue/require-toggle-inside-transition -->
         <div
           class="relative max-w-lg w-full mx-4 p-6 rounded-2xl bg-sift-surface border border-white/5 shadow-2xl"
         >

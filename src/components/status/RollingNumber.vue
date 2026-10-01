@@ -3,7 +3,7 @@
 // RollingNumber - Digit-by-digit rolling animation
 // ============================================================
 
-import { computed, watch, ref } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps<{
   value: number
