@@ -27,7 +27,7 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
             std::process::Command::new("explorer")
-                .arg(format!("/select,\"{}\"", &path))
+                .arg(format!("/select,\"{}\"", path))
                 .status()
                 .map_err(|e| format!("Failed to open Explorer: {}", e))?;
         }
