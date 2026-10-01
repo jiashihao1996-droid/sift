@@ -9,6 +9,7 @@ import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { FolderOpen, Camera, Image, Layers, ArrowRight } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
+import { getErrorMessage } from '@/utils/error'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -37,8 +38,8 @@ async function selectFolder() {
       await session.startScan(selected)
       scanComplete.value = true
     }
-  } catch (e: any) {
-    scanError.value = e.message || '扫描文件夹失败'
+  } catch (e) {
+    scanError.value = getErrorMessage(e, '扫描文件夹失败')
   }
 }
 

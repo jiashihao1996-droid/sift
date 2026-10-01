@@ -4,7 +4,7 @@
 // ============================================================
 
 import { ref, watch } from 'vue'
-import { X, Camera, Aperture, Clock, Maximize } from 'lucide-vue-next'
+import { X, Camera, Aperture, Clock } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { readExif } from '@/services/tauriCommands'
@@ -33,7 +33,7 @@ watch(
     isLoading.value = true
     try {
       exifData.value = await readExif(pair.jpgPath, pair.rawPath, pair.source)
-    } catch (e) {
+    } catch {
       exifData.value = null
     } finally {
       isLoading.value = false
