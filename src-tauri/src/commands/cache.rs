@@ -3,15 +3,14 @@
 // Removes temporary thumbnail and RAW preview cache directories
 // ============================================================
 
+use crate::media::cache_dirs;
 use std::env;
 use std::fs;
-
-const CACHE_DIRS: [&str; 2] = ["sift-thumbnails", "sift-raw-previews"];
 
 /// Synchronous cache cleanup — safe to call from startup and window close events
 pub fn cleanup_cache_sync() {
     let temp = env::temp_dir();
-    for dir_name in &CACHE_DIRS {
+    for dir_name in &cache_dirs::ALL {
         let dir = temp.join(dir_name);
         if dir.exists() {
             if let Err(e) = fs::remove_dir_all(&dir) {

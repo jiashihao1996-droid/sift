@@ -4,6 +4,14 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Auto-merge dispatches this on main after merging: merges made with
+  # GITHUB_TOKEN don't trigger push events, and main must save the cache
+  workflow_dispatch:
+
+env:
+  # CI never needs debug info, and generating it is slowest on Windows
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -49,6 +57,9 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          # PRs can only restore caches saved on main; saving per-PR caches
+          # just burns minutes in the post step and the 10 GB cache quota
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # tauri::generate_context! embeds the frontend, so dist/ must exist
       - name: Build frontend
