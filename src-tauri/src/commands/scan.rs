@@ -5,9 +5,9 @@
 // Now supports RAW-only files with embedded JPEG preview extraction
 // ============================================================
 
+use crate::catalog::file_types::{is_jpg, is_raw, raw_format_name};
+use crate::media::raw_preview::extract_raw_preview;
 use crate::models::photo::{PhotoPair, PhotoSource, PhotoStatus, ScanResult};
-use crate::utils::file_types::{is_jpg, is_raw, raw_format_name};
-use crate::utils::raw_preview::extract_raw_preview;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::collections::HashMap;
