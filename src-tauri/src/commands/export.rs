@@ -109,8 +109,11 @@ fn pair_stem(pair: &ExportPairInput) -> String {
 
 /// Copy a pair's files under one shared, non-colliding suffix; returns the photo count.
 fn copy_group(files: &[ExportFile], target: &Path, stem: &str) -> Result<usize, String> {
-    let names: Vec<String> = files.iter().map(|f| file_name(f.src)).collect();
-    let dests = unique_paths_sharing_stem(target, &names, stem);
+    let candidates: Vec<_> = files
+        .iter()
+        .map(|f| target.join(file_name(f.src)))
+        .collect();
+    let dests = unique_paths_sharing_stem(&candidates, stem);
 
     for (file, dest) in files.iter().zip(&dests) {
         fs::copy(file.src, dest).map_err(|e| format!("Failed to copy {}: {}", file.kind, e))?;

@@ -46,7 +46,7 @@ Rust（`src-tauri/src/`）：
 ## 用户照片安全（最高优先级）
 
 - 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件。唯一例外：`archive.rs::move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。
-- 移动/复制**永不覆盖**已有文件：目标路径一律经过 `unique_path()`（`commands/archive.rs`）或 `unique_paths_sharing_stem()`（`paths.rs`，一组 JPG/RAW/XMP 共用同一后缀）。
+- 移动/复制**永不覆盖**已有文件：目标路径一律经过 `paths::unique_paths_sharing_stem()`：一组 JPG/RAW/XMP 共用同一个 `_N` 后缀（即使分属 `JPG/` 和 `RAW/` 两个文件夹），重新扫描时仍能配对。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
 - 命令接收的路径来自前端，视为不可信输入。
 
