@@ -21,16 +21,16 @@ Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端
 
 Rust（`src-tauri/src/`）：
 
-| 模块        | 职责                                                                          | 依赖 Tauri |
-| ----------- | ----------------------------------------------------------------------------- | ---------- |
-| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                          | 是         |
-| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）                       | 否         |
-| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs` | 否         |
-| `models/`   | 与前端共享的 serde 结构体                                                     | 否         |
-| `paths.rs`  | 不覆盖的目标路径：一组 JPG/RAW/XMP 共用 `_N` 后缀（export 在用）              | 否         |
+| 模块        | 职责                                                                           | 依赖 Tauri |
+| ----------- | ------------------------------------------------------------------------------ | ---------- |
+| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                           | 是         |
+| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）                        | 否         |
+| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`  | 否         |
+| `models/`   | 与前端共享的 serde 结构体                                                      | 否         |
+| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir` | 否         |
 
 - 新逻辑写进 `catalog/` 或 `media/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
-- 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名只在 `media/cache_dirs.rs` 定义。
+- 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名和路径只在 `media/cache_dirs.rs` 定义（`cache_dirs::path` / `ensure`）。
 - 测试样本在代码里合成（`src/test_support.rs`：噪点 JPEG、最小 TIFF RAW），不提交二进制文件。
 
 前端：
@@ -45,7 +45,7 @@ Rust（`src-tauri/src/`）：
 
 ## 用户照片安全（最高优先级）
 
-- 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件。
+- 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件。唯一例外：`archive.rs::move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。
 - 移动/复制**永不覆盖**已有文件：目标路径一律经过 `unique_path()`（`commands/archive.rs`）或 `unique_paths_sharing_stem()`（`paths.rs`，一组 JPG/RAW/XMP 共用同一后缀）。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
 - 命令接收的路径来自前端，视为不可信输入。

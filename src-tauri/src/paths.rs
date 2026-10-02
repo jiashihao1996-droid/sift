@@ -1,6 +1,6 @@
 // ============================================================
 // Sift - Path Utilities
-// Collision-free destination paths for copy operations
+// Collision-free destinations and containment checks for file operations
 // ============================================================
 
 use std::path::{Path, PathBuf};
@@ -36,6 +36,15 @@ fn insert_suffix(name: &str, stem: &str, suffix: &str) -> String {
         _ => name.rfind('.').filter(|&i| i > 0).unwrap_or(name.len()),
     };
     format!("{}{}{}", &name[..split], suffix, &name[split..])
+}
+
+/// True only if `path` exists and, with symlinks and `..` resolved, lies
+/// strictly inside `dir`. Gate for every `remove_file` on a cache path.
+pub fn is_inside_dir(path: &Path, dir: &Path) -> bool {
+    match (path.canonicalize(), dir.canonicalize()) {
+        (Ok(path), Ok(dir)) => path != dir && path.starts_with(&dir),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -106,5 +115,62 @@ mod tests {
         );
         assert_eq!(insert_suffix("README", "", "_1"), "README_1");
         assert_eq!(insert_suffix(".hidden", "", "_1"), ".hidden_1");
+    }
+
+    fn touch(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"x").unwrap();
+    }
+
+    #[test]
+    fn accepts_files_inside_the_dir_at_any_depth() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        touch(&cache.join("a.jpg"));
+        touch(&cache.join("sub/b.jpg"));
+
+        assert!(is_inside_dir(&cache.join("a.jpg"), &cache));
+        assert!(is_inside_dir(&cache.join("sub/b.jpg"), &cache));
+    }
+
+    #[test]
+    fn rejects_the_dir_itself_siblings_and_missing_files() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        touch(&cache.join("a.jpg"));
+        touch(&tmp.path().join("cache2/a.jpg"));
+        touch(&tmp.path().join("photo.jpg"));
+
+        assert!(!is_inside_dir(&cache, &cache));
+        assert!(!is_inside_dir(&tmp.path().join("cache2/a.jpg"), &cache));
+        assert!(!is_inside_dir(&tmp.path().join("photo.jpg"), &cache));
+        assert!(!is_inside_dir(&cache.join("missing.jpg"), &cache));
+        assert!(!is_inside_dir(
+            &cache.join("a.jpg"),
+            &tmp.path().join("no-cache")
+        ));
+    }
+
+    #[test]
+    fn rejects_dot_dot_escapes() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        touch(&tmp.path().join("photo.jpg"));
+
+        assert!(!is_inside_dir(&cache.join("../photo.jpg"), &cache));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinks_that_point_outside() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        let photo = tmp.path().join("photo.jpg");
+        touch(&photo);
+        std::os::unix::fs::symlink(&photo, cache.join("link.jpg")).unwrap();
+
+        assert!(!is_inside_dir(&cache.join("link.jpg"), &cache));
     }
 }
