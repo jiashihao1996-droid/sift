@@ -41,7 +41,7 @@ Rust（`src-tauri/src/`）：
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
-- asset 协议（`convertFileSrc`）静态放行范围为空：用户目录只在文件夹对话框里被选中时由 tauri-plugin-dialog 递归放行，缓存目录在启动时放行（`commands/cache.rs::allow_cache_dirs`）。新增读取其他位置图片的入口时，必须显式放行，且不要从前端传入的任意路径放行。
+- asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。
 - 缓存目录在启动和窗口销毁时同步清理（`commands/cache.rs`，目录名见 `media/cache_dirs.rs`）。
 
 ## 用户照片安全（最高优先级）
