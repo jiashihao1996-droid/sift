@@ -24,7 +24,7 @@ Rust（`src-tauri/src/`）：
 | 模块        | 职责                                                                                   | 依赖 Tauri |
 | ----------- | -------------------------------------------------------------------------------------- | ---------- |
 | `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                   | 是         |
-| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）                                | 否         |
+| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）     | 否         |
 | `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`          | 否         |
 | `organize/` | 整理用户照片：`archive`（归入 JPG/、RAW/）、`delete`（进回收站）、`export`（复制精选） | 否         |
 | `models/`   | 与前端共享的 serde 结构体                                                              | 否         |
@@ -41,13 +41,14 @@ Rust（`src-tauri/src/`）：
 - 与 Rust 共享的类型由 ts-rs 从 `src-tauri/src/models/` 生成到 `src/types/generated/`（不要手改，也不受 Prettier/ESLint 管）；改了 Rust 模型后运行 `npm run gen:types` 并一起提交，CI 会检查。`src/types/index.ts` 只负责转出，以及 `PhotoStatus` 常量（有编译期检查保证与 Rust 枚举一致）。
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
+- 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存已标记的照片，key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，没有标记时删除文件；归档成功后清除。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
 - asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。
 - 缓存目录在启动和窗口销毁时同步清理（`commands/cache.rs`，目录名见 `media/cache_dirs.rs`）。
 
 ## 用户照片安全（最高优先级）
 
-- 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件。唯一例外：`organize/archive.rs` 的 `move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。
+- 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件和应用数据目录里 Sift 自己的进度文件。唯一例外：`organize/archive.rs` 的 `move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。
 - 移动/复制**永不覆盖**已有文件：目标路径一律经过 `paths::unique_paths_sharing_stem()`：一组 JPG/RAW/XMP 共用同一个 `_N` 后缀（即使分属 `JPG/` 和 `RAW/` 两个文件夹），重新扫描时仍能配对。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
 - 命令接收的路径来自前端，视为不可信输入。

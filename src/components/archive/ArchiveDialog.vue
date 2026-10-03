@@ -72,6 +72,8 @@ async function handleArchive() {
 
       const result = await archivePhotos(session.folderPath, pairsData)
       resultMessage.value = `已删除 ${toDelete.length} 组，归档 ${result.movedCount} 个文件`
+      // Files have moved into JPG/ and RAW/; the saved marks no longer apply
+      session.forgetProgress()
       isComplete.value = true
     } finally {
       unlisten()

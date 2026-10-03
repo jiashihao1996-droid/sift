@@ -1,13 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { PhotoStatus, type PhotoPair, type ScanResult } from '@/types'
-import { cleanupCache, generateThumbnails, scanFolder } from '@/services/tauriCommands'
+import {
+  cleanupCache,
+  clearProgress,
+  generateThumbnails,
+  loadProgress,
+  saveProgress,
+  scanFolder,
+} from '@/services/tauriCommands'
 import { useSessionStore } from './sessionStore'
 
 vi.mock('@/services/tauriCommands', () => ({
   scanFolder: vi.fn(),
   generateThumbnails: vi.fn(async () => []),
   cleanupCache: vi.fn(async () => {}),
+  loadProgress: vi.fn(async () => null),
+  saveProgress: vi.fn(async () => {}),
+  clearProgress: vi.fn(async () => {}),
 }))
 
 const { Unprocessed: U, Starred: S, Deleted: D, Skipped: K } = PhotoStatus
@@ -37,8 +48,20 @@ const statuses = (store: ReturnType<typeof useSessionStore>) => store.pairs.map(
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.clearAllMocks()
+  vi.resetAllMocks() // also undoes per-test mockResolvedValue overrides
+  vi.restoreAllMocks()
 })
+
+function scanResultOf(count: number): ScanResult {
+  return {
+    pairs: makePairs(Array(count).fill(U)),
+    totalFiles: count,
+    pairedCount: 0,
+    jpgOnlyCount: count,
+    rawOnlyCount: 0,
+    skipped: [],
+  }
+}
 
 describe('counts and progress', () => {
   it('counts each status and computes processed percentage', () => {
@@ -211,17 +234,6 @@ describe('navigation', () => {
 })
 
 describe('scanning', () => {
-  function scanResultOf(count: number): ScanResult {
-    return {
-      pairs: makePairs(Array(count).fill(U)),
-      totalFiles: count,
-      pairedCount: 0,
-      jpgOnlyCount: count,
-      rawOnlyCount: 0,
-      skipped: [],
-    }
-  }
-
   it('loads pairs and resets position and undo history', async () => {
     vi.mocked(scanFolder).mockResolvedValue(scanResultOf(3))
     const store = storeWith([S, S], 1)
@@ -267,5 +279,112 @@ describe('scanning', () => {
     expect(store.currentIndex).toBe(0)
     expect(store.folderPath).toBe('')
     expect(cleanupCache).toHaveBeenCalledOnce()
+  })
+})
+
+describe('saved progress', () => {
+  async function scannedStore(count: number) {
+    vi.mocked(scanFolder).mockResolvedValue(scanResultOf(count))
+    const store = useSessionStore()
+    await store.startScan('/photos')
+    await settle(store)
+    vi.mocked(saveProgress).mockClear()
+    vi.mocked(clearProgress).mockClear()
+    return store
+  }
+
+  async function settle(store: ReturnType<typeof useSessionStore>) {
+    await nextTick()
+    await store.progressSaved()
+  }
+
+  it('restores saved marks and resumes at the saved photo when a folder is reopened', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(scanResultOf(4))
+    vi.mocked(loadProgress).mockResolvedValue({
+      folder: '/photos',
+      currentKey: '/photos/IMG_2.jpg',
+      marks: { '/photos/IMG_0.jpg': S, '/photos/IMG_1.jpg': D },
+    })
+    const store = useSessionStore()
+
+    await store.startScan('/photos')
+
+    expect(loadProgress).toHaveBeenCalledWith('/photos')
+    expect(statuses(store)).toEqual([S, D, U, U])
+    expect(store.currentIndex).toBe(2)
+    expect(store.restoredCount).toBe(2)
+  })
+
+  it('starts fresh when saved progress cannot be read', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(scanResultOf(2))
+    vi.mocked(loadProgress).mockRejectedValue('permission denied')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const store = useSessionStore()
+
+    await store.startScan('/photos')
+
+    expect(statuses(store)).toEqual([U, U])
+    expect(store.restoredCount).toBe(0)
+  })
+
+  it('saves marks and position after each mark', async () => {
+    const store = await scannedStore(3)
+
+    store.markStar()
+    await settle(store)
+
+    expect(saveProgress).toHaveBeenLastCalledWith({
+      folder: '/photos',
+      currentKey: '/photos/IMG_1.jpg',
+      marks: { '/photos/IMG_0.jpg': S },
+    })
+  })
+
+  it('clears saved progress once the last mark is undone', async () => {
+    const store = await scannedStore(2)
+    store.markDelete()
+    await settle(store)
+
+    store.undo()
+    await settle(store)
+
+    expect(clearProgress).toHaveBeenLastCalledWith('/photos')
+  })
+
+  it('restart drops restored marks and forgets the saved progress', async () => {
+    vi.mocked(loadProgress).mockResolvedValue({
+      folder: '/photos',
+      currentKey: null,
+      marks: { '/photos/IMG_0.jpg': S },
+    })
+    const store = await scannedStore(2)
+
+    store.restartSession()
+    await settle(store)
+
+    expect(statuses(store)).toEqual([U, U])
+    expect(store.restoredCount).toBe(0)
+    expect(clearProgress).toHaveBeenCalledWith('/photos')
+  })
+
+  it('forgets saved progress on request, e.g. after archiving', async () => {
+    const store = await scannedStore(2)
+    store.markStar()
+    await settle(store)
+
+    store.forgetProgress()
+    await settle(store)
+
+    expect(clearProgress).toHaveBeenLastCalledWith('/photos')
+  })
+
+  it('does not save anything when the session is reset', async () => {
+    const store = await scannedStore(2)
+
+    store.resetSession()
+    await settle(store)
+
+    expect(saveProgress).not.toHaveBeenCalled()
+    expect(clearProgress).not.toHaveBeenCalled()
   })
 })

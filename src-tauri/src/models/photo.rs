@@ -4,6 +4,7 @@
 // ============================================================
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use ts_rs::TS;
 
 /// Status of a photo pair in the culling workflow
@@ -137,6 +138,18 @@ pub struct ArchiveProgress {
 pub struct ExportResult {
     pub exported_count: usize,
     pub export_folder: String,
+}
+
+/// Saved culling progress of one folder, keyed by each photo's user file path
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderProgress {
+    pub folder: String,
+    /// Photo to resume at
+    pub current_key: Option<String>,
+    /// Marked photos only; unprocessed ones are left out
+    pub marks: BTreeMap<String, PhotoStatus>,
 }
 
 /// Input for archive command
