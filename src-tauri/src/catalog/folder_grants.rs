@@ -11,6 +11,27 @@ use std::path::{Path, PathBuf};
 /// Comfortably above the frontend's recent-folder list (5)
 pub const MAX_GRANTED_FOLDERS: usize = 20;
 
+/// Outcome of checking whether `folder` may be scanned.
+#[derive(Debug, PartialEq)]
+pub enum Access {
+    Granted,
+    /// Not a directory: deleted, moved, or on a drive that is unplugged.
+    /// Reported separately so the user isn't told to re-grant a folder that
+    /// isn't there.
+    Missing,
+    NotGranted,
+}
+
+pub fn check(folder: &Path, is_allowed: impl Fn(&Path) -> bool) -> Access {
+    if !folder.is_dir() {
+        Access::Missing
+    } else if is_granted(folder, is_allowed) {
+        Access::Granted
+    } else {
+        Access::NotGranted
+    }
+}
+
 /// Whether the user has granted access to `folder`: the folder itself is
 /// allowed (picked in the dialog or dropped), or a regular file directly
 /// inside it is (a dropped photo opens its folder).
@@ -131,6 +152,24 @@ mod tests {
         assert!(is_allowed(&parent.join("link.JPG")));
 
         assert!(!is_granted(&parent, is_allowed));
+    }
+
+    #[test]
+    fn check_reports_a_missing_folder_before_permissions() {
+        let dir = tempdir().unwrap();
+        let gone = dir.path().join("unplugged-drive");
+
+        assert_eq!(check(&gone, |_| true), Access::Missing);
+        assert_eq!(check(dir.path(), |_| false), Access::NotGranted);
+        assert_eq!(check(dir.path(), |p| p == dir.path()), Access::Granted);
+    }
+
+    #[test]
+    fn check_treats_a_file_path_as_missing_folder() {
+        let dir = tempdir().unwrap();
+        let photo = write(dir.path(), "DSC_0001.JPG", b"x");
+
+        assert_eq!(check(&photo, |_| true), Access::Missing);
     }
 
     #[test]

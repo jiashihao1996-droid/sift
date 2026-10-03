@@ -4,13 +4,16 @@
 // see catalog/folder_grants.rs.
 // ============================================================
 
-use crate::catalog::{self, folder_grants};
+use crate::catalog;
+use crate::catalog::folder_grants::{self, Access};
 use crate::media::cache_dirs;
 use crate::models::photo::ScanResult;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 const GRANTS_FILE: &str = "granted-folders.json";
+
+const MISSING: &str = "文件夹不存在，可能已被删除、移动，或所在的移动硬盘未连接：";
 
 const NOT_GRANTED: &str = "没有访问该文件夹的权限，请点击「选择文件夹」或把文件夹拖进窗口重新打开";
 
@@ -30,8 +33,10 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
 /// scope to subfolders (archived JPG/ and RAW/) and remember the grant.
 fn authorize(app: &AppHandle, folder: &Path) -> Result<(), String> {
     let scope = app.asset_protocol_scope();
-    if !folder_grants::is_granted(folder, |p| scope.is_allowed(p)) {
-        return Err(NOT_GRANTED.to_string());
+    match folder_grants::check(folder, |p| scope.is_allowed(p)) {
+        Access::Granted => {}
+        Access::Missing => return Err(format!("{}{}", MISSING, folder.display())),
+        Access::NotGranted => return Err(NOT_GRANTED.to_string()),
     }
     scope
         .allow_directory(folder, true)
