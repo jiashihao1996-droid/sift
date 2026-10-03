@@ -34,3 +34,10 @@ tauri-plugin-single-instance = "~2.4"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# `tauri dev` builds unoptimized; at opt-level 0 the `image` crate takes ~2s to
+# decode one 24MP JPEG for its thumbnail (27x slower than release) and pins every
+# core while a folder's thumbnails generate. Optimizing dependencies only keeps
+# Sift's own code quick to rebuild and debuggable.
+[profile.dev.package."*"]
+opt-level = 3
