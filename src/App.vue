@@ -7,6 +7,7 @@ import { ref, watch, defineAsyncComponent } from 'vue'
 import { useViewStore } from '@/stores/viewStore'
 import { useKeyboard } from '@/composables/useKeyboard'
 import FolderPicker from '@/components/welcome/FolderPicker.vue'
+import SkippedFilesNotice from '@/components/status/SkippedFilesNotice.vue'
 
 const ImageViewer = defineAsyncComponent(() => import('@/components/viewer/ImageViewer.vue'))
 const NavigationBar = defineAsyncComponent(() => import('@/components/viewer/NavigationBar.vue'))
@@ -99,5 +100,8 @@ watch(
         </template>
       </div>
     </Transition>
+
+    <!-- Files the scan found but could not load (welcome and culling) -->
+    <SkippedFilesNotice />
   </div>
 </template>

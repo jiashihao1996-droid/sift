@@ -55,6 +55,26 @@ pub struct ScanResult {
     pub paired_count: usize,
     pub jpg_only_count: usize,
     pub raw_only_count: usize,
+    /// Photo files found but not loaded into the session
+    pub skipped: Vec<SkippedFile>,
+}
+
+/// Why a photo file was left out of the session
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub enum SkipReason {
+    /// RAW-only file whose embedded preview could not be extracted
+    NoPreview,
+}
+
+/// A photo file that was found but not loaded into the session
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedFile {
+    pub path: String,
+    pub reason: SkipReason,
 }
 
 /// Thumbnail generation result for a single photo

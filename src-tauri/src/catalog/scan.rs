@@ -2,12 +2,13 @@
 // Sift - Folder Scan
 // Smart scan: detects folder structure and pairs JPG with RAW
 // Supports: loose files, archived JPG/RAW subdirectories, or both
-// RAW-only files get their embedded JPEG preview extracted
+// RAW-only files get their embedded JPEG preview extracted; any whose
+// preview can't be extracted are reported in `skipped`, never dropped
 // ============================================================
 
 use crate::catalog::pairing::{self, FileIndex, RawOnly};
 use crate::media::raw_preview::extract_raw_preview;
-use crate::models::photo::{PhotoPair, PhotoSource, ScanResult};
+use crate::models::photo::{PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::path::Path;
@@ -38,7 +39,7 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     }
 
     let pairing = pairing::pair(&index);
-    let raw_only_pairs = extract_previews(&pairing.raw_only, &index, preview_cache_dir)?;
+    let (raw_only_pairs, skipped) = extract_previews(pairing.raw_only, preview_cache_dir)?;
 
     let raw_only_count = raw_only_pairs.len();
     let mut pairs = pairing.pairs;
@@ -51,6 +52,7 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
         paired_count: pairing.paired_count,
         jpg_only_count: pairing.jpg_only_count,
         raw_only_count,
+        skipped,
     })
 }
 
@@ -65,14 +67,13 @@ fn index_dir(dir: &Path, index: &mut FileIndex) {
 }
 
 /// Extract embedded previews for RAW-only files. RAWs whose preview can't be
-/// extracted are logged and left out of the result.
+/// extracted are returned as skipped so the user is told about them.
 fn extract_previews(
-    raw_only: &[RawOnly],
-    index: &FileIndex,
+    raw_only: Vec<RawOnly>,
     cache_dir: &Path,
-) -> Result<Vec<PhotoPair>, String> {
+) -> Result<(Vec<PhotoPair>, Vec<SkippedFile>), String> {
     if raw_only.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     let pool = ThreadPoolBuilder::new()
@@ -80,26 +81,38 @@ fn extract_previews(
         .build()
         .map_err(|e| format!("Failed to build thread pool: {}", e))?;
 
-    Ok(pool.install(|| {
+    let results: Vec<Result<PhotoPair, SkippedFile>> = pool.install(|| {
         raw_only
-            .par_iter()
-            .filter_map(|raw| match extract_raw_preview(&raw.raw_path, cache_dir) {
-                Ok(preview_path) => Some(pairing::new_pair(
-                    preview_path,
-                    Some((raw.raw_path.clone(), raw.ext.as_str())),
-                    PhotoSource::RawPreview,
-                    index.xmps_for(&raw.stem),
-                )),
-                Err(e) => {
-                    eprintln!(
-                        "[Sift] Failed to extract preview from {}: {}",
-                        raw.raw_path, e
-                    );
-                    None
-                }
-            })
+            .into_par_iter()
+            .map(|raw| raw_preview_pair(raw, cache_dir))
             .collect()
-    }))
+    });
+    let (pairs, skipped): (Vec<_>, Vec<_>) = results.into_iter().partition(Result::is_ok);
+    Ok((
+        pairs.into_iter().filter_map(Result::ok).collect(),
+        skipped.into_iter().filter_map(Result::err).collect(),
+    ))
+}
+
+fn raw_preview_pair(raw: RawOnly, cache_dir: &Path) -> Result<PhotoPair, SkippedFile> {
+    match extract_raw_preview(&raw.raw_path, cache_dir) {
+        Ok(preview_path) => Ok(pairing::new_pair(
+            preview_path,
+            Some((raw.raw_path, raw.ext.as_str())),
+            PhotoSource::RawPreview,
+            raw.xmp_paths,
+        )),
+        Err(e) => {
+            eprintln!(
+                "[Sift] Failed to extract preview from {}: {}",
+                raw.raw_path, e
+            );
+            Err(SkippedFile {
+                path: raw.raw_path,
+                reason: SkipReason::NoPreview,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,13 +190,53 @@ mod tests {
     }
 
     #[test]
-    fn drops_raw_only_files_without_extractable_preview() {
-        // Current behaviour: such RAWs are silently left out of the session.
+    fn reports_raw_only_files_without_extractable_preview() {
         let dir = folder(&["DSC_1.ARW"]);
         let result = scan(dir.path());
 
         assert_eq!(result.total_files, 1);
         assert!(result.pairs.is_empty());
+        assert_eq!(result.raw_only_count, 0);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(file_name(&result.skipped[0].path), "DSC_1.ARW");
+        assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
+    }
+
+    #[test]
+    fn keeps_same_stem_collisions_in_the_session() {
+        let dir = folder(&["IMG_1.jpg", "IMG_1.jpeg"]);
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        write(dir.path(), "IMG_1.CR3", &raw);
+        write(dir.path(), "IMG_1.DNG", &raw);
+        let result = scan(dir.path());
+
+        assert_eq!(result.pairs.len(), 3);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.jpg_only_count, 1);
+        assert_eq!(result.raw_only_count, 1);
+        let mut raws: Vec<&str> = result
+            .pairs
+            .iter()
+            .filter_map(|p| p.raw_path.as_deref().map(file_name))
+            .collect();
+        raws.sort();
+        assert_eq!(raws, ["IMG_1.CR3", "IMG_1.DNG"]);
+    }
+
+    #[test]
+    fn accounts_for_every_photo_file() {
+        let dir = folder(&[
+            "IMG_1.jpg",
+            "IMG_1.jpeg",
+            "IMG_1.CR3",
+            "DSC_1.ARW",
+            "DSC_1.NEF",
+        ]);
+        let result = scan(dir.path());
+
+        let in_pairs = 2 * result.paired_count + result.jpg_only_count + result.raw_only_count;
+        assert_eq!(result.total_files, 5);
+        assert_eq!(in_pairs + result.skipped.len(), result.total_files);
     }
 
     #[test]

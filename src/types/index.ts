@@ -16,6 +16,8 @@ export type { ExportResult } from './generated/ExportResult'
 export type { PhotoPair } from './generated/PhotoPair'
 export type { PhotoSource } from './generated/PhotoSource'
 export type { ScanResult } from './generated/ScanResult'
+export type { SkippedFile } from './generated/SkippedFile'
+export type { SkipReason } from './generated/SkipReason'
 export type { ThumbnailInput } from './generated/ThumbnailInput'
 export type { ThumbnailResult } from './generated/ThumbnailResult'
 
