@@ -105,6 +105,7 @@ fn extract_previews(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::photo::SkipReason;
     use crate::test_support::{noise_jpeg, tiff_raw_with_preview, write};
     use tempfile::{tempdir, TempDir};
 
@@ -177,13 +178,53 @@ mod tests {
     }
 
     #[test]
-    fn drops_raw_only_files_without_extractable_preview() {
-        // Current behaviour: such RAWs are silently left out of the session.
+    fn reports_raw_only_files_without_extractable_preview() {
         let dir = folder(&["DSC_1.ARW"]);
         let result = scan(dir.path());
 
         assert_eq!(result.total_files, 1);
         assert!(result.pairs.is_empty());
+        assert_eq!(result.raw_only_count, 0);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(file_name(&result.skipped[0].path), "DSC_1.ARW");
+        assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
+    }
+
+    #[test]
+    fn keeps_same_stem_collisions_in_the_session() {
+        let dir = folder(&["IMG_1.jpg", "IMG_1.jpeg"]);
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        write(dir.path(), "IMG_1.CR3", &raw);
+        write(dir.path(), "IMG_1.DNG", &raw);
+        let result = scan(dir.path());
+
+        assert_eq!(result.pairs.len(), 3);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.jpg_only_count, 1);
+        assert_eq!(result.raw_only_count, 1);
+        let mut raws: Vec<&str> = result
+            .pairs
+            .iter()
+            .filter_map(|p| p.raw_path.as_deref().map(file_name))
+            .collect();
+        raws.sort();
+        assert_eq!(raws, ["IMG_1.CR3", "IMG_1.DNG"]);
+    }
+
+    #[test]
+    fn accounts_for_every_photo_file() {
+        let dir = folder(&[
+            "IMG_1.jpg",
+            "IMG_1.jpeg",
+            "IMG_1.CR3",
+            "DSC_1.ARW",
+            "DSC_1.NEF",
+        ]);
+        let result = scan(dir.path());
+
+        let in_pairs = 2 * result.paired_count + result.jpg_only_count + result.raw_only_count;
+        assert_eq!(result.total_files, 5);
+        assert_eq!(in_pairs + result.skipped.len(), result.total_files);
     }
 
     #[test]

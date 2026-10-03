@@ -205,13 +205,57 @@ mod tests {
         assert!(pairing.raw_only.is_empty());
     }
 
+    /// Every path that ended up in a pair (JPG, RAW or XMP) or in `raw_only`.
+    fn all_paths(pairing: &Pairing) -> Vec<String> {
+        let mut paths: Vec<String> = pairing
+            .pairs
+            .iter()
+            .flat_map(|p| {
+                let mut v = vec![p.jpg_path.clone()];
+                v.extend(p.raw_path.clone());
+                v.extend(p.xmp_paths.clone());
+                v
+            })
+            .chain(pairing.raw_only.iter().flat_map(|r| {
+                let mut v = vec![r.raw_path.clone()];
+                v.extend(r.xmp_paths.clone());
+                v
+            }))
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    fn sorted_names(paths: &[String]) -> Vec<&str> {
+        let mut names: Vec<&str> = paths.iter().map(|p| file_name(p)).collect();
+        names.sort();
+        names
+    }
+
+    fn pair_with_jpg<'a>(pairing: &'a Pairing, name: &str) -> &'a PhotoPair {
+        pairing
+            .pairs
+            .iter()
+            .find(|p| file_name(&p.jpg_path) == name)
+            .unwrap_or_else(|| panic!("no pair for {}", name))
+    }
+
+    fn raw_only_names(pairing: &Pairing) -> Vec<&str> {
+        let mut names: Vec<&str> = pairing
+            .raw_only
+            .iter()
+            .map(|r| file_name(&r.raw_path))
+            .collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn reports_unmatched_raws_as_raw_only() {
         let pairing = pair(&index(&["IMG_1.jpg", "DSC_2.ARW"]));
 
         assert_eq!(pairing.jpg_only_count, 1);
-        assert_eq!(pairing.raw_only.len(), 1);
-        assert_eq!(pairing.raw_only[0].stem, "DSC_2");
+        assert_eq!(raw_only_names(&pairing), ["DSC_2.ARW"]);
         assert_eq!(pairing.raw_only[0].ext, "arw");
     }
 
@@ -230,12 +274,36 @@ mod tests {
 
     #[test]
     fn attaches_both_xmp_naming_styles_without_duplicates() {
-        let idx = index(&["IMG_1.JPG", "IMG_1.CR3", "IMG_1.xmp", "IMG_1.CR3.xmp"]);
-        let xmps = idx.xmps_for("IMG_1");
-        let mut names: Vec<&str> = xmps.iter().map(|p| file_name(p)).collect();
-        names.sort();
+        let pairing = pair(&index(&[
+            "IMG_1.JPG",
+            "IMG_1.CR3",
+            "IMG_1.xmp",
+            "IMG_1.CR3.xmp",
+        ]));
 
-        assert_eq!(names, ["IMG_1.CR3.xmp", "IMG_1.xmp"]);
+        assert_eq!(
+            sorted_names(&pairing.pairs[0].xmp_paths),
+            ["IMG_1.CR3.xmp", "IMG_1.xmp"]
+        );
+    }
+
+    #[test]
+    fn attaches_raw_named_xmp_to_the_pair_even_without_that_raw() {
+        let pairing = pair(&index(&["IMG_1.jpg", "IMG_1.CR3.xmp"]));
+        assert_eq!(sorted_names(&pairing.pairs[0].xmp_paths), ["IMG_1.CR3.xmp"]);
+    }
+
+    #[test]
+    fn attaches_dotted_stem_xmp_only_to_its_own_photo() {
+        // "IMG_1.edit.xmp" belongs to IMG_1.edit.jpg; giving it to IMG_1.jpg
+        // too would trash it when IMG_1.jpg is deleted.
+        let pairing = pair(&index(&["IMG_1.jpg", "IMG_1.edit.jpg", "IMG_1.edit.xmp"]));
+
+        assert!(pair_with_jpg(&pairing, "IMG_1.jpg").xmp_paths.is_empty());
+        assert_eq!(
+            sorted_names(&pair_with_jpg(&pairing, "IMG_1.edit.jpg").xmp_paths),
+            ["IMG_1.edit.xmp"]
+        );
     }
 
     #[test]
@@ -255,15 +323,102 @@ mod tests {
     }
 
     #[test]
-    fn keeps_only_one_file_per_stem_and_kind() {
-        // Current behaviour: a second JPG or RAW with the same stem is dropped
-        // from pairing (the later one wins) but still counted.
-        let idx = index(&["IMG_1.jpg", "IMG_1.jpeg", "IMG_1.CR3", "IMG_1.DNG"]);
-        let pairing = pair(&idx);
+    fn keeps_a_second_jpg_with_the_same_stem_as_its_own_pair() {
+        let pairing = pair(&index(&["IMG_1.jpg", "IMG_1.jpeg", "IMG_1.CR3"]));
 
-        assert_eq!(idx.photo_count(), 4);
-        assert_eq!(pairing.pairs.len(), 1);
+        assert_eq!(pairing.pairs.len(), 2);
+        assert_eq!(pairing.paired_count, 1);
+        assert_eq!(pairing.jpg_only_count, 1);
+        // The first JPG by name pairs with the RAW
+        let primary = pair_with_jpg(&pairing, "IMG_1.jpeg");
+        assert_eq!(file_name(primary.raw_path.as_deref().unwrap()), "IMG_1.CR3");
+        assert_eq!(pair_with_jpg(&pairing, "IMG_1.jpg").raw_path, None);
         assert!(pairing.raw_only.is_empty());
+    }
+
+    #[test]
+    fn keeps_a_second_raw_with_the_same_stem_as_raw_only() {
+        let pairing = pair(&index(&["IMG_1.jpg", "IMG_1.DNG", "IMG_1.CR3"]));
+
+        assert_eq!(pairing.paired_count, 1);
+        let primary = pair_with_jpg(&pairing, "IMG_1.jpg");
+        assert_eq!(file_name(primary.raw_path.as_deref().unwrap()), "IMG_1.CR3");
+        assert_eq!(raw_only_names(&pairing), ["IMG_1.DNG"]);
+    }
+
+    #[test]
+    fn keeps_every_raw_of_a_stem_without_jpg() {
+        let pairing = pair(&index(&["IMG_1.CR3", "IMG_1.DNG"]));
+
+        assert!(pairing.pairs.is_empty());
+        assert_eq!(raw_only_names(&pairing), ["IMG_1.CR3", "IMG_1.DNG"]);
+    }
+
+    #[test]
+    fn picks_the_same_primary_files_whatever_the_scan_order() {
+        let forward = pair(&index(&[
+            "IMG_1.jpg",
+            "IMG_1.jpeg",
+            "IMG_1.CR3",
+            "IMG_1.DNG",
+        ]));
+        let backward = pair(&index(&[
+            "IMG_1.DNG",
+            "IMG_1.CR3",
+            "IMG_1.jpeg",
+            "IMG_1.jpg",
+        ]));
+
+        for pairing in [&forward, &backward] {
+            let primary = pair_with_jpg(pairing, "IMG_1.jpeg");
+            assert_eq!(file_name(primary.raw_path.as_deref().unwrap()), "IMG_1.CR3");
+            assert_eq!(raw_only_names(pairing), ["IMG_1.DNG"]);
+        }
+    }
+
+    #[test]
+    fn gives_file_specific_xmp_to_the_extra_file_and_shared_xmp_to_the_primary() {
+        let pairing = pair(&index(&[
+            "IMG_1.jpg",
+            "IMG_1.CR3",
+            "IMG_1.DNG",
+            "IMG_1.xmp",
+            "IMG_1.DNG.xmp",
+        ]));
+
+        assert_eq!(
+            sorted_names(&pair_with_jpg(&pairing, "IMG_1.jpg").xmp_paths),
+            ["IMG_1.xmp"]
+        );
+        assert_eq!(
+            sorted_names(&pairing.raw_only[0].xmp_paths),
+            ["IMG_1.DNG.xmp"]
+        );
+    }
+
+    #[test]
+    fn accounts_for_every_photo_and_xmp_exactly_once() {
+        let files = [
+            "IMG_1.jpg",
+            "IMG_1.jpeg",
+            "IMG_1.CR3",
+            "IMG_1.DNG",
+            "IMG_1.xmp",
+            "IMG_1.CR3.xmp",
+            "IMG_1.DNG.xmp",
+            "IMG_1.jpeg.xmp",
+            "IMG_2.NEF",
+            "IMG_2.nef.xmp",
+            "IMG_3.JPG",
+        ];
+        let pairing = pair(&index(&files));
+
+        let mut expected: Vec<String> = files
+            .iter()
+            .map(|f| Path::new("/photos").join(f).to_string_lossy().to_string())
+            .collect();
+        expected.sort();
+        assert_eq!(all_paths(&pairing), expected);
     }
 
     #[test]
