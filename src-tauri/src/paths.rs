@@ -3,6 +3,8 @@
 // Collision-free destinations and containment checks for file operations
 // ============================================================
 
+use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
 
 /// Collision-free destinations for a group of files that pair by `stem`
@@ -28,6 +30,48 @@ pub fn unique_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> Vec<Path
         })
         .find(|paths| paths.iter().all(|p| !p.exists()))
         .expect("some suffix is always free")
+}
+
+/// How many suffixes `claim_paths_sharing_stem` tries before giving up. Each
+/// retry means another process created one of our names in the instant
+/// between checking and claiming, so hitting this is practically impossible.
+const MAX_CLAIM_ATTEMPTS: usize = 100;
+
+/// Like `unique_paths_sharing_stem`, but also reserves every destination by
+/// creating it as an empty file with `create_new`. That is atomic: if a file
+/// appears at a name after it was checked, the claim fails instead of the
+/// caller's copy overwriting it. Callers then write over their own
+/// placeholders (`fs::copy` keeps the source's metadata, unlike writing
+/// through the handle).
+///
+/// When a name turns out to be taken, the whole group moves on to the next
+/// free suffix so it keeps sharing one stem. Placeholders already created for
+/// the abandoned suffix stay behind as empty files: removing them could delete
+/// a file that replaced them in the meantime.
+pub fn claim_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> io::Result<Vec<PathBuf>> {
+    claim_first_free(|| unique_paths_sharing_stem(candidates, stem))
+}
+
+/// Claim the paths returned by `choose`, asking again whenever one is taken.
+fn claim_first_free(mut choose: impl FnMut() -> Vec<PathBuf>) -> io::Result<Vec<PathBuf>> {
+    let mut last_err = None;
+    for _ in 0..MAX_CLAIM_ATTEMPTS {
+        let paths = choose();
+        match paths.iter().try_for_each(|p| create_new(p)) {
+            Ok(()) => return Ok(paths),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last_err = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_err.expect("MAX_CLAIM_ATTEMPTS is not zero"))
+}
+
+fn create_new(path: &Path) -> io::Result<()> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map(drop)
 }
 
 fn with_suffix(path: &Path, stem: &str, suffix: &str) -> PathBuf {
@@ -200,5 +244,78 @@ mod tests {
         std::os::unix::fs::symlink(&photo, cache.join("link.jpg")).unwrap();
 
         assert!(!is_inside_dir(&cache.join("link.jpg"), &cache));
+    }
+
+    fn is_empty_file(path: &Path) -> bool {
+        fs::metadata(path)
+            .map(|m| m.is_file() && m.len() == 0)
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn claim_reserves_every_destination_with_an_empty_file() {
+        let dir = tempdir().unwrap();
+        let group = in_dir(dir.path(), &["DSC_0001.JPG", "DSC_0001.ARW"]);
+
+        let got = claim_paths_sharing_stem(&group, "DSC_0001").unwrap();
+
+        assert_eq!(got, group);
+        assert!(got.iter().all(|p| is_empty_file(p)));
+    }
+
+    #[test]
+    fn claim_moves_the_group_on_when_a_name_is_taken_after_it_was_chosen() {
+        let dir = tempdir().unwrap();
+        let group = in_dir(dir.path(), &["DSC_0001.ARW", "DSC_0001.xmp"]);
+        let mut is_first_try = true;
+
+        // Another process creates DSC_0001.xmp between the existence check
+        // and the claim: exactly the window `create_new` has to close.
+        let got = claim_first_free(|| {
+            let chosen = unique_paths_sharing_stem(&group, "DSC_0001");
+            if std::mem::take(&mut is_first_try) {
+                fs::write(&chosen[1], "other process").unwrap();
+            }
+            chosen
+        })
+        .unwrap();
+
+        assert_eq!(
+            got,
+            in_dir(dir.path(), &["DSC_0001_1.ARW", "DSC_0001_1.xmp"])
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("DSC_0001.xmp")).unwrap(),
+            "other process"
+        );
+        assert!(
+            is_empty_file(&dir.path().join("DSC_0001.ARW")),
+            "the abandoned placeholder is left, never removed"
+        );
+    }
+
+    #[test]
+    fn claim_gives_up_when_names_keep_getting_taken() {
+        let dir = tempdir().unwrap();
+        let group = in_dir(dir.path(), &["DSC_0001.JPG"]);
+
+        let err = claim_first_free(|| {
+            let chosen = unique_paths_sharing_stem(&group, "DSC_0001");
+            fs::write(&chosen[0], "someone else").unwrap();
+            chosen
+        })
+        .unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+    }
+
+    #[test]
+    fn claim_reports_other_io_errors() {
+        let dir = tempdir().unwrap();
+        let group = in_dir(&dir.path().join("missing"), &["DSC_0001.JPG"]);
+
+        let err = claim_paths_sharing_stem(&group, "DSC_0001").unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }
 }

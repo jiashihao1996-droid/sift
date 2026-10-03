@@ -2,12 +2,13 @@
 // Sift - Export
 // Copies starred photos (JPG + RAW) to target directory
 // Supports RAW-only pairs: exports RAW original only
-// Never overwrites: colliding pairs get a shared `_N` suffix
+// Never overwrites: colliding pairs get a shared `_N` suffix, and each
+// destination is claimed with `create_new` before anything is copied
 // ============================================================
 
 use super::file_name;
 use crate::models::photo::{ArchiveProgress, ExportPairInput, PhotoSource};
-use crate::paths::unique_paths_sharing_stem;
+use crate::paths::claim_paths_sharing_stem;
 use std::fs;
 use std::path::Path;
 
@@ -94,8 +95,11 @@ fn copy_group(files: &[ExportFile], target: &Path, stem: &str) -> Result<usize, 
         .iter()
         .map(|f| target.join(file_name(f.src)))
         .collect();
-    let dests = unique_paths_sharing_stem(&candidates, stem);
+    let dests = claim_paths_sharing_stem(&candidates, stem)
+        .map_err(|e| format!("Failed to reserve export file names for {}: {}", stem, e))?;
 
+    // Every dest is now an empty placeholder this call created, so fs::copy
+    // only ever replaces our own file. A failed copy leaves the placeholder.
     for (file, dest) in files.iter().zip(&dests) {
         fs::copy(file.src, dest).map_err(|e| format!("Failed to copy {}: {}", file.kind, e))?;
     }
