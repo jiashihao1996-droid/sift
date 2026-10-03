@@ -12,10 +12,7 @@ import { LruCache } from '@/utils/lruCache'
 
 /** Timeout for loading a single image (ms) */
 const LOAD_TIMEOUT = 30_000 // 30s for large RAW JPGs
-/**
- * Decoded full-size photos are large (a 24MP JPEG is ~100MB as pixels), so keep
- * only what preloading needs plus a few recent ones
- */
+/** Enough for what preloading needs plus a few recent ones */
 const MAX_CACHE_SIZE = 10
 
 export function useImageLoader() {
@@ -62,15 +59,11 @@ export function useImageLoader() {
         if (!settled) {
           settled = true
           clearTimeout(timer)
-          // Decode now, off the main thread, so showing the photo later does not
-          // stall a frame; a failed decode still leaves a usable image
-          void img
-            .decode()
-            .catch(() => {})
-            .finally(() => {
-              imageCache.set(path, img)
-              resolve(img)
-            })
+          // Only fetch, never img.decode(): the viewer's own <img> decodes again
+          // anyway, so decoding ahead doubled the CPU spent per photo and kept
+          // ~100MB of pixels per cached 24MP photo
+          imageCache.set(path, img)
+          resolve(img)
         }
       }
 
