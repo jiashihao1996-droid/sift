@@ -1,16 +1,26 @@
 // ============================================================
 // Sift - Archive
-// Moves surviving photos into RAW/ and JPG/ subfolders
-// Supports RAW-only pairs: RAW → RAW/, preview JPG → JPG/
-// Never overwrites: colliding pairs get a shared `_N` suffix in both folders,
-// and each destination is claimed with `create_new` before anything is moved
+// Sorts the folder once culling is done:
+//   starred  → JPG, RAW, XMP (and a RAW-only pair's preview) into 精选/
+//   unmarked → JPG stays where it is; RAW and its XMP into RAW/
+// Deleted pairs are trashed beforehand by `delete`, never touched here.
+// Never overwrites: a pair that collides anywhere gets one shared `_N`
+// suffix on every file, including a JPG left in place, so a rescan still
+// pairs it. Each destination is claimed with `create_new` before moving.
 // ============================================================
 
 use super::file_name;
-use crate::models::photo::{ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource};
+use crate::models::photo::{
+    ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource, PhotoStatus,
+};
 use crate::paths;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Folder for starred pairs, inside the archived folder
+pub const PICKS_DIR: &str = "精选";
+/// Folder for the RAWs of unmarked pairs; scan pairs it with the JPGs left in place
+pub const RAW_DIR: &str = "RAW";
 
 /// Move a file to the destination, falling back to copy+remove if rename fails
 /// (e.g. cross-volume moves on Windows).
@@ -40,9 +50,17 @@ fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
 pub type OnProgress<'a> = dyn FnMut(ArchiveProgress) + 'a;
 
 struct ArchiveDirs {
-    jpg: PathBuf,
+    picks: PathBuf,
     raw: PathBuf,
     preview_cache: PathBuf,
+}
+
+fn archive_dirs(base: &Path, preview_cache: &Path) -> ArchiveDirs {
+    ArchiveDirs {
+        picks: base.join(PICKS_DIR),
+        raw: base.join(RAW_DIR),
+        preview_cache: preview_cache.to_path_buf(),
+    }
 }
 
 /// A RAW-only pair's `jpg_path` comes from the frontend and is removed after
@@ -51,7 +69,7 @@ struct ArchiveDirs {
 fn ensure_previews_are_cached(pairs: &[ArchivePairInput], cache: &Path) -> Result<(), String> {
     let stray = pairs
         .iter()
-        .filter(|p| p.status != "deleted" && p.source == PhotoSource::RawPreview)
+        .filter(|p| p.status != PhotoStatus::Deleted && p.source == PhotoSource::RawPreview)
         .map(|p| Path::new(&p.jpg_path))
         .find(|jpg| jpg.exists() && !paths::is_inside_dir(jpg, cache));
     match stray {
@@ -63,8 +81,9 @@ fn ensure_previews_are_cached(pairs: &[ArchivePairInput], cache: &Path) -> Resul
     }
 }
 
-/// Move every non-deleted pair under `base` into `JPG/` and `RAW/`.
-/// `on_progress` is called once per pair whose primary file exists.
+/// Sort every non-deleted pair under `base` into `精选/` and `RAW/`; folders
+/// are only created when something moves into them. `on_progress` is called
+/// once per pair whose primary file exists.
 pub fn archive_pairs(
     base: &Path,
     pairs: &[ArchivePairInput],
@@ -75,19 +94,12 @@ pub fn archive_pairs(
     // leaves the user's folder exactly as it was.
     ensure_previews_are_cached(pairs, preview_cache)?;
 
-    let dirs = ArchiveDirs {
-        jpg: base.join("JPG"),
-        raw: base.join("RAW"),
-        preview_cache: preview_cache.to_path_buf(),
-    };
-    fs::create_dir_all(&dirs.jpg).map_err(|e| format!("Failed to create JPG dir: {}", e))?;
-    fs::create_dir_all(&dirs.raw).map_err(|e| format!("Failed to create RAW dir: {}", e))?;
-
+    let dirs = archive_dirs(base, preview_cache);
     let total = pairs.len();
     let mut moved_count: usize = 0;
 
     for (i, pair) in pairs.iter().enumerate() {
-        if pair.status == "deleted" {
+        if pair.status == PhotoStatus::Deleted {
             continue;
         }
         if let Some(primary) = primary_file(pair) {
@@ -98,7 +110,7 @@ pub fn archive_pairs(
 
     Ok(ArchiveResult {
         moved_count,
-        jpg_folder: dirs.jpg.to_string_lossy().to_string(),
+        picks_folder: dirs.picks.to_string_lossy().to_string(),
         raw_folder: dirs.raw.to_string_lossy().to_string(),
     })
 }
@@ -111,7 +123,7 @@ fn progress(current: usize, total: usize, file: &Path) -> ArchiveProgress {
     }
 }
 
-/// Best-effort cleanup once the preview has been copied into JPG/. A failure
+/// Best-effort cleanup once the preview has been copied into 精选/. A failure
 /// is logged, not returned: the archive itself succeeded, and the cache dir is
 /// wiped on exit anyway. Re-checks the cache dir right at the remove site.
 fn remove_cached_preview(preview: &Path, cache: &Path) {
@@ -149,18 +161,25 @@ fn preview_dest_name(pair: &ArchivePairInput) -> String {
 /// How a file reaches its destination.
 #[derive(Clone, Copy, PartialEq)]
 enum Transfer {
-    /// A user file: moved.
+    /// A user file: moved (or renamed in place).
     Move,
     /// Our cached RAW preview: copied, then removed from the cache.
     CopyPreview,
 }
 
-/// One file of a pair that still has to go into `JPG/` or `RAW/`.
+/// One file of a pair and where it should end up. `dest == src` means it
+/// stays put unless the group needs a suffix.
 struct PlannedFile<'a> {
     src: &'a Path,
     dest: PathBuf,
     transfer: Transfer,
     is_photo: bool,
+}
+
+impl PlannedFile<'_> {
+    fn stays(&self, dest: &Path) -> bool {
+        self.src == dest
+    }
 }
 
 /// The file shown in progress: the JPG of a normal pair, the RAW of a RAW-only one.
@@ -172,46 +191,59 @@ fn primary_file(pair: &ArchivePairInput) -> Option<&Path> {
     Some(Path::new(primary)).filter(|p| p.exists())
 }
 
-/// Where each existing file of a pair should go, before collision handling.
-/// Normal pair: JPG → JPG/, RAW → RAW/, XMP follows the RAW if there is one,
-/// otherwise the JPG. RAW-only pair: RAW → RAW/, cached preview → JPG/ named
-/// after the RAW (so re-opening the folder yields a proper JPG+RAW pair), XMP → RAW/.
-/// Files already in their target folder are left out.
+/// Where each existing file of a pair should go. Starred: everything into
+/// 精选/, plus a RAW-only pair's preview saved as `<raw stem>.jpg` so the
+/// folder can be browsed and re-opened as a proper pair. Unmarked: the RAW
+/// into RAW/, the JPG stays; XMP follows the RAW if there is one, otherwise
+/// the JPG. A file already in its target folder stays. Empty when nothing
+/// would move.
 fn plan_pair<'a>(pair: &'a ArchivePairInput, dirs: &ArchiveDirs) -> Vec<PlannedFile<'a>> {
+    let is_pick = pair.status == PhotoStatus::Starred;
     let raw = pair.raw_path.as_deref().map(Path::new);
+    let jpg = Path::new(&pair.jpg_path);
+    // None: the file stays in its own folder
+    let raw_dir = Some(if is_pick { &dirs.picks } else { &dirs.raw });
+    let jpg_dir = is_pick.then_some(&dirs.picks);
+
     let mut files = Vec::new();
-    let mut add = |src: &'a Path, dir: &Path, name: &str, transfer, is_photo| {
+    let mut add = |src: &'a Path, dir: Option<&PathBuf>, name: String, transfer, is_photo| {
+        let dest = match dir {
+            Some(dir) if !is_already_in_dir(src, dir) => dir.join(name),
+            _ => src.to_path_buf(),
+        };
         files.push(PlannedFile {
             src,
-            dest: dir.join(name),
+            dest,
             transfer,
             is_photo,
         });
     };
-    let jpg = Path::new(&pair.jpg_path);
 
     if pair.source == PhotoSource::RawPreview {
-        if let Some(raw) = raw {
-            add(raw, &dirs.raw, &file_name(raw), Transfer::Move, true);
+        if is_pick {
+            add(
+                jpg,
+                jpg_dir,
+                preview_dest_name(pair),
+                Transfer::CopyPreview,
+                true,
+            );
         }
-        let name = preview_dest_name(pair);
-        add(jpg, &dirs.jpg, &name, Transfer::CopyPreview, true);
     } else {
-        add(jpg, &dirs.jpg, &file_name(jpg), Transfer::Move, true);
-        if let Some(raw) = raw {
-            add(raw, &dirs.raw, &file_name(raw), Transfer::Move, true);
-        }
+        add(jpg, jpg_dir, file_name(jpg), Transfer::Move, true);
     }
-
-    let xmp_dir = if raw.is_some() { &dirs.raw } else { &dirs.jpg };
+    if let Some(raw) = raw {
+        add(raw, raw_dir, file_name(raw), Transfer::Move, true);
+    }
+    let xmp_dir = if raw.is_some() { raw_dir } else { jpg_dir };
     for xmp in pair.xmp_paths.iter().map(Path::new) {
-        add(xmp, xmp_dir, &file_name(xmp), Transfer::Move, false);
+        add(xmp, xmp_dir, file_name(xmp), Transfer::Move, false);
     }
 
-    files.retain(|f| {
-        let dir = f.dest.parent().unwrap_or(&f.dest);
-        f.src.exists() && !is_already_in_dir(f.src, dir)
-    });
+    files.retain(|f| f.src.exists());
+    if files.iter().all(|f| f.stays(&f.dest)) {
+        files.clear();
+    }
     files
 }
 
@@ -226,11 +258,11 @@ fn pair_stem(pair: &ArchivePairInput) -> String {
         .into_owned()
 }
 
-/// Move one pair into `JPG/` and `RAW/`. If any of its names is taken, the whole
-/// pair gets the same `_N` suffix in both folders, so a rescan still pairs it.
-/// Returns how many photos (JPG/RAW, not XMP) were moved.
+/// Archive one pair. If any of its names is taken, the whole pair gets the
+/// same `_N` suffix in every folder, a JPG left in place included, so a rescan
+/// still pairs it. Returns how many photos (JPG/RAW, not XMP) were moved.
 fn archive_pair(pair: &ArchivePairInput, dirs: &ArchiveDirs) -> Result<usize, String> {
-    archive_pair_choosing(pair, dirs, paths::unique_paths_sharing_stem)
+    archive_pair_choosing(pair, dirs, paths::unique_paths_sharing_stem_from)
 }
 
 /// `archive_pair` with the destination choice injectable, so tests can create
@@ -238,17 +270,42 @@ fn archive_pair(pair: &ArchivePairInput, dirs: &ArchiveDirs) -> Result<usize, St
 fn archive_pair_choosing(
     pair: &ArchivePairInput,
     dirs: &ArchiveDirs,
-    mut choose: impl FnMut(&[PathBuf], &str) -> Vec<PathBuf>,
+    mut choose: impl FnMut(&[&Path], &[PathBuf], &str) -> Vec<PathBuf>,
 ) -> Result<usize, String> {
     let files = plan_pair(pair, dirs);
+    if files.is_empty() {
+        return Ok(0);
+    }
+    for file in files.iter().filter(|f| !f.stays(&f.dest)) {
+        let dir = file.dest.parent().unwrap_or(&file.dest);
+        fs::create_dir_all(dir)
+            .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
+    }
+
+    let sources: Vec<&Path> = files.iter().map(|f| f.src).collect();
     let candidates: Vec<PathBuf> = files.iter().map(|f| f.dest.clone()).collect();
     let stem = pair_stem(pair);
-    let dests = paths::claim_first_free(|| choose(&candidates, &stem))
-        .map_err(|e| format!("Failed to reserve archive file names for {}: {}", stem, e))?;
+    let mut dests = Vec::new();
+    // Only files that change path are claimed; one that stays is its own dest
+    paths::claim_first_free(|| {
+        dests = choose(&sources, &candidates, &stem);
+        files
+            .iter()
+            .zip(&dests)
+            .filter(|(file, dest)| !file.stays(dest))
+            .map(|(_, dest)| dest.clone())
+            .collect()
+    })
+    .map_err(|e| format!("Failed to reserve archive file names for {}: {}", stem, e))?;
 
-    // Every dest is now an empty placeholder this call created, so rename and
-    // fs::copy only ever replace our own file. A failed move leaves it behind.
+    // Every changed dest is now an empty placeholder this call created, so
+    // rename and fs::copy only ever replace our own file. A failed move leaves
+    // it behind.
+    let mut moved = 0;
     for (file, dest) in files.iter().zip(&dests) {
+        if file.stays(dest) {
+            continue;
+        }
         match file.transfer {
             Transfer::Move => move_file(file.src, dest)?,
             Transfer::CopyPreview => {
@@ -257,8 +314,9 @@ fn archive_pair_choosing(
                 remove_cached_preview(file.src, &dirs.preview_cache);
             }
         }
+        moved += usize::from(file.is_photo);
     }
-    Ok(files.iter().filter(|f| f.is_photo).count())
+    Ok(moved)
 }
 
 /// Check if a file is already located inside the target directory
@@ -277,6 +335,7 @@ fn is_already_in_dir(file: &Path, dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::photo::PhotoStatus;
     use tempfile::TempDir;
 
     fn touch(path: &Path) -> String {
@@ -297,10 +356,15 @@ mod tests {
         ArchivePairInput {
             jpg_path: jpg.to_string(),
             raw_path: raw.map(str::to_string),
-            status: "starred".to_string(),
+            status: PhotoStatus::Starred,
             source,
             xmp_paths: xmps.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    fn unmarked(mut input: ArchivePairInput) -> ArchivePairInput {
+        input.status = PhotoStatus::Unprocessed;
+        input
     }
 
     /// Photos go in `<tmp>/photos`, previews in `<tmp>/cache`, so the cache
@@ -312,6 +376,10 @@ mod tests {
         fs::create_dir_all(&base).unwrap();
         fs::create_dir_all(&cache).unwrap();
         (tmp, base, cache)
+    }
+
+    fn picks(base: &Path) -> PathBuf {
+        base.join(PICKS_DIR)
     }
 
     fn try_archive(
@@ -333,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn moves_a_normal_pair_into_jpg_and_raw_folders() {
+    fn moves_a_starred_pair_with_its_xmp_into_the_picks_folder() {
         let (_tmp, base, cache) = layout();
         let jpg = touch(&base.join("IMG_1.jpg"));
         let raw = touch(&base.join("IMG_1.ARW"));
@@ -346,16 +414,58 @@ mod tests {
         );
 
         assert_eq!(result.moved_count, 2);
-        assert_eq!(read(&base.join("JPG/IMG_1.jpg")), jpg);
-        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), raw);
-        assert_eq!(read(&base.join("RAW/IMG_1.xmp")), xmp);
+        assert_eq!(read(&picks(&base).join("IMG_1.jpg")), jpg);
+        assert_eq!(read(&picks(&base).join("IMG_1.ARW")), raw);
+        assert_eq!(read(&picks(&base).join("IMG_1.xmp")), xmp);
         assert!(!Path::new(&jpg).exists() && !Path::new(&raw).exists());
+        assert!(!base.join(RAW_DIR).exists());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].current_file, "IMG_1.jpg");
     }
 
     #[test]
-    fn xmp_of_a_jpg_only_pair_follows_the_jpg() {
+    fn an_unmarked_pair_keeps_its_jpg_in_place_and_moves_its_raw_and_xmp() {
+        let (_tmp, base, cache) = layout();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("IMG_1.ARW"));
+        let xmp = touch(&base.join("IMG_1.xmp"));
+
+        let (result, _) = archive(
+            &base,
+            &cache,
+            &[unmarked(pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp]))],
+        );
+
+        assert_eq!(result.moved_count, 1);
+        assert_eq!(read(Path::new(&jpg)), jpg);
+        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), raw);
+        assert_eq!(read(&base.join("RAW/IMG_1.xmp")), xmp);
+        assert!(!Path::new(&raw).exists());
+        assert!(!picks(&base).exists());
+    }
+
+    #[test]
+    fn an_unmarked_jpg_only_pair_and_its_xmp_stay_put() {
+        let (_tmp, base, cache) = layout();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let xmp = touch(&base.join("IMG_1.xmp"));
+
+        let (result, _) = archive(
+            &base,
+            &cache,
+            &[unmarked(pair(&jpg, None, PhotoSource::Jpg, &[&xmp]))],
+        );
+
+        assert_eq!(result.moved_count, 0);
+        assert!(Path::new(&jpg).exists() && Path::new(&xmp).exists());
+        assert!(
+            !base.join(RAW_DIR).exists() && !picks(&base).exists(),
+            "no empty folders"
+        );
+    }
+
+    #[test]
+    fn xmp_of_a_starred_jpg_only_pair_goes_with_it() {
         let (_tmp, base, cache) = layout();
         let jpg = touch(&base.join("IMG_1.jpg"));
         let xmp = touch(&base.join("IMG_1.xmp"));
@@ -366,7 +476,7 @@ mod tests {
             &[pair(&jpg, None, PhotoSource::Jpg, &[&xmp])],
         );
 
-        assert!(base.join("JPG/IMG_1.xmp").exists());
+        assert_eq!(read(&picks(&base).join("IMG_1.xmp")), xmp);
     }
 
     #[test]
@@ -374,7 +484,7 @@ mod tests {
         let (_tmp, base, cache) = layout();
         let jpg = touch(&base.join("IMG_1.jpg"));
         let mut deleted = pair(&jpg, None, PhotoSource::Jpg, &[]);
-        deleted.status = "deleted".to_string();
+        deleted.status = PhotoStatus::Deleted;
 
         let (result, _) = archive(&base, &cache, &[deleted]);
 
@@ -383,29 +493,88 @@ mod tests {
     }
 
     #[test]
-    fn renames_on_collision_and_never_overwrites() {
+    fn a_starred_pair_is_renamed_as_a_group_and_never_overwrites() {
         let (_tmp, base, cache) = layout();
-        touch_with(&base.join("JPG/IMG_1.jpg"), "already archived");
-        touch_with(&base.join("RAW/IMG_1.ARW"), "already archived");
+        touch_with(&picks(&base).join("IMG_1.jpg"), "already archived");
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("IMG_1.ARW"));
+        let xmp = touch(&base.join("IMG_1.ARW.xmp"));
+
+        archive(
+            &base,
+            &cache,
+            &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp])],
+        );
+
+        assert_eq!(read(&picks(&base).join("IMG_1.jpg")), "already archived");
+        assert_eq!(read(&picks(&base).join("IMG_1_1.jpg")), jpg);
+        assert_eq!(read(&picks(&base).join("IMG_1_1.ARW")), raw);
+        assert_eq!(read(&picks(&base).join("IMG_1_1.ARW.xmp")), xmp);
+        assert!(!picks(&base).join("IMG_1.ARW").exists());
+    }
+
+    #[test]
+    fn a_raw_collision_renames_the_jpg_left_in_place_so_the_pair_still_matches() {
+        let (_tmp, base, cache) = layout();
+        touch_with(&base.join("RAW/IMG_1.ARW"), "other card");
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("IMG_1.ARW"));
+        let xmp = touch(&base.join("IMG_1.xmp"));
+
+        let (result, _) = archive(
+            &base,
+            &cache,
+            &[unmarked(pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp]))],
+        );
+
+        assert_eq!(result.moved_count, 2);
+        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), "other card");
+        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW")), raw);
+        assert_eq!(read(&base.join("RAW/IMG_1_1.xmp")), xmp);
+        assert_eq!(read(&base.join("IMG_1_1.jpg")), jpg);
+        assert!(!Path::new(&jpg).exists());
+    }
+
+    #[test]
+    fn the_in_place_rename_never_overwrites_a_photo_next_to_it() {
+        let (_tmp, base, cache) = layout();
+        touch_with(&base.join("RAW/IMG_1.ARW"), "other card");
+        touch_with(&base.join("IMG_1_1.jpg"), "another photo");
         let jpg = touch(&base.join("IMG_1.jpg"));
         let raw = touch(&base.join("IMG_1.ARW"));
 
         archive(
             &base,
             &cache,
-            &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[])],
+            &[unmarked(pair(&jpg, Some(&raw), PhotoSource::Jpg, &[]))],
         );
 
-        assert_eq!(read(&base.join("JPG/IMG_1.jpg")), "already archived");
-        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), "already archived");
-        assert_eq!(read(&base.join("JPG/IMG_1_1.jpg")), jpg);
-        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW")), raw);
+        assert_eq!(read(&base.join("IMG_1_1.jpg")), "another photo");
+        assert_eq!(read(&base.join("IMG_1_2.jpg")), jpg);
+        assert_eq!(read(&base.join("RAW/IMG_1_2.ARW")), raw);
     }
 
     #[test]
     fn skips_files_already_in_their_target_folder() {
         let (_tmp, base, cache) = layout();
-        let jpg = touch(&base.join("JPG/IMG_1.jpg"));
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("RAW/IMG_1.ARW"));
+
+        let (result, _) = archive(
+            &base,
+            &cache,
+            &[unmarked(pair(&jpg, Some(&raw), PhotoSource::Jpg, &[]))],
+        );
+
+        assert_eq!(result.moved_count, 0);
+        assert!(Path::new(&jpg).exists() && Path::new(&raw).exists());
+        assert!(!base.join("RAW/IMG_1_1.ARW").exists());
+    }
+
+    #[test]
+    fn a_starred_pair_whose_raw_was_archived_earlier_joins_the_picks() {
+        let (_tmp, base, cache) = layout();
+        let jpg = touch(&base.join("IMG_1.jpg"));
         let raw = touch(&base.join("RAW/IMG_1.ARW"));
 
         let (result, _) = archive(
@@ -414,13 +583,13 @@ mod tests {
             &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[])],
         );
 
-        assert_eq!(result.moved_count, 0);
-        assert!(Path::new(&jpg).exists() && Path::new(&raw).exists());
-        assert!(!base.join("JPG/IMG_1_1.jpg").exists());
+        assert_eq!(result.moved_count, 2);
+        assert_eq!(read(&picks(&base).join("IMG_1.jpg")), jpg);
+        assert_eq!(read(&picks(&base).join("IMG_1.ARW")), raw);
     }
 
     #[test]
-    fn archives_a_raw_only_pair_and_cleans_up_its_cached_preview() {
+    fn a_starred_raw_only_pair_gets_its_preview_saved_next_to_it() {
         let (_tmp, base, cache) = layout();
         let preview = touch_with(&cache.join("abc.jpg"), "preview");
         let raw = touch(&base.join("IMG_2.CR3"));
@@ -433,17 +602,42 @@ mod tests {
         );
 
         assert_eq!(result.moved_count, 2);
-        assert_eq!(read(&base.join("RAW/IMG_2.CR3")), raw);
-        assert_eq!(read(&base.join("JPG/IMG_2.jpg")), "preview");
-        assert_eq!(read(&base.join("RAW/IMG_2.xmp")), xmp);
+        assert_eq!(read(&picks(&base).join("IMG_2.CR3")), raw);
+        assert_eq!(read(&picks(&base).join("IMG_2.jpg")), "preview");
+        assert_eq!(read(&picks(&base).join("IMG_2.xmp")), xmp);
         assert!(!Path::new(&preview).exists());
         assert_eq!(events[0].current_file, "IMG_2.CR3");
     }
 
     #[test]
+    fn an_unmarked_raw_only_pair_moves_its_raw_without_writing_a_jpg() {
+        let (_tmp, base, cache) = layout();
+        let preview = touch_with(&cache.join("abc.jpg"), "preview");
+        let raw = touch(&base.join("IMG_2.CR3"));
+        let xmp = touch(&base.join("IMG_2.xmp"));
+
+        let (result, _) = archive(
+            &base,
+            &cache,
+            &[unmarked(pair(
+                &preview,
+                Some(&raw),
+                PhotoSource::RawPreview,
+                &[&xmp],
+            ))],
+        );
+
+        assert_eq!(result.moved_count, 1);
+        assert_eq!(read(&base.join("RAW/IMG_2.CR3")), raw);
+        assert_eq!(read(&base.join("RAW/IMG_2.xmp")), xmp);
+        assert!(!base.join("IMG_2.jpg").exists());
+        assert_eq!(read(Path::new(&preview)), "preview", "cache left alone");
+    }
+
+    #[test]
     fn raw_only_preview_is_renamed_on_collision() {
         let (_tmp, base, cache) = layout();
-        touch_with(&base.join("JPG/IMG_2.jpg"), "user jpg");
+        touch_with(&picks(&base).join("IMG_2.jpg"), "user jpg");
         let preview = touch_with(&cache.join("abc.jpg"), "preview");
         let raw = touch(&base.join("IMG_2.CR3"));
 
@@ -453,50 +647,9 @@ mod tests {
             &[pair(&preview, Some(&raw), PhotoSource::RawPreview, &[])],
         );
 
-        assert_eq!(read(&base.join("JPG/IMG_2.jpg")), "user jpg");
-        assert_eq!(read(&base.join("JPG/IMG_2_1.jpg")), "preview");
-        assert_eq!(read(&base.join("RAW/IMG_2_1.CR3")), raw);
-    }
-
-    #[test]
-    fn a_jpg_collision_renames_the_whole_pair_so_it_still_matches() {
-        let (_tmp, base, cache) = layout();
-        touch_with(&base.join("JPG/IMG_1.jpg"), "other photo");
-        let jpg = touch(&base.join("IMG_1.jpg"));
-        let raw = touch(&base.join("IMG_1.ARW"));
-        let xmp = touch(&base.join("IMG_1.ARW.xmp"));
-
-        archive(
-            &base,
-            &cache,
-            &[pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp])],
-        );
-
-        assert_eq!(read(&base.join("JPG/IMG_1.jpg")), "other photo");
-        assert_eq!(read(&base.join("JPG/IMG_1_1.jpg")), jpg);
-        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW")), raw);
-        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW.xmp")), xmp);
-        assert!(!base.join("RAW/IMG_1.ARW").exists());
-    }
-
-    #[test]
-    fn an_xmp_collision_renames_the_raw_only_pair_and_its_preview() {
-        let (_tmp, base, cache) = layout();
-        touch_with(&base.join("RAW/IMG_2.xmp"), "other edits");
-        let preview = touch_with(&cache.join("abc.jpg"), "preview");
-        let raw = touch(&base.join("IMG_2.CR3"));
-        let xmp = touch(&base.join("IMG_2.xmp"));
-
-        archive(
-            &base,
-            &cache,
-            &[pair(&preview, Some(&raw), PhotoSource::RawPreview, &[&xmp])],
-        );
-
-        assert_eq!(read(&base.join("RAW/IMG_2.xmp")), "other edits");
-        assert_eq!(read(&base.join("RAW/IMG_2_1.CR3")), raw);
-        assert_eq!(read(&base.join("RAW/IMG_2_1.xmp")), xmp);
-        assert_eq!(read(&base.join("JPG/IMG_2_1.jpg")), "preview");
+        assert_eq!(read(&picks(&base).join("IMG_2.jpg")), "user jpg");
+        assert_eq!(read(&picks(&base).join("IMG_2_1.jpg")), "preview");
+        assert_eq!(read(&picks(&base).join("IMG_2_1.CR3")), raw);
     }
 
     #[test]
@@ -505,22 +658,16 @@ mod tests {
         let jpg = touch(&base.join("IMG_1.jpg"));
         let raw = touch(&base.join("IMG_1.ARW"));
         let xmp = touch(&base.join("IMG_1.xmp"));
-        let dirs = ArchiveDirs {
-            jpg: base.join("JPG"),
-            raw: base.join("RAW"),
-            preview_cache: cache.clone(),
-        };
-        fs::create_dir_all(&dirs.jpg).unwrap();
-        fs::create_dir_all(&dirs.raw).unwrap();
+        let dirs = archive_dirs(&base, &cache);
         let mut is_first_try = true;
 
-        // A sync client drops RAW/IMG_1.ARW right after archive checked that
+        // A sync client drops 精选/IMG_1.ARW right after archive checked that
         // the name was free: the window `create_new` has to close.
         let moved = archive_pair_choosing(
             &pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp]),
             &dirs,
-            |candidates, stem| {
-                let chosen = paths::unique_paths_sharing_stem(candidates, stem);
+            |sources, candidates, stem| {
+                let chosen = paths::unique_paths_sharing_stem_from(sources, candidates, stem);
                 if std::mem::take(&mut is_first_try) {
                     fs::write(&chosen[1], "other process").unwrap();
                 }
@@ -530,13 +677,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(moved, 2);
-        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), "other process");
-        assert_eq!(read(&base.join("JPG/IMG_1_1.jpg")), jpg);
-        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW")), raw);
-        assert_eq!(read(&base.join("RAW/IMG_1_1.xmp")), xmp);
+        assert_eq!(read(&picks(&base).join("IMG_1.ARW")), "other process");
+        assert_eq!(read(&picks(&base).join("IMG_1_1.jpg")), jpg);
+        assert_eq!(read(&picks(&base).join("IMG_1_1.ARW")), raw);
+        assert_eq!(read(&picks(&base).join("IMG_1_1.xmp")), xmp);
         assert!(!Path::new(&jpg).exists() && !Path::new(&raw).exists());
         assert_eq!(
-            read(&base.join("JPG/IMG_1.jpg")),
+            read(&picks(&base).join("IMG_1.jpg")),
             "",
             "the abandoned placeholder is left, never removed"
         );
@@ -576,7 +723,7 @@ mod tests {
             Path::new(&jpg).exists(),
             "nothing may move before validation"
         );
-        assert!(!base.join("JPG").exists());
+        assert!(!picks(&base).exists());
     }
 
     #[cfg(unix)]
@@ -596,7 +743,7 @@ mod tests {
 
         fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(result.unwrap().moved_count, 2);
-        assert_eq!(read(&base.join("JPG/IMG_2.jpg")), "preview");
+        assert_eq!(read(&picks(&base).join("IMG_2.jpg")), "preview");
         assert!(
             Path::new(&preview).exists(),
             "read-only cache keeps the preview"

@@ -16,6 +16,31 @@ use std::path::{Path, PathBuf};
 /// that is free for all of them, so `DSC_0001.ARW` + `DSC_0001.ARW.xmp` become
 /// `DSC_0001_1.ARW` + `DSC_0001_1.ARW.xmp` and still pair up when rescanned.
 pub fn unique_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> Vec<PathBuf> {
+    first_free_suffix(candidates, stem, |_, path| !path.exists())
+}
+
+/// `unique_paths_sharing_stem` for a group where some files already sit at
+/// their candidate path (`sources[i] == candidates[i]`), such as a JPG that
+/// archive leaves in place while its RAW moves. Such a file keeps its name
+/// while the group needs no suffix, and is renamed in place to the shared
+/// `_N` once it does, so the group still pairs up.
+pub fn unique_paths_sharing_stem_from(
+    sources: &[&Path],
+    candidates: &[PathBuf],
+    stem: &str,
+) -> Vec<PathBuf> {
+    first_free_suffix(candidates, stem, |i, path| {
+        path == sources[i] || !path.exists()
+    })
+}
+
+/// Candidates with the smallest `_N` suffix after `stem` for which every
+/// path passes `is_free(index, path)`; no suffix when they all pass as is.
+fn first_free_suffix(
+    candidates: &[PathBuf],
+    stem: &str,
+    is_free: impl Fn(usize, &Path) -> bool,
+) -> Vec<PathBuf> {
     (0u32..)
         .map(|n| {
             let suffix = if n == 0 {
@@ -28,7 +53,7 @@ pub fn unique_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> Vec<Path
                 .map(|path| with_suffix(path, stem, &suffix))
                 .collect::<Vec<_>>()
         })
-        .find(|paths| paths.iter().all(|p| !p.exists()))
+        .find(|paths| paths.iter().enumerate().all(|(i, p)| is_free(i, p)))
         .expect("some suffix is always free")
 }
 
@@ -183,6 +208,40 @@ mod tests {
         assert_eq!(
             got,
             vec![jpg_dir.join("IMG_1_1.jpg"), raw_dir.join("IMG_1_1.ARW")]
+        );
+    }
+
+    #[test]
+    fn a_file_already_at_its_candidate_keeps_its_name_while_the_group_is_free() {
+        let dir = tempdir().unwrap();
+        let jpg = dir.path().join("IMG_1.jpg");
+        fs::write(&jpg, "stays").unwrap();
+        let raw_dir = dir.path().join("RAW");
+        let group = vec![jpg.clone(), raw_dir.join("IMG_1.ARW")];
+
+        let got =
+            unique_paths_sharing_stem_from(&[&jpg, &dir.path().join("IMG_1.ARW")], &group, "IMG_1");
+
+        assert_eq!(got, group);
+    }
+
+    #[test]
+    fn a_file_already_at_its_candidate_is_renamed_with_the_group() {
+        let dir = tempdir().unwrap();
+        let jpg = dir.path().join("IMG_1.jpg");
+        fs::write(&jpg, "stays").unwrap();
+        let raw_dir = dir.path().join("RAW");
+        fs::create_dir_all(&raw_dir).unwrap();
+        fs::write(raw_dir.join("IMG_1.ARW"), "other card").unwrap();
+        fs::write(dir.path().join("IMG_1_1.jpg"), "another photo").unwrap();
+        let group = vec![jpg.clone(), raw_dir.join("IMG_1.ARW")];
+
+        let got =
+            unique_paths_sharing_stem_from(&[&jpg, &dir.path().join("IMG_1.ARW")], &group, "IMG_1");
+
+        assert_eq!(
+            got,
+            vec![dir.path().join("IMG_1_2.jpg"), raw_dir.join("IMG_1_2.ARW")]
         );
     }
 

@@ -1,7 +1,7 @@
 // ============================================================
 // Sift - Organize
-// Moving, copying and trashing the user's photos: archive into JPG/ and
-// RAW/, export picks, delete to the trash. No Tauri dependency; the IPC
+// Moving, copying and trashing the user's photos: archive picks into 精选/
+// and unmarked RAWs into RAW/, export picks, delete to the trash. No Tauri dependency; the IPC
 // wrappers live in commands/.
 // ============================================================
 

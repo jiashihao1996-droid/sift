@@ -3,4 +3,4 @@
 /**
  * Archive operation result
  */
-export type ArchiveResult = { movedCount: number, jpgFolder: string, rawFolder: string, };
+export type ArchiveResult = { movedCount: number, picksFolder: string, rawFolder: string, };
