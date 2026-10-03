@@ -1,16 +1,22 @@
 // ============================================================
 // Sift - Image Loader Composable
 // Progressive loading: skeleton -> thumbnail -> full image
-// Preloads ±2 adjacent images
+// Preloads ahead in the direction of travel (see core/preload.ts)
 // ============================================================
 
 import { ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { useSessionStore } from '@/stores/sessionStore'
+import { preloadOrder } from '@/core/preload'
+import { LruCache } from '@/utils/lruCache'
 
 /** Timeout for loading a single image (ms) */
 const LOAD_TIMEOUT = 30_000 // 30s for large RAW JPGs
-const MAX_CACHE_SIZE = 30 // LRU cache limit
+/**
+ * Decoded full-size photos are large (a 24MP JPEG is ~100MB as pixels), so keep
+ * only what preloading needs plus a few recent ones
+ */
+const MAX_CACHE_SIZE = 10
 
 export function useImageLoader() {
   const session = useSessionStore()
@@ -23,7 +29,7 @@ export function useImageLoader() {
   const naturalHeight = ref(0)
 
   // Image cache (only store successfully loaded images)
-  const imageCache = new Map<string, HTMLImageElement>()
+  const imageCache = new LruCache<string, HTMLImageElement>(MAX_CACHE_SIZE)
   // Track failed paths to allow retry
   const failedPaths = new Set<string>()
 
@@ -38,9 +44,8 @@ export function useImageLoader() {
   /** Preload an image with timeout */
   function preloadImage(path: string): Promise<HTMLImageElement> {
     // Return cached image if available
-    if (imageCache.has(path)) {
-      return Promise.resolve(imageCache.get(path)!)
-    }
+    const cached = imageCache.get(path)
+    if (cached) return Promise.resolve(cached)
 
     // Clear from failed set on retry
     failedPaths.delete(path)
@@ -62,15 +67,15 @@ export function useImageLoader() {
         if (!settled) {
           settled = true
           clearTimeout(timer)
-          // LRU eviction: remove oldest entries when cache is full
-          if (imageCache.size >= MAX_CACHE_SIZE) {
-            const firstKey = imageCache.keys().next().value
-            if (firstKey !== undefined) {
-              imageCache.delete(firstKey)
-            }
-          }
-          imageCache.set(path, img)
-          resolve(img)
+          // Decode now, off the main thread, so showing the photo later does not
+          // stall a frame; a failed decode still leaves a usable image
+          void img
+            .decode()
+            .catch(() => {})
+            .finally(() => {
+              imageCache.set(path, img)
+              resolve(img)
+            })
         }
       }
 
@@ -87,6 +92,9 @@ export function useImageLoader() {
       img.src = toSrc(path)
     })
   }
+
+  /** +1 when browsing forward, -1 backward; decides which way to preload */
+  let travel: 1 | -1 = 1
 
   /** Load the current image with progressive display */
   async function loadCurrentImage() {
@@ -122,8 +130,8 @@ export function useImageLoader() {
       naturalHeight.value = img.naturalHeight
       isLoading.value = false
 
-      // Preload adjacent images
-      preloadAdjacent()
+      // Preload the photos likely to come next
+      preloadAround()
     } catch (e) {
       // Only apply error if this is still the current load
       if (thisGeneration !== loadGeneration) return
@@ -134,20 +142,11 @@ export function useImageLoader() {
     }
   }
 
-  /** Preload ±2 adjacent images */
-  function preloadAdjacent() {
-    const idx = session.currentIndex
-    const allPairs = session.pairs
-
-    for (let offset = -2; offset <= 2; offset++) {
-      if (offset === 0) continue
-      const adjIdx = idx + offset
-      if (adjIdx >= 0 && adjIdx < allPairs.length) {
-        const adjPair = allPairs[adjIdx]
-        if (adjPair.jpgPath) {
-          preloadImage(adjPair.jpgPath).catch(() => {})
-        }
-      }
+  /** Warm the cache with the photos likely to be shown next */
+  function preloadAround() {
+    for (const i of preloadOrder(session.currentIndex, session.pairs.length, travel)) {
+      const path = session.pairs[i]?.jpgPath
+      if (path) preloadImage(path).catch(() => {})
     }
   }
 
@@ -165,7 +164,8 @@ export function useImageLoader() {
   // Watch for index changes
   watch(
     () => session.currentIndex,
-    () => {
+    (index, previous) => {
+      if (index !== previous) travel = index > previous ? 1 : -1
       loadCurrentImage()
     },
   )

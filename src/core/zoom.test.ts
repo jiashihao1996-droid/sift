@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   actualSizeZoom,
+  applyZoomCarry,
+  carryZoom,
   clampZoom,
   fitWidth,
   isActualSize,
@@ -129,5 +131,45 @@ describe('paneAnchor', () => {
   it('returns null outside the viewer', () => {
     expect(paneAnchor({ x: -1, y: 400 }, viewer, false)).toBeNull()
     expect(paneAnchor({ x: 600, y: 801 }, viewer, false)).toBeNull()
+  })
+})
+
+describe('carryZoom / applyZoomCarry', () => {
+  const fit = { width: 1500, height: 1000 }
+
+  it('keeps zoom and position unchanged between photos of the same size', () => {
+    const state = { zoom: 2, offsetX: -300, offsetY: 120 }
+
+    const carry = carryZoom(state, 2, fit)
+
+    expect(applyZoomCarry(carry!, 2, fit)).toEqual(state)
+  })
+
+  it('keeps 100% at 100% on a photo with a different resolution', () => {
+    const carry = carryZoom({ zoom: 2, offsetX: 0, offsetY: 0 }, 2, fit)
+
+    const next = applyZoomCarry(carry!, 4 / 3, fit)
+
+    expect(isActualSize(next.zoom, 4 / 3)).toBe(true)
+  })
+
+  it('keeps the position as a share of the image', () => {
+    const carry = carryZoom({ zoom: 2, offsetX: -300, offsetY: 100 }, 2, fit)
+
+    const next = applyZoomCarry(carry!, 2, { width: 1200, height: 800 })
+
+    expect([next.offsetX, next.offsetY]).toEqual([-240, 80])
+  })
+
+  it('carries nothing at fit or before the photo is measured', () => {
+    expect(carryZoom({ zoom: 1, offsetX: 0, offsetY: 0 }, 2, fit)).toBeNull()
+    expect(carryZoom({ zoom: 2, offsetX: 0, offsetY: 0 }, null, fit)).toBeNull()
+    expect(carryZoom({ zoom: 2, offsetX: 0, offsetY: 0 }, 2, { width: 0, height: 0 })).toBeNull()
+  })
+
+  it('falls back to fit when the next photo cannot be measured', () => {
+    const carry = carryZoom({ zoom: 2, offsetX: -300, offsetY: 0 }, 2, fit)
+
+    expect(applyZoomCarry(carry!, null, fit)).toEqual({ zoom: 1, offsetX: 0, offsetY: 0 })
   })
 })

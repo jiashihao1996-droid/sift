@@ -81,3 +81,34 @@ export function isActualSize(zoom: number, actual: number | null): boolean {
 export function zoomPercent(zoom: number, actual: number | null): number {
   return Math.round((actual ? zoom / actual : zoom) * 100)
 }
+
+/**
+ * Zoom kept across a photo switch, independent of the photo's size: zoom as a
+ * multiple of actual pixels (so 100% stays 100%) and the offset as a share of
+ * the fitted image (so the same part of a burst stays in view).
+ */
+export interface ZoomCarry {
+  ofActual: number
+  shareX: number
+  shareY: number
+}
+
+const FIT: ZoomState = { zoom: 1, offsetX: 0, offsetY: 0 }
+
+/** What to carry to the next photo; null at fit or before the photo is measured */
+export function carryZoom(state: ZoomState, actual: number | null, fit: Size): ZoomCarry | null {
+  if (state.zoom <= 1 || !actual || !fit.width || !fit.height) return null
+  return {
+    ofActual: state.zoom / actual,
+    shareX: state.offsetX / fit.width,
+    shareY: state.offsetY / fit.height,
+  }
+}
+
+/** Zoom state for the next photo, given its actual-size zoom and fitted size */
+export function applyZoomCarry(carry: ZoomCarry, actual: number | null, fit: Size): ZoomState {
+  if (!actual) return { ...FIT }
+  const zoom = clampZoom(carry.ofActual * actual, actual)
+  if (zoom <= 1) return { ...FIT, zoom }
+  return { zoom, offsetX: carry.shareX * fit.width, offsetY: carry.shareY * fit.height }
+}

@@ -10,10 +10,13 @@ import { useViewStore } from '@/stores/viewStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import {
   actualSizeZoom,
+  applyZoomCarry,
+  carryZoom,
   fitWidth as computeFitWidth,
   paneAnchor,
   zoomPercent as computeZoomPercent,
   type Point,
+  type ZoomCarry,
 } from '@/core/zoom'
 
 const ZOOM_TRANSITION = '260ms cubic-bezier(0.22, 1, 0.36, 1)'
@@ -80,6 +83,12 @@ export function useImageZoom(
       view.rotation,
     ),
   )
+
+  /** Fitted image size at zoom = 1, unrotated (zoom is only carried unrotated) */
+  const fitSize = computed(() => ({
+    width: fitWidth.value,
+    height: naturalWidth.value ? (fitWidth.value * naturalHeight.value) / naturalWidth.value : 0,
+  }))
 
   watchEffect(() => {
     view.actualZoom = actualSizeZoom(naturalWidth.value, fitWidth.value, dpr.value)
@@ -176,13 +185,32 @@ export function useImageZoom(
     document.body.style.cursor = ''
   }
 
-  // Reset zoom/rotation when switching images (index-based to handle same-size photos)
+  /** Zoom to restore once the next photo is measured */
+  let pendingCarry: ZoomCarry | null = null
+
+  // Switching photos keeps the zoom (100% stays 100%, same part in view) so a
+  // burst can be checked for focus in turn; a rotated view starts over at fit.
+  // Index-based so it also fires between photos of the same size.
   watch(
     () => session.currentIndex,
     () => {
-      view.resetZoom()
+      const isRotated = view.rotation % 360 !== 0
+      const state = { zoom: view.zoomLevel, offsetX: view.zoomOffsetX, offsetY: view.zoomOffsetY }
+      pendingCarry = isRotated ? null : carryZoom(state, view.actualZoom, fitSize.value)
+      if (!pendingCarry) view.resetZoom()
     },
   )
+
+  // A photo of another size changes the scale the carried zoom maps to
+  watch([naturalWidth, naturalHeight], ([width]) => {
+    if (!pendingCarry) return
+    const actual = actualSizeZoom(width, fitWidth.value, dpr.value)
+    const next = applyZoomCarry(pendingCarry, actual, fitSize.value)
+    pendingCarry = null
+    view.zoomLevel = next.zoom
+    view.zoomOffsetX = next.offsetX
+    view.zoomOffsetY = next.offsetY
+  })
 
   return {
     imageStyle,
