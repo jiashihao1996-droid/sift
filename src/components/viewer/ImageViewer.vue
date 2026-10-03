@@ -13,6 +13,7 @@ import { useAmbientColor } from '@/composables/useAmbientColor'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { ArrowLeftRight, Columns2, RotateCw } from 'lucide-vue-next'
 import SkeletonImage from '@/components/common/SkeletonImage.vue'
+import StatusBadge from './StatusBadge.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { extractFileName } from '@/utils/path'
@@ -72,6 +73,8 @@ watch(
       view.showToast('基准图已被标记删除，已退出对比模式', 'info')
     }
   },
+  // After the mark toast (a 'pre' watcher), so this explanation is the one shown
+  { flush: 'post' },
 )
 
 function handleSwapCompare() {
@@ -137,6 +140,12 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
               <div class="w-1.5 h-1.5 rounded-full bg-blue-400" />
               <span class="text-[11px] text-white/70">基准图</span>
             </div>
+            <StatusBadge
+              :status="
+                view.compareIndex !== null ? session.pairs[view.compareIndex]?.status : undefined
+              "
+              class="shrink-0 mr-auto"
+            />
             <div
               class="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[10px] text-white/50 font-mono truncate"
             >
@@ -165,6 +174,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
               <div class="w-1.5 h-1.5 rounded-full bg-sift-accent" />
               <span class="text-[11px] text-white/70">当前浏览</span>
             </div>
+            <StatusBadge :status="session.currentPair?.status" class="shrink-0 mr-auto" />
             <div
               class="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[10px] text-white/50 font-mono truncate"
             >
@@ -253,12 +263,6 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           </div>
         </Transition>
       </div>
-
-      <!-- Delete flash in compare mode -->
-      <div
-        v-if="session.currentPair?.status === 'deleted'"
-        class="absolute inset-0 bg-sift-delete/20 z-40 pointer-events-none delete-flash"
-      />
     </template>
 
     <!-- ==================== NORMAL MODE ==================== -->
@@ -393,11 +397,8 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           </button>
         </Transition>
 
-        <!-- Delete Flash Overlay -->
-        <div
-          v-if="session.currentPair?.status === 'deleted'"
-          class="absolute inset-0 bg-sift-delete/20 z-40 pointer-events-none delete-flash"
-        />
+        <!-- Mark of the current photo -->
+        <StatusBadge :status="session.currentPair?.status" class="absolute top-3 right-3 z-30" />
       </div>
     </template>
 

@@ -306,23 +306,6 @@ body,
   animation: star-burst 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Delete flash */
-@keyframes delete-flash {
-  0% {
-    opacity: 0;
-  }
-  30% {
-    opacity: 0.3;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-.delete-flash {
-  animation: delete-flash 300ms ease-out;
-}
-
 /* Breathe CTA */
 .breathe-cta {
   animation: breathe 2s ease-in-out infinite;
