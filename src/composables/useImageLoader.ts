@@ -30,8 +30,6 @@ export function useImageLoader() {
 
   // Image cache (only store successfully loaded images)
   const imageCache = new LruCache<string, HTMLImageElement>(MAX_CACHE_SIZE)
-  // Track failed paths to allow retry
-  const failedPaths = new Set<string>()
 
   // Abort controller for cancelling outdated loads
   let loadGeneration = 0
@@ -46,9 +44,6 @@ export function useImageLoader() {
     // Return cached image if available
     const cached = imageCache.get(path)
     if (cached) return Promise.resolve(cached)
-
-    // Clear from failed set on retry
-    failedPaths.delete(path)
 
     return new Promise((resolve, reject) => {
       const img = new Image()
@@ -83,7 +78,6 @@ export function useImageLoader() {
         if (!settled) {
           settled = true
           clearTimeout(timer)
-          failedPaths.add(path)
           console.error(`[Sift] Image load error: ${path}`, event)
           reject(new Error(`Failed to load: ${path}`))
         }
@@ -156,7 +150,6 @@ export function useImageLoader() {
     if (pair) {
       // Remove from cache to force reload
       imageCache.delete(pair.jpgPath)
-      failedPaths.delete(pair.jpgPath)
       loadCurrentImage()
     }
   }
