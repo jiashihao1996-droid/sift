@@ -21,6 +21,9 @@ on:
 
 permissions:
   actions: write
+  # gh pr checks reads check runs and commit statuses
+  checks: read
+  statuses: read
   contents: write
   pull-requests: write
 
@@ -72,7 +75,12 @@ jobs:
 
           # Also refuse if any other check (outside this workflow) is failing or pending.
           # gh exits non-zero while checks are pending or failing; the JSON is still printed.
+          # On an API error nothing is printed: fail closed, never treat that as green.
           checks=$(gh pr checks "$PR" --json name,bucket,workflow || true)
+          if ! jq -e 'type == "array"' <<<"$checks" >/dev/null 2>&1; then
+            echo "::error::Not merging PR #$PR: could not read its checks."
+            exit 1
+          fi
           not_green=$(jq '[.[] | select(.workflow != "Auto-merge") | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$checks")
           if [ "$not_green" -ne 0 ]; then
             echo "Not merging PR #$PR yet:"
