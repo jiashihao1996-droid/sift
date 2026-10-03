@@ -87,4 +87,3 @@ Rust（`src-tauri/src/`）：
 其他：
 
 - `assetProtocol.scope` 为 `/**`，webview 可读整盘；应改为运行时只放行所选目录和缓存目录。
-- `ArchiveDialog.vue` 内层 `<Transition name="modal">` 从不切换，弹窗动画可能从未生效。

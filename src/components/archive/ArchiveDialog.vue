@@ -128,139 +128,143 @@ const progressPercent = computed(() => {
 </script>
 
 <template>
+  <!-- Backdrop and dialog are sibling Transitions so each one plays its own enter/leave -->
   <Transition name="backdrop">
-    <div v-if="view.showArchiveDialog" class="fixed inset-0 z-50 flex items-center justify-center">
-      <!-- Backdrop -->
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="close" />
+    <div
+      v-if="view.showArchiveDialog"
+      class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      @click="close"
+    />
+  </Transition>
 
-      <!-- Dialog -->
-      <!-- TODO: inner Transition never toggles, so the modal animation likely never plays -->
-      <Transition name="modal">
-        <!-- eslint-disable-next-line vue/require-toggle-inside-transition -->
-        <div
-          class="relative max-w-lg w-full mx-4 p-6 rounded-2xl bg-sift-surface border border-white/5 shadow-2xl"
-        >
-          <!-- Complete State -->
-          <div v-if="isComplete" class="text-center py-4">
+  <Transition name="modal">
+    <div
+      v-if="view.showArchiveDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+    >
+      <div
+        class="relative max-w-lg w-full mx-4 p-6 rounded-2xl bg-sift-surface border border-white/5 shadow-2xl pointer-events-auto"
+      >
+        <!-- Complete State -->
+        <div v-if="isComplete" class="text-center py-4">
+          <div
+            class="mx-auto w-16 h-16 rounded-full bg-sift-success/20 flex items-center justify-center mb-4"
+          >
+            <CheckCircle :size="32" class="text-sift-success" />
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">完成！</h3>
+          <p class="text-sm text-sift-muted mb-6">{{ resultMessage }}</p>
+          <button
+            class="w-full h-11 rounded-xl bg-sift-card text-white text-sm hover:bg-sift-border transition-colors btn-spring"
+            @click="done"
+          >
+            返回首页
+          </button>
+        </div>
+
+        <!-- Archiving Progress -->
+        <div v-else-if="isArchiving || isExporting" class="py-4">
+          <h3 class="text-lg font-bold text-white text-center mb-4">
+            {{ isArchiving ? '归档中...' : '导出中...' }}
+          </h3>
+          <!-- Progress Bar -->
+          <div class="h-2 bg-sift-card rounded-full overflow-hidden mb-3">
             <div
-              class="mx-auto w-16 h-16 rounded-full bg-sift-success/20 flex items-center justify-center mb-4"
+              class="h-full rounded-full bg-gradient-to-r from-sift-accent to-blue-400 transition-all duration-300 relative overflow-hidden"
+              :style="{ width: `${progressPercent}%` }"
             >
-              <CheckCircle :size="32" class="text-sift-success" />
+              <div class="absolute inset-0 shimmer-bar" />
             </div>
-            <h3 class="text-lg font-bold text-white mb-2">完成！</h3>
-            <p class="text-sm text-sift-muted mb-6">{{ resultMessage }}</p>
-            <button
-              class="w-full h-11 rounded-xl bg-sift-card text-white text-sm hover:bg-sift-border transition-colors btn-spring"
-              @click="done"
-            >
-              返回首页
-            </button>
+          </div>
+          <p class="text-xs text-sift-muted text-center truncate">
+            {{ currentFile }}
+          </p>
+        </div>
+
+        <!-- Default: Archive Options -->
+        <div v-else>
+          <h3 class="text-lg font-bold text-white text-center mb-1">归档与导出</h3>
+          <p class="text-xs text-sift-muted text-center mb-5">整理你的照片</p>
+
+          <!-- Stats Summary -->
+          <div class="grid grid-cols-3 gap-3 mb-5">
+            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-star">
+              <p class="text-[11px] text-sift-muted">已标记</p>
+              <p class="text-lg font-bold text-white">
+                <RollingNumber :value="starredPairs.length" />
+              </p>
+            </div>
+            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-delete">
+              <p class="text-[11px] text-sift-muted">待删除</p>
+              <p class="text-lg font-bold text-white">
+                <RollingNumber :value="deletedPairs.length" />
+              </p>
+            </div>
+            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-success">
+              <p class="text-[11px] text-sift-muted">保留</p>
+              <p class="text-lg font-bold text-white">
+                <RollingNumber :value="survivingPairs.length" />
+              </p>
+            </div>
           </div>
 
-          <!-- Archiving Progress -->
-          <div v-else-if="isArchiving || isExporting" class="py-4">
-            <h3 class="text-lg font-bold text-white text-center mb-4">
-              {{ isArchiving ? '归档中...' : '导出中...' }}
-            </h3>
-            <!-- Progress Bar -->
-            <div class="h-2 bg-sift-card rounded-full overflow-hidden mb-3">
-              <div
-                class="h-full rounded-full bg-gradient-to-r from-sift-accent to-blue-400 transition-all duration-300 relative overflow-hidden"
-                :style="{ width: `${progressPercent}%` }"
-              >
-                <div class="absolute inset-0 shimmer-bar" />
-              </div>
-            </div>
-            <p class="text-xs text-sift-muted text-center truncate">
-              {{ currentFile }}
+          <!-- RAW Only info -->
+          <div
+            v-if="rawOnlyCount > 0"
+            class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
+          >
+            <span class="text-amber-400 text-xs mt-0.5">📷</span>
+            <p class="text-xs text-amber-200/80">
+              包含 {{ rawOnlyCount }} 张纯 RAW 照片（预览从 RAW 提取），归档后将生成配对 JPG
             </p>
           </div>
 
-          <!-- Default: Archive Options -->
-          <div v-else>
-            <h3 class="text-lg font-bold text-white text-center mb-1">归档与导出</h3>
-            <p class="text-xs text-sift-muted text-center mb-5">整理你的照片</p>
+          <!-- Archive path -->
+          <div class="bg-sift-card/40 rounded-lg px-3 py-2 mb-5">
+            <p class="text-[11px] text-sift-muted mb-1">归档至</p>
+            <p class="text-xs text-white truncate">{{ session.folderPath }}/</p>
+            <p class="text-[10px] text-sift-muted mt-0.5">→ RAW/ 和 JPG/ 子文件夹</p>
+          </div>
 
-            <!-- Stats Summary -->
-            <div class="grid grid-cols-3 gap-3 mb-5">
-              <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-star">
-                <p class="text-[11px] text-sift-muted">已标记</p>
-                <p class="text-lg font-bold text-white">
-                  <RollingNumber :value="starredPairs.length" />
-                </p>
-              </div>
-              <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-delete">
-                <p class="text-[11px] text-sift-muted">待删除</p>
-                <p class="text-lg font-bold text-white">
-                  <RollingNumber :value="deletedPairs.length" />
-                </p>
-              </div>
-              <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-success">
-                <p class="text-[11px] text-sift-muted">保留</p>
-                <p class="text-lg font-bold text-white">
-                  <RollingNumber :value="survivingPairs.length" />
-                </p>
-              </div>
-            </div>
+          <!-- Unprocessed warning -->
+          <div
+            v-if="unprocessedCount > 0"
+            class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
+          >
+            <span class="text-amber-400 text-xs mt-0.5">⚠️</span>
+            <p class="text-xs text-amber-200/80">
+              还有 {{ unprocessedCount }} 张未处理照片，归档后它们将留在原位
+            </p>
+          </div>
 
-            <!-- RAW Only info -->
-            <div
-              v-if="rawOnlyCount > 0"
-              class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
+          <!-- Actions -->
+          <div class="space-y-3">
+            <button
+              class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20"
+              @click="handleArchive"
             >
-              <span class="text-amber-400 text-xs mt-0.5">📷</span>
-              <p class="text-xs text-amber-200/80">
-                包含 {{ rawOnlyCount }} 张纯 RAW 照片（预览从 RAW 提取），归档后将生成配对 JPG
-              </p>
-            </div>
+              <Archive :size="16" />
+              归档所有保留的照片
+            </button>
 
-            <!-- Archive path -->
-            <div class="bg-sift-card/40 rounded-lg px-3 py-2 mb-5">
-              <p class="text-[11px] text-sift-muted mb-1">归档至</p>
-              <p class="text-xs text-white truncate">{{ session.folderPath }}/</p>
-              <p class="text-[10px] text-sift-muted mt-0.5">→ RAW/ 和 JPG/ 子文件夹</p>
-            </div>
-
-            <!-- Unprocessed warning -->
-            <div
-              v-if="unprocessedCount > 0"
-              class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
+            <button
+              v-if="starredPairs.length > 0"
+              class="w-full h-11 rounded-xl border border-sift-border text-sift-text text-sm flex items-center justify-center gap-2 hover:bg-sift-card/50 transition-colors btn-spring"
+              @click="handleExport"
             >
-              <span class="text-amber-400 text-xs mt-0.5">⚠️</span>
-              <p class="text-xs text-amber-200/80">
-                还有 {{ unprocessedCount }} 张未处理照片，归档后它们将留在原位
-              </p>
-            </div>
+              <Download :size="16" />
+              导出 {{ starredPairs.length }} 张标记照片
+            </button>
 
-            <!-- Actions -->
-            <div class="space-y-3">
-              <button
-                class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20"
-                @click="handleArchive"
-              >
-                <Archive :size="16" />
-                归档所有保留的照片
-              </button>
-
-              <button
-                v-if="starredPairs.length > 0"
-                class="w-full h-11 rounded-xl border border-sift-border text-sift-text text-sm flex items-center justify-center gap-2 hover:bg-sift-card/50 transition-colors btn-spring"
-                @click="handleExport"
-              >
-                <Download :size="16" />
-                导出 {{ starredPairs.length }} 张标记照片
-              </button>
-
-              <button
-                class="w-full h-10 text-sift-muted text-xs hover:text-white transition-colors"
-                @click="close"
-              >
-                取消
-              </button>
-            </div>
+            <button
+              class="w-full h-10 text-sift-muted text-xs hover:text-white transition-colors"
+              @click="close"
+            >
+              取消
+            </button>
           </div>
         </div>
-      </Transition>
+      </div>
     </div>
   </Transition>
 </template>
