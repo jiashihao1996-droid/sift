@@ -38,7 +38,7 @@ Rust（`src-tauri/src/`）：
 
 - `src/core/` 放纯 TS 规则（如 `review.ts`：标记切换、下一张、计数、分批），不引入 Vue/Pinia/Tauri；store 只管响应式状态并调用它。
 - `src/services/tauriCommands.ts` 是前端**唯一**调用 `invoke()` 的地方。
-- `src/types/index.ts` 与 `src-tauri/src/models/photo.rs` 手工保持一致；改一边必须改另一边。
+- 与 Rust 共享的类型由 ts-rs 从 `src-tauri/src/models/` 生成到 `src/types/generated/`（不要手改，也不受 Prettier/ESLint 管）；改了 Rust 模型后运行 `npm run gen:types` 并一起提交，CI 会检查。`src/types/index.ts` 只负责转出，以及 `PhotoStatus` 常量（有编译期检查保证与 Rust 枚举一致）。
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。

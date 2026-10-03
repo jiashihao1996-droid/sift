@@ -6,7 +6,7 @@
 import { computed } from 'vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
-import { PhotoStatus } from '@/types'
+import { PhotoStatus, type PhotoPair } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { Star, Trash2, SkipForward, Circle, X } from 'lucide-vue-next'
 
@@ -59,7 +59,7 @@ const filteredPairs = computed(() => {
     .filter(({ pair }) => pair.status === view.filterCategory)
 })
 
-function getThumbnailSrc(pair: { thumbnailPath?: string; jpgPath: string }): string {
+function getThumbnailSrc(pair: Pick<PhotoPair, 'thumbnailPath' | 'jpgPath'>): string {
   if (pair.thumbnailPath) {
     return convertFileSrc(pair.thumbnailPath)
   }

@@ -2,81 +2,38 @@
 // Sift - Type Definitions
 // ============================================================
 
-/** Photo pair status */
-export enum PhotoStatus {
-  Unprocessed = 'unprocessed',
-  Starred = 'starred',
-  Deleted = 'deleted',
-  Skipped = 'skipped',
-}
+// Shapes shared with Rust are generated from src-tauri/src/models by ts-rs
+// into ./generated — never edit those files; run `npm run gen:types`.
+import type { PhotoStatus as GeneratedPhotoStatus } from './generated/PhotoStatus'
 
-/** Photo source type */
-export type PhotoSource = 'jpg' | 'rawPreview'
+export type { ArchivePairInput } from './generated/ArchivePairInput'
+export type { ArchiveProgress } from './generated/ArchiveProgress'
+export type { ArchiveResult } from './generated/ArchiveResult'
+export type { Dimensions } from './generated/Dimensions'
+export type { ExifData } from './generated/ExifData'
+export type { ExportPairInput } from './generated/ExportPairInput'
+export type { ExportResult } from './generated/ExportResult'
+export type { PhotoPair } from './generated/PhotoPair'
+export type { PhotoSource } from './generated/PhotoSource'
+export type { ScanResult } from './generated/ScanResult'
+export type { ThumbnailInput } from './generated/ThumbnailInput'
+export type { ThumbnailResult } from './generated/ThumbnailResult'
 
-/** A paired photo (JPG + optional RAW) */
-export interface PhotoPair {
-  id: string
-  jpgPath: string
-  rawPath: string | null
-  rawFormat: string | null
-  status: PhotoStatus
-  thumbnailPath?: string
-  /** Hex color string for ambient glow */
-  dominantColor?: string
-  /** Source of the JPG preview */
-  source: PhotoSource
-  /** Associated XMP sidecar file paths */
-  xmpPaths: string[]
-}
+/** Photo pair status (values come from the generated Rust enum) */
+export type PhotoStatus = GeneratedPhotoStatus
 
-/** Result from scanning a folder */
-export interface ScanResult {
-  pairs: PhotoPair[]
-  totalFiles: number
-  pairedCount: number
-  jpgOnlyCount: number
-  rawOnlyCount: number
-}
+/** Named status values, e.g. `PhotoStatus.Starred` */
+export const PhotoStatus = {
+  Unprocessed: 'unprocessed',
+  Starred: 'starred',
+  Deleted: 'deleted',
+  Skipped: 'skipped',
+} as const satisfies Record<string, GeneratedPhotoStatus>
 
-/** Thumbnail generation result */
-export interface ThumbnailResult {
-  id: string
-  path: string
-  dominantColor: string
-}
-
-/** EXIF metadata */
-export interface ExifData {
-  camera: string
-  lens: string
-  iso: number
-  aperture: string
-  shutterSpeed: string
-  focalLength: string
-  dateTaken: string
-  dimensions: { width: number; height: number }
-  fileSize: number
-}
-
-/** Archive operation result */
-export interface ArchiveResult {
-  movedCount: number
-  jpgFolder: string
-  rawFolder: string
-}
-
-/** Archive progress event payload */
-export interface ArchiveProgress {
-  current: number
-  total: number
-  currentFile: string
-}
-
-/** Export result */
-export interface ExportResult {
-  exportedCount: number
-  exportFolder: string
-}
+// Compile-time guard: fails typecheck if Rust adds a status not listed above
+type MissingStatuses = Exclude<GeneratedPhotoStatus, (typeof PhotoStatus)[keyof typeof PhotoStatus]>
+const _allStatusesListed: [MissingStatuses] extends [never] ? true : MissingStatuses = true
+void _allStatusesListed
 
 /** Undo action record */
 export interface UndoAction {
