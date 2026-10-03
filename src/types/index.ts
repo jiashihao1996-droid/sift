@@ -30,7 +30,6 @@ export const PhotoStatus = {
   Unprocessed: 'unprocessed',
   Starred: 'starred',
   Deleted: 'deleted',
-  Skipped: 'skipped',
 } as const satisfies Record<string, GeneratedPhotoStatus>
 
 // Compile-time guard: fails typecheck if Rust adds a status not listed above
@@ -40,7 +39,7 @@ void _allStatusesListed
 
 /** Undo action record */
 export interface UndoAction {
-  type: 'star' | 'delete' | 'skip'
+  type: 'star' | 'delete'
   index: number
   previousStatus: PhotoStatus
 }

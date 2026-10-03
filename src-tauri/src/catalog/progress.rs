@@ -4,7 +4,8 @@
 // quitting halfway through. Never touches the user's photo folders.
 // ============================================================
 
-use crate::models::photo::FolderProgress;
+use crate::models::photo::{FolderProgress, PhotoStatus};
+use serde::Deserialize;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -29,7 +30,7 @@ pub fn load(store_dir: &Path, folder: &str) -> Option<FolderProgress> {
             return None;
         }
     };
-    match serde_json::from_str::<FolderProgress>(&text) {
+    match parse(&text) {
         // A hash collision must not hand one folder's marks to another
         Ok(progress) if progress.folder == folder => Some(progress),
         Ok(_) => None,
@@ -38,6 +39,17 @@ pub fn load(store_dir: &Path, folder: &str) -> Option<FolderProgress> {
             None
         }
     }
+}
+
+/// Files written by older versions may hold statuses that no longer exist
+/// (e.g. "skipped", now plain unmarked): drop those marks instead of
+/// rejecting the whole file
+fn parse(text: &str) -> serde_json::Result<FolderProgress> {
+    let mut value: serde_json::Value = serde_json::from_str(text)?;
+    if let Some(marks) = value.get_mut("marks").and_then(|m| m.as_object_mut()) {
+        marks.retain(|_, status| PhotoStatus::deserialize(&*status).is_ok());
+    }
+    serde_json::from_value(value)
 }
 
 /// Write progress atomically (temp file + rename), then drop the oldest folders
@@ -102,7 +114,6 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::photo::PhotoStatus;
     use std::collections::BTreeMap;
     use std::fs::File;
     use std::time::Duration;
@@ -157,6 +168,26 @@ mod tests {
         assert_eq!(parsed.current_key.as_deref(), Some("/photos/IMG_2.jpg"));
         assert_eq!(parsed.marks["/photos/IMG_1.jpg"], PhotoStatus::Starred);
         assert_eq!(parsed.marks["/photos/IMG_2.CR3"], PhotoStatus::Deleted);
+    }
+
+    #[test]
+    fn statuses_from_older_versions_are_dropped_not_fatal() {
+        // Older versions had a "skipped" status; it now means unmarked
+        let dir = tempdir().unwrap();
+        let json = r#"{
+            "folder": "/photos",
+            "currentKey": "/photos/IMG_2.jpg",
+            "marks": { "/photos/IMG_1.jpg": "starred", "/photos/IMG_2.jpg": "skipped" }
+        }"#;
+        fs::write(file_for(dir.path(), "/photos"), json).unwrap();
+
+        let loaded = load(dir.path(), "/photos").unwrap();
+
+        assert_eq!(loaded.current_key.as_deref(), Some("/photos/IMG_2.jpg"));
+        assert_eq!(
+            loaded.marks,
+            BTreeMap::from([("/photos/IMG_1.jpg".to_string(), PhotoStatus::Starred)])
+        );
     }
 
     #[test]
@@ -215,7 +246,7 @@ mod tests {
     fn save_overwrites_without_leaving_temp_files() {
         let dir = tempdir().unwrap();
         save(dir.path(), &progress("/photos/a", &[])).unwrap();
-        let updated = progress("/photos/a", &[("IMG_1.jpg", PhotoStatus::Skipped)]);
+        let updated = progress("/photos/a", &[("IMG_1.jpg", PhotoStatus::Deleted)]);
 
         save(dir.path(), &updated).unwrap();
 

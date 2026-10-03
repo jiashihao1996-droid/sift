@@ -67,16 +67,7 @@ function handleStatusClick(status: PhotoStatus) {
         <RollingNumber :value="session.deletedCount" class="text-xs text-sift-muted" />
       </button>
 
-      <!-- Skipped -->
-      <button
-        class="flex items-center gap-1.5 h-full rounded px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
-        @click="handleStatusClick(PhotoStatus.Skipped)"
-      >
-        <span class="w-2 h-2 shrink-0 rounded-full bg-sift-skip" />
-        <RollingNumber :value="session.skippedCount" class="text-xs text-sift-muted" />
-      </button>
-
-      <!-- Unprocessed -->
+      <!-- Unmarked -->
       <button
         class="flex items-center gap-1.5 h-full rounded px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
         @click="handleStatusClick(PhotoStatus.Unprocessed)"

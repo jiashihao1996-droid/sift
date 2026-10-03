@@ -3,4 +3,4 @@
 /**
  * Status of a photo pair in the culling workflow
  */
-export type PhotoStatus = "unprocessed" | "starred" | "deleted" | "skipped";
+export type PhotoStatus = "unprocessed" | "starred" | "deleted";

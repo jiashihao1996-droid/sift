@@ -3,7 +3,7 @@
 // FolderPicker - Welcome page with folder selection
 // ============================================================
 
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { FolderOpen, Camera, Image, Layers, ArrowRight, History } from 'lucide-vue-next'
@@ -22,6 +22,11 @@ const version = __APP_VERSION__
 function openReleases() {
   openUrl(`https://github.com/jiashihao1996-droid/sift/releases/tag/v${version}`)
 }
+
+const resumeMessage = computed(() => {
+  const marked = session.restoredCount > 0 ? `标记了 ${session.restoredCount} 张，` : ''
+  return `已恢复上次进度：${marked}从第 ${session.currentIndex + 1} 张继续`
+})
 
 const isHovering = ref(false)
 const scanComplete = ref(false)
@@ -171,13 +176,12 @@ function startCulling() {
 
           <!-- Restored progress from the last visit -->
           <div
-            v-if="session.restoredCount > 0"
+            v-if="session.isResumed"
             class="flex items-center justify-between gap-3 rounded-xl border border-sift-accent/30 bg-sift-accent/10 px-4 py-2.5 text-xs"
           >
             <span class="flex items-center gap-2 text-white/80">
               <History :size="14" class="text-sift-accent shrink-0" />
-              已恢复上次进度：标记了 {{ session.restoredCount }} 张，从第
-              {{ session.currentIndex + 1 }} 张继续
+              {{ resumeMessage }}
             </span>
             <button
               class="shrink-0 text-sift-muted hover:text-white transition-colors"
@@ -194,7 +198,7 @@ function startCulling() {
             style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 300ms both"
             @click="startCulling"
           >
-            {{ session.restoredCount > 0 ? '继续筛选' : '开始筛选' }}
+            {{ session.isResumed ? '继续筛选' : '开始筛选' }}
             <ArrowRight :size="16" />
           </button>
 

@@ -25,8 +25,7 @@ const bgColor = computed(() => {
 })
 
 function handleUndo() {
-  session.undo()
-  view.showToast('已撤销 ↩️', 'undo')
+  if (session.undo()) view.showToast('已撤销 ↩️', 'undo')
 }
 </script>
 

@@ -12,12 +12,11 @@ export type MarkType = UndoAction['type']
 const MARK_STATUS: Record<MarkType, PhotoStatus> = {
   star: PhotoStatus.Starred,
   delete: PhotoStatus.Deleted,
-  skip: PhotoStatus.Skipped,
 }
 
 /**
  * Status after pressing a mark key. Pressing the key of the status a photo
- * already has toggles it back to unprocessed; any other key switches to it.
+ * already has unmarks it; the other key switches to it.
  */
 export function toggledStatus(current: PhotoStatus, type: MarkType): PhotoStatus {
   const target = MARK_STATUS[type]
@@ -25,23 +24,12 @@ export function toggledStatus(current: PhotoStatus, type: MarkType): PhotoStatus
 }
 
 /**
- * First unprocessed photo after `fromIndex`, wrapping around to the start.
- * Returns null when every other photo is already processed.
+ * Where to go after pressing a mark key: marking moves on to the next photo
+ * (staying on the last one), unmarking stays so the photo can be decided again.
  */
-export function findNextUnprocessed(pairs: readonly PhotoPair[], fromIndex: number): number | null {
-  const isUnprocessed = (i: number) => pairs[i].status === PhotoStatus.Unprocessed
-  for (let i = fromIndex + 1; i < pairs.length; i++) {
-    if (isUnprocessed(i)) return i
-  }
-  for (let i = 0; i < fromIndex; i++) {
-    if (isUnprocessed(i)) return i
-  }
-  return null
-}
-
-/** Where to go after marking: next unprocessed photo, else the next photo, else stay. */
-export function indexAfterMark(pairs: readonly PhotoPair[], currentIndex: number): number {
-  return findNextUnprocessed(pairs, currentIndex) ?? Math.min(currentIndex + 1, pairs.length - 1)
+export function indexAfterMark(status: PhotoStatus, currentIndex: number, total: number): number {
+  if (status === PhotoStatus.Unprocessed) return currentIndex
+  return Math.min(currentIndex + 1, total - 1)
 }
 
 /** Slide direction for moving between photos: forward slides left, backward slides right. */
@@ -56,17 +44,15 @@ export function countByStatus(pairs: readonly PhotoPair[]): StatusCounts {
     [PhotoStatus.Unprocessed]: 0,
     [PhotoStatus.Starred]: 0,
     [PhotoStatus.Deleted]: 0,
-    [PhotoStatus.Skipped]: 0,
   }
   for (const pair of pairs) counts[pair.status]++
   return counts
 }
 
-/** Share of photos that have any mark, as a whole percentage. */
-export function progressPercent(counts: StatusCounts): number {
-  const total = Object.values(counts).reduce((sum, n) => sum + n, 0)
+/** How far through the folder the current photo is, as a whole percentage. */
+export function positionPercent(currentIndex: number, total: number): number {
   if (total === 0) return 0
-  return Math.round(((total - counts[PhotoStatus.Unprocessed]) / total) * 100)
+  return Math.round(((currentIndex + 1) / total) * 100)
 }
 
 /**

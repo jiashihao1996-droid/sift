@@ -4,7 +4,6 @@
 // ============================================================
 
 import { PhotoStatus, type FolderProgress, type PhotoPair } from '@/types'
-import { findNextUnprocessed } from './review'
 
 /**
  * Stable identity of a photo across scans (pair ids are regenerated each scan).
@@ -23,30 +22,39 @@ export function snapshotProgress(
   for (const pair of pairs) {
     if (pair.status !== PhotoStatus.Unprocessed) marks[progressKey(pair)] = pair.status
   }
-  const current = pairs[currentIndex]
+  // The first photo is where a fresh session starts anyway, so it is no progress
+  const current = currentIndex > 0 ? pairs[currentIndex] : undefined
   return { folder, currentKey: current ? progressKey(current) : null, marks }
 }
 
-export function hasMarks(progress: FolderProgress): boolean {
-  return Object.keys(progress.marks).length > 0
+/** Progress that restores nothing; saving it forgets the folder */
+export function emptyProgress(folder: string): FolderProgress {
+  return { folder, currentKey: null, marks: {} }
+}
+
+/** Whether reopening the folder would restore anything */
+export function hasProgress(progress: FolderProgress): boolean {
+  return progress.currentKey !== null || Object.keys(progress.marks).length > 0
 }
 
 export interface RestoredProgress {
   pairs: PhotoPair[]
   currentIndex: number
   restoredCount: number
+  /** Whether any saved mark or position was applied */
+  isResumed: boolean
 }
 
 /**
  * Apply saved marks to freshly scanned pairs. Marks for files that are gone
- * are dropped; new files stay unprocessed. Resumes at the saved photo, else
- * at the first unprocessed one.
+ * are dropped; new files stay unmarked. Resumes at the saved photo, else at
+ * the first one.
  */
 export function restoreProgress(
   pairs: readonly PhotoPair[],
   saved: FolderProgress | null,
 ): RestoredProgress {
-  if (!saved) return { pairs: [...pairs], currentIndex: 0, restoredCount: 0 }
+  if (!saved) return { pairs: [...pairs], currentIndex: 0, restoredCount: 0, isResumed: false }
 
   let restoredCount = 0
   const restored = pairs.map((pair) => {
@@ -56,7 +64,10 @@ export function restoreProgress(
     return { ...pair, status }
   })
 
-  const savedIndex = restored.findIndex((pair) => progressKey(pair) === saved.currentKey)
-  const currentIndex = savedIndex >= 0 ? savedIndex : (findNextUnprocessed(restored, -1) ?? 0)
-  return { pairs: restored, currentIndex, restoredCount }
+  const currentIndex = Math.max(
+    0,
+    restored.findIndex((pair) => progressKey(pair) === saved.currentKey),
+  )
+  const isResumed = restoredCount > 0 || currentIndex > 0
+  return { pairs: restored, currentIndex, restoredCount, isResumed }
 }

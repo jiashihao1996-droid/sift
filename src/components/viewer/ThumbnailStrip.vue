@@ -80,8 +80,6 @@ function getStatusColor(status: PhotoStatus): string {
       return 'bg-sift-star'
     case PhotoStatus.Deleted:
       return 'bg-sift-delete'
-    case PhotoStatus.Skipped:
-      return 'bg-sift-skip'
     default:
       return ''
   }

@@ -8,7 +8,7 @@ import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus, type PhotoPair } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Star, Trash2, SkipForward, Circle, X } from 'lucide-vue-next'
+import { Star, Trash2, Circle, X } from 'lucide-vue-next'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -16,28 +16,21 @@ const view = useViewStore()
 const categories = [
   {
     key: PhotoStatus.Starred,
-    label: '已标记',
+    label: '精选',
     icon: Star,
     color: 'text-sift-star',
     bgColor: 'bg-sift-star',
   },
   {
     key: PhotoStatus.Deleted,
-    label: '已删除',
+    label: '删除',
     icon: Trash2,
     color: 'text-sift-delete',
     bgColor: 'bg-sift-delete',
   },
   {
-    key: PhotoStatus.Skipped,
-    label: '已跳过',
-    icon: SkipForward,
-    color: 'text-sift-muted',
-    bgColor: 'bg-sift-skip',
-  },
-  {
     key: PhotoStatus.Unprocessed,
-    label: '未处理',
+    label: '未标记',
     icon: Circle,
     color: 'text-sift-accent',
     bgColor: 'bg-sift-accent',

@@ -15,7 +15,6 @@ pub enum PhotoStatus {
     Unprocessed,
     Starred,
     Deleted,
-    Skipped,
 }
 
 /// Source of the JPG preview image

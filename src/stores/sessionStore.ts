@@ -26,21 +26,21 @@ import {
   countByStatus,
   indexAfterMark,
   planBatches,
-  progressPercent,
+  positionPercent,
   slideDirectionTo,
   toggledStatus,
   type MarkType,
 } from '@/core/review'
-import { hasMarks, restoreProgress, snapshotProgress } from '@/core/progress'
+import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
 import { createLatestWriter } from '@/utils/latestWriter'
 
 /** First thumbnail batch covers the visible viewport; the rest stream in chunks */
 const THUMBNAIL_FIRST_BATCH = 10
 const THUMBNAIL_CHUNK_SIZE = 50
 
-/** A folder with no marks left has nothing worth resuming */
+/** A folder with nothing to restore is forgotten rather than saved */
 function writeProgress(progress: FolderProgress): Promise<void> {
-  return hasMarks(progress) ? saveProgress(progress) : clearProgress(progress.folder)
+  return hasProgress(progress) ? saveProgress(progress) : clearProgress(progress.folder)
 }
 
 /** Saved progress is a convenience: failing to read it must not block the scan */
@@ -63,9 +63,12 @@ export const useSessionStore = defineStore('session', () => {
   const undoStack = ref<UndoAction[]>([])
   const slideDirection = ref<SlideDirection>('left')
   const isGeneratingThumbnails = ref(false)
-  const markActionCount = ref(0)
+  /** Bumped each time the user tries to move on from the last photo */
+  const endReachedCount = ref(0)
   /** Marks brought back from the last visit to this folder */
   const restoredCount = ref(0)
+  /** Whether the last visit's marks or position were brought back */
+  const isResumed = ref(false)
 
   const progressWriter = createLatestWriter(writeProgress, (e) =>
     console.warn('[Sift] Failed to save progress:', e),
@@ -79,19 +82,15 @@ export const useSessionStore = defineStore('session', () => {
   const counts = computed(() => countByStatus(pairs.value))
   const starredCount = computed(() => counts.value[PhotoStatus.Starred])
   const deletedCount = computed(() => counts.value[PhotoStatus.Deleted])
-  const skippedCount = computed(() => counts.value[PhotoStatus.Skipped])
   const unprocessedCount = computed(() => counts.value[PhotoStatus.Unprocessed])
 
   /** Active (non-deleted) pairs for browsing */
   const activePairs = computed(() => pairs.value.filter((p) => p.status !== PhotoStatus.Deleted))
 
-  /** Progress percentage */
-  const progress = computed(() => progressPercent(counts.value))
+  /** How far through the folder the current photo is */
+  const progress = computed(() => positionPercent(currentIndex.value, pairs.value.length))
 
   const isLastPhoto = computed(() => currentIndex.value >= pairs.value.length - 1)
-
-  /** All photos have been processed */
-  const hasReachedEnd = computed(() => unprocessedCount.value === 0)
 
   // ---- Actions ----
 
@@ -119,6 +118,7 @@ export const useSessionStore = defineStore('session', () => {
       pairs.value = restored.pairs
       currentIndex.value = restored.currentIndex
       restoredCount.value = restored.restoredCount
+      isResumed.value = restored.isResumed
       undoStack.value = []
     } finally {
       isScanning.value = false // 扫描完立即停止转圈，不等缩略图
@@ -144,11 +144,13 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** Navigate to next photo */
+  /** Navigate to next photo; on the last one, report reaching the end instead */
   function goNext() {
     if (currentIndex.value < pairs.value.length - 1) {
       slideDirection.value = 'left'
       currentIndex.value++
+    } else if (pairs.value.length > 0) {
+      endReachedCount.value++
     }
   }
 
@@ -176,9 +178,9 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
-   * Toggle a mark on the current photo, then advance.
-   * Returns whether the photo ended up marked, or null if there is no photo.
-   * Marking records an undo entry; toggling a mark off does not.
+   * Toggle a mark on the current photo: marking advances, unmarking stays.
+   * Every change is undoable. Returns whether the photo ended up marked, or
+   * null if there is no photo.
    */
   function toggleMark(type: MarkType): boolean | null {
     const idx = currentIndex.value
@@ -187,13 +189,10 @@ export const useSessionStore = defineStore('session', () => {
 
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
-    if (isMarked) {
-      undoStack.value.push({ type, index: idx, previousStatus: pair.status })
-      markActionCount.value++
-    }
+    undoStack.value.push({ type, index: idx, previousStatus: pair.status })
     pairs.value[idx] = { ...pair, status }
-    const next = indexAfterMark(pairs.value, idx)
-    moveTo(next, slideDirectionTo(idx, next))
+    if (isMarked && isLastPhoto.value) endReachedCount.value++
+    moveTo(indexAfterMark(status, idx, pairs.value.length), 'left')
     return isMarked
   }
 
@@ -207,21 +206,17 @@ export const useSessionStore = defineStore('session', () => {
     return toggleMark('delete') === false ? 'undeleted' : 'deleted'
   }
 
-  /** Toggle skip on current photo */
-  function markSkip(): 'skipped' | 'unskipped' {
-    return toggleMark('skip') === false ? 'unskipped' : 'skipped'
-  }
-
-  /** Undo last action */
-  function undo() {
+  /** Undo the last mark change and return to that photo; false if there was nothing to undo */
+  function undo(): boolean {
     const action = undoStack.value.pop()
-    if (!action) return
+    if (!action) return false
 
     const pair = pairs.value[action.index]
     if (pair) {
       pairs.value[action.index] = { ...pair, status: action.previousStatus }
-      goTo(action.index)
+      moveTo(action.index, slideDirectionTo(currentIndex.value, action.index))
     }
+    return true
   }
 
   /** Save marks and position whenever either changes, so quitting midway loses nothing */
@@ -241,12 +236,13 @@ export const useSessionStore = defineStore('session', () => {
     currentIndex.value = 0
     undoStack.value = []
     restoredCount.value = 0
+    isResumed.value = false
   }
 
   /** Forget the saved progress of the current folder, e.g. once it is archived */
   function forgetProgress() {
     if (!folderPath.value) return
-    progressWriter.schedule({ folder: folderPath.value, currentKey: null, marks: {} })
+    progressWriter.schedule(emptyProgress(folderPath.value))
   }
 
   /** Reset session */
@@ -261,6 +257,7 @@ export const useSessionStore = defineStore('session', () => {
     scanResult.value = null
     undoStack.value = []
     restoredCount.value = 0
+    isResumed.value = false
   }
 
   return {
@@ -273,19 +270,18 @@ export const useSessionStore = defineStore('session', () => {
     undoStack,
     slideDirection,
     isGeneratingThumbnails,
-    markActionCount,
+    endReachedCount,
     restoredCount,
+    isResumed,
     // Getters
     currentPair,
     totalCount,
     starredCount,
     deletedCount,
-    skippedCount,
     unprocessedCount,
     activePairs,
     progress,
     isLastPhoto,
-    hasReachedEnd,
     // Actions
     startScan,
     goNext,
@@ -293,7 +289,6 @@ export const useSessionStore = defineStore('session', () => {
     goTo,
     markStar,
     markDelete,
-    markSkip,
     undo,
     restartSession,
     forgetProgress,
