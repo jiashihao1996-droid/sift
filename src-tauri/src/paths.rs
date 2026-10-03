@@ -1,17 +1,19 @@
 // ============================================================
 // Sift - Path Utilities
-// Collision-free destination paths for copy operations
+// Collision-free destinations and containment checks for file operations
 // ============================================================
 
 use std::path::{Path, PathBuf};
 
-/// Destinations in `dir` for a group of files that pair by `stem`
-/// (a RAW, its JPG and XMP sidecars), none of which exist yet.
+/// Collision-free destinations for a group of files that pair by `stem`
+/// (a RAW, its JPG and XMP sidecars). `candidates` are the preferred paths and
+/// may sit in different folders (archive puts the JPG in `JPG/`, the RAW in
+/// `RAW/`); none of the returned paths exist yet.
 ///
 /// Every name gets the same `_N` suffix right after `stem`, using the smallest N
 /// that is free for all of them, so `DSC_0001.ARW` + `DSC_0001.ARW.xmp` become
 /// `DSC_0001_1.ARW` + `DSC_0001_1.ARW.xmp` and still pair up when rescanned.
-pub fn unique_paths_sharing_stem(dir: &Path, names: &[String], stem: &str) -> Vec<PathBuf> {
+pub fn unique_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> Vec<PathBuf> {
     (0u32..)
         .map(|n| {
             let suffix = if n == 0 {
@@ -19,13 +21,18 @@ pub fn unique_paths_sharing_stem(dir: &Path, names: &[String], stem: &str) -> Ve
             } else {
                 format!("_{}", n)
             };
-            names
+            candidates
                 .iter()
-                .map(|name| dir.join(insert_suffix(name, stem, &suffix)))
+                .map(|path| with_suffix(path, stem, &suffix))
                 .collect::<Vec<_>>()
         })
-        .find(|candidates| candidates.iter().all(|p| !p.exists()))
+        .find(|paths| paths.iter().all(|p| !p.exists()))
         .expect("some suffix is always free")
+}
+
+fn with_suffix(path: &Path, stem: &str, suffix: &str) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(insert_suffix(&name, stem, suffix))
 }
 
 /// Insert `suffix` after `stem` when `name` starts with it (`IMG.CR3.xmp` → `IMG_1.CR3.xmp`),
@@ -38,22 +45,31 @@ fn insert_suffix(name: &str, stem: &str, suffix: &str) -> String {
     format!("{}{}{}", &name[..split], suffix, &name[split..])
 }
 
+/// True only if `path` exists and, with symlinks and `..` resolved, lies
+/// strictly inside `dir`. Gate for every `remove_file` on a cache path.
+pub fn is_inside_dir(path: &Path, dir: &Path) -> bool {
+    match (path.canonicalize(), dir.canonicalize()) {
+        (Ok(path), Ok(dir)) => path != dir && path.starts_with(&dir),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
 
-    fn names(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| s.to_string()).collect()
+    fn in_dir(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(|n| dir.join(n)).collect()
     }
 
     #[test]
     fn keeps_original_names_when_all_are_free() {
         let dir = tempdir().unwrap();
-        let group = names(&["DSC_0001.JPG", "DSC_0001.ARW"]);
+        let group = in_dir(dir.path(), &["DSC_0001.JPG", "DSC_0001.ARW"]);
 
-        let got = unique_paths_sharing_stem(dir.path(), &group, "DSC_0001");
+        let got = unique_paths_sharing_stem(&group, "DSC_0001");
 
         assert_eq!(
             got,
@@ -69,9 +85,9 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("DSC_0001.ARW"), "a").unwrap();
         fs::write(dir.path().join("DSC_0001_1.JPG"), "b").unwrap();
-        let group = names(&["DSC_0001.JPG", "DSC_0001.ARW"]);
+        let group = in_dir(dir.path(), &["DSC_0001.JPG", "DSC_0001.ARW"]);
 
-        let got = unique_paths_sharing_stem(dir.path(), &group, "DSC_0001");
+        let got = unique_paths_sharing_stem(&group, "DSC_0001");
 
         assert_eq!(
             got,
@@ -86,15 +102,36 @@ mod tests {
     fn renames_whole_group_when_one_member_collides() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("DSC_0001.xmp"), "existing").unwrap();
-        let group = names(&["DSC_0001.ARW", "DSC_0001.xmp", "DSC_0001.ARW.xmp"]);
+        let group = in_dir(
+            dir.path(),
+            &["DSC_0001.ARW", "DSC_0001.xmp", "DSC_0001.ARW.xmp"],
+        );
 
-        let got = unique_paths_sharing_stem(dir.path(), &group, "DSC_0001");
+        let got = unique_paths_sharing_stem(&group, "DSC_0001");
 
         let expected: Vec<PathBuf> = ["DSC_0001_1.ARW", "DSC_0001_1.xmp", "DSC_0001_1.ARW.xmp"]
             .iter()
             .map(|n| dir.path().join(n))
             .collect();
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn a_collision_in_one_folder_renames_the_group_in_every_folder() {
+        let dir = tempdir().unwrap();
+        let jpg_dir = dir.path().join("JPG");
+        let raw_dir = dir.path().join("RAW");
+        fs::create_dir_all(&jpg_dir).unwrap();
+        fs::create_dir_all(&raw_dir).unwrap();
+        fs::write(jpg_dir.join("IMG_1.jpg"), "existing").unwrap();
+        let group = vec![jpg_dir.join("IMG_1.jpg"), raw_dir.join("IMG_1.ARW")];
+
+        let got = unique_paths_sharing_stem(&group, "IMG_1");
+
+        assert_eq!(
+            got,
+            vec![jpg_dir.join("IMG_1_1.jpg"), raw_dir.join("IMG_1_1.ARW")]
+        );
     }
 
     #[test]
@@ -106,5 +143,62 @@ mod tests {
         );
         assert_eq!(insert_suffix("README", "", "_1"), "README_1");
         assert_eq!(insert_suffix(".hidden", "", "_1"), ".hidden_1");
+    }
+
+    fn touch(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"x").unwrap();
+    }
+
+    #[test]
+    fn accepts_files_inside_the_dir_at_any_depth() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        touch(&cache.join("a.jpg"));
+        touch(&cache.join("sub/b.jpg"));
+
+        assert!(is_inside_dir(&cache.join("a.jpg"), &cache));
+        assert!(is_inside_dir(&cache.join("sub/b.jpg"), &cache));
+    }
+
+    #[test]
+    fn rejects_the_dir_itself_siblings_and_missing_files() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        touch(&cache.join("a.jpg"));
+        touch(&tmp.path().join("cache2/a.jpg"));
+        touch(&tmp.path().join("photo.jpg"));
+
+        assert!(!is_inside_dir(&cache, &cache));
+        assert!(!is_inside_dir(&tmp.path().join("cache2/a.jpg"), &cache));
+        assert!(!is_inside_dir(&tmp.path().join("photo.jpg"), &cache));
+        assert!(!is_inside_dir(&cache.join("missing.jpg"), &cache));
+        assert!(!is_inside_dir(
+            &cache.join("a.jpg"),
+            &tmp.path().join("no-cache")
+        ));
+    }
+
+    #[test]
+    fn rejects_dot_dot_escapes() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        touch(&tmp.path().join("photo.jpg"));
+
+        assert!(!is_inside_dir(&cache.join("../photo.jpg"), &cache));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinks_that_point_outside() {
+        let tmp = tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        let photo = tmp.path().join("photo.jpg");
+        touch(&photo);
+        std::os::unix::fs::symlink(&photo, cache.join("link.jpg")).unwrap();
+
+        assert!(!is_inside_dir(&cache.join("link.jpg"), &cache));
     }
 }

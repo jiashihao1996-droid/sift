@@ -6,7 +6,8 @@
 // Async: uses spawn_blocking to avoid blocking IPC on Windows
 // ============================================================
 
-use super::cache;
+use crate::media::cache_dirs;
+use crate::paths;
 use std::path::{Path, PathBuf};
 
 #[tauri::command]
@@ -22,7 +23,7 @@ pub async fn delete_pair(
             raw_path.as_deref(),
             source.as_deref(),
             xmp_paths.as_deref().unwrap_or_default(),
-            &cache::raw_preview_cache_dir(),
+            &cache_dirs::path(cache_dirs::RAW_PREVIEWS),
         )?;
         execute_delete(&plan, |path| trash::delete(path).map_err(|e| e.to_string()))
     })
@@ -66,7 +67,7 @@ fn plan_delete(
             // jpg_path comes from the frontend. Only a file we extracted
             // ourselves may be removed outright; anything else could be a
             // user photo, so refuse the whole request before touching disk.
-            if !cache::is_inside_dir(jpg, preview_cache_dir) {
+            if !paths::is_inside_dir(jpg, preview_cache_dir) {
                 return Err(format!(
                     "Refusing to delete {}: not a cached RAW preview",
                     jpg_path
