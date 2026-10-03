@@ -27,6 +27,7 @@ import {
   indexAfterMark,
   planBatches,
   progressPercent,
+  slideDirectionTo,
   toggledStatus,
   type MarkType,
 } from '@/core/review'
@@ -169,7 +170,7 @@ export const useSessionStore = defineStore('session', () => {
   /** Navigate to specific index */
   function goTo(index: number) {
     if (index >= 0 && index < pairs.value.length) {
-      slideDirection.value = index > currentIndex.value ? 'left' : 'right'
+      slideDirection.value = slideDirectionTo(currentIndex.value, index)
       currentIndex.value = index
     }
   }
@@ -191,7 +192,8 @@ export const useSessionStore = defineStore('session', () => {
       markActionCount.value++
     }
     pairs.value[idx] = { ...pair, status }
-    moveTo(indexAfterMark(pairs.value, idx), 'left')
+    const next = indexAfterMark(pairs.value, idx)
+    moveTo(next, slideDirectionTo(idx, next))
     return isMarked
   }
 

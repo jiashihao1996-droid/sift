@@ -143,8 +143,7 @@ describe('marking', () => {
     store.markStar()
 
     expect(store.currentIndex).toBe(0)
-    // Current behaviour: direction is 'left' even when wrapping backwards
-    expect(store.slideDirection).toBe('left')
+    expect(store.slideDirection).toBe('right')
   })
 
   it('moves to the next photo when nothing is left unprocessed', () => {

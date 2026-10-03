@@ -84,4 +84,3 @@ Rust（`src-tauri/src/`）：
 筛图交互的现状（`src/stores/sessionStore.test.ts` 有记录）：
 
 - 取消标记（再按一次同一个键）不进撤销栈；此时 Ctrl+Z 撤销的是更早一次已记录的标记。
-- 回绕到前面的未处理照片时，切换动画方向仍是 `left`。
