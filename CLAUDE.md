@@ -49,6 +49,7 @@ Rust（`src-tauri/src/`）：
 - 移动/复制**永不覆盖**已有文件：目标路径一律经过 `paths::unique_paths_sharing_stem()`：一组 JPG/RAW/XMP 共用同一个 `_N` 后缀（即使分属 `JPG/` 和 `RAW/` 两个文件夹），重新扫描时仍能配对。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
 - 命令接收的路径来自前端，视为不可信输入。
+- 扫描不得静默丢弃照片：每个 JPG/RAW 要么进会话，要么进 `ScanResult.skipped`（界面会提示）。同 stem 有多个 JPG/RAW 时，按文件名自然序第一个 JPG 与第一个 RAW 配对，其余各自成为独立条目；每个 XMP 只挂在一个条目上，删除或归档一个条目不会带走别的条目的 sidecar（规则见 `catalog/pairing.rs`）。
 
 ## 代码规范
 
@@ -76,8 +77,6 @@ Rust（`src-tauri/src/`）：
 配对规则的现状（`catalog/pairing.rs` 测试里有记录，改动前先想清楚是否算 bug）：
 
 - stem 区分大小写：`img_1.jpg` 与 `IMG_1.CR3` 不配对。
-- 同 stem 同类型有两个文件（`IMG_1.jpg` + `IMG_1.jpeg`，或 `.CR3` + `.DNG`）时只保留后扫到的一个。
-- 提取不出内嵌预览的 RAW-only 文件会被静默排除在会话之外。
 
 筛图交互的现状（`src/stores/sessionStore.test.ts` 有记录）：
 

@@ -36,6 +36,17 @@ export interface ScanResult {
   pairedCount: number
   jpgOnlyCount: number
   rawOnlyCount: number
+  /** Photo files found but not loaded into the session */
+  skipped: SkippedFile[]
+}
+
+/** Why a photo file was left out of the session */
+export type SkipReason = 'noPreview'
+
+/** A photo file that was found but not loaded into the session */
+export interface SkippedFile {
+  path: string
+  reason: SkipReason
 }
 
 /** Thumbnail generation result */

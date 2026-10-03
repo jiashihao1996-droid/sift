@@ -216,6 +216,7 @@ describe('scanning', () => {
       pairedCount: 0,
       jpgOnlyCount: count,
       rawOnlyCount: 0,
+      skipped: [],
     }
   }
 
