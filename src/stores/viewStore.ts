@@ -10,6 +10,9 @@ import { PhotoStatus } from '@/types'
 import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
 
 const PANE_CENTER: Point = { x: 0, y: 0 }
+const TOAST_DURATION_MS = 3000
+
+export type ToastType = 'star' | 'delete' | 'undo' | 'info'
 
 export const useViewStore = defineStore('view', () => {
   const currentView = ref<AppView>('welcome')
@@ -34,8 +37,9 @@ export const useViewStore = defineStore('view', () => {
 
   // Toast
   const toastMessage = ref('')
-  const toastType = ref<'star' | 'delete' | 'undo' | 'info'>('info')
+  const toastType = ref<ToastType>('info')
   const toastVisible = ref(false)
+  let toastTimer: ReturnType<typeof setTimeout> | undefined
 
   // Filter gallery
   const filterCategory = ref<PhotoStatus | null>(null)
@@ -98,13 +102,15 @@ export const useViewStore = defineStore('view', () => {
     rotation.value += delta
   }
 
-  function showToast(message: string, type: 'star' | 'delete' | 'undo' | 'info' = 'info') {
+  /** Show a toast, replacing any current one (its timer must not hide this one early) */
+  function showToast(message: string, type: ToastType = 'info', durationMs = TOAST_DURATION_MS) {
     toastMessage.value = message
     toastType.value = type
     toastVisible.value = true
-    setTimeout(() => {
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => {
       toastVisible.value = false
-    }, 3000)
+    }, durationMs)
   }
 
   function toggleCompare(currentIdx: number) {

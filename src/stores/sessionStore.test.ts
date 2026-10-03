@@ -143,10 +143,33 @@ describe('marking', () => {
     expect(store.endReachedCount).toBe(0)
   })
 
+  it('records each mark change for feedback, counting repeats separately', () => {
+    const store = storeWith([U, S, U])
+
+    store.markStar()
+    const first = store.lastMark
+    store.markStar()
+
+    expect(first).toMatchObject({ type: 'star', isMarked: true, index: 0 })
+    expect(store.lastMark).toMatchObject({ type: 'star', isMarked: false, index: 1 })
+    expect(store.lastMark?.seq).toBe((first?.seq ?? 0) + 1)
+  })
+
+  it('does not report undo as a mark change', () => {
+    const store = storeWith([U, U])
+    store.markDelete()
+    const marked = store.lastMark
+
+    store.undo()
+
+    expect(store.lastMark).toBe(marked)
+  })
+
   it('is a no-op on an empty session', () => {
     const store = storeWith([])
     expect(store.markStar()).toBe('starred')
     expect(store.undoStack).toEqual([])
+    expect(store.lastMark).toBeNull()
   })
 })
 

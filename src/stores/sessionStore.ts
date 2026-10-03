@@ -32,6 +32,7 @@ import {
   type MarkType,
 } from '@/core/review'
 import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
+import type { MarkChange } from '@/core/feedback'
 import { createLatestWriter } from '@/utils/latestWriter'
 
 /** First thumbnail batch covers the visible viewport; the rest stream in chunks */
@@ -63,6 +64,8 @@ export const useSessionStore = defineStore('session', () => {
   const undoStack = ref<UndoAction[]>([])
   const slideDirection = ref<SlideDirection>('left')
   const isGeneratingThumbnails = ref(false)
+  /** The latest mark key press, for feedback; `seq` tells repeats apart */
+  const lastMark = ref<(MarkChange & { index: number; seq: number }) | null>(null)
   /** Bumped each time the user tries to move on from the last photo */
   const endReachedCount = ref(0)
   /** Marks brought back from the last visit to this folder */
@@ -191,6 +194,7 @@ export const useSessionStore = defineStore('session', () => {
     const isMarked = status !== PhotoStatus.Unprocessed
     undoStack.value.push({ type, index: idx, previousStatus: pair.status })
     pairs.value[idx] = { ...pair, status }
+    lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
     if (isMarked && isLastPhoto.value) endReachedCount.value++
     moveTo(indexAfterMark(status, idx, pairs.value.length), 'left')
     return isMarked
@@ -270,6 +274,7 @@ export const useSessionStore = defineStore('session', () => {
     undoStack,
     slideDirection,
     isGeneratingThumbnails,
+    lastMark,
     endReachedCount,
     restoredCount,
     isResumed,

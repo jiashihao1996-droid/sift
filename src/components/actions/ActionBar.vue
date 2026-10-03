@@ -5,28 +5,30 @@
 
 import { Star, Trash2 } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { PhotoStatus } from '@/types'
+import type { MarkType } from '@/core/review'
+
+const PULSE_MS = 300
 
 const session = useSessionStore()
 
-const starActive = ref(false)
-const deleteActive = ref(false)
+/** Button that just fired, by mouse or keyboard */
+const pulsing = ref<MarkType | null>(null)
+let pulseTimer: ReturnType<typeof setTimeout> | undefined
 
 const isStarred = computed(() => session.currentPair?.status === PhotoStatus.Starred)
 const isDeleted = computed(() => session.currentPair?.status === PhotoStatus.Deleted)
 
-async function handleStar() {
-  starActive.value = true
-  session.markStar()
-  setTimeout(() => (starActive.value = false), 400)
-}
-
-function handleDelete() {
-  deleteActive.value = true
-  session.markDelete()
-  setTimeout(() => (deleteActive.value = false), 300)
-}
+watch(
+  () => session.lastMark,
+  (change) => {
+    if (!change) return
+    pulsing.value = change.type
+    clearTimeout(pulseTimer)
+    pulseTimer = setTimeout(() => (pulsing.value = null), PULSE_MS)
+  },
+)
 </script>
 
 <template>
@@ -37,13 +39,13 @@ function handleDelete() {
     <button
       class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg group btn-spring transition-colors"
       :class="isStarred ? 'bg-sift-star/15 hover:bg-sift-star/25' : 'hover:bg-sift-star/15'"
-      @click="handleStar"
+      @click="session.markStar()"
     >
       <Star
         :size="16"
         class="transition-all"
         :class="[
-          starActive ? 'scale-110' : '',
+          pulsing === 'star' ? 'scale-125' : '',
           isStarred ? 'text-sift-star fill-sift-star' : 'text-sift-star',
         ]"
       />
@@ -61,9 +63,13 @@ function handleDelete() {
     <button
       class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg group btn-spring transition-colors"
       :class="isDeleted ? 'bg-sift-delete/15 hover:bg-sift-delete/25' : 'hover:bg-sift-delete/15'"
-      @click="handleDelete"
+      @click="session.markDelete()"
     >
-      <Trash2 :size="16" class="text-sift-delete" />
+      <Trash2
+        :size="16"
+        class="text-sift-delete transition-all"
+        :class="pulsing === 'delete' ? 'scale-125' : ''"
+      />
       <span
         class="text-[11px] group-hover:text-white transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
         :class="isDeleted ? 'text-sift-delete' : 'text-white/60'"
