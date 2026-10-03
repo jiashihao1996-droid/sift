@@ -69,7 +69,7 @@ Rust（`src-tauri/src/`）：
 - Conventional Commits，带 scope：`viewer` `scan` `raw` `archive` `export` `ipc` `release` `ci`。
 - 格式化/重构与行为改动分开提交。
 - main 只经 PR 合入，CI 绿了再合。
-- 给 PR 打 `automerge` 标签，CI 全绿后由 `.github/workflows/automerge.yml` 自动 rebase 合并并删除分支。改动 `.github/workflows/` 的 PR 不能自动合并（`GITHUB_TOKEN` 无权合并 workflow 变更），需手动合并。
+- 给 PR 打 `automerge` 标签，CI 全绿后由 `.github/workflows/automerge.yml` 自动 rebase 合并并删除分支（分支无法 rebase 时——通常是合并过 main 来解决冲突——改为 squash 合并）。改动 `.github/workflows/` 的 PR 不能自动合并（`GITHUB_TOKEN` 无权合并 workflow 变更），需手动合并。
 
 ## 已知待办
 

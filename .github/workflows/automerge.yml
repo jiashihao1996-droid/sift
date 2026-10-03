@@ -5,6 +5,8 @@ name: Auto-merge
 # available for private repos on the free plan.
 #
 # Notes:
+# - A branch GitHub cannot rebase onto the base (typically one that merged
+#   main in to resolve conflicts) is squash-merged instead.
 # - workflow_run always runs the copy of this file on main.
 # - GITHUB_TOKEN cannot merge PRs that change .github/workflows/; merge
 #   those by hand.
@@ -21,8 +23,10 @@ on:
 
 permissions:
   actions: write
+  checks: read
   contents: write
   pull-requests: write
+  statuses: read
 
 concurrency:
   group: automerge-${{ github.event.pull_request.number || github.event.workflow_run.head_branch }}
@@ -71,8 +75,14 @@ jobs:
           fi
 
           # Also refuse if any other check (outside this workflow) is failing or pending.
-          # gh exits non-zero while checks are pending or failing; the JSON is still printed.
-          checks=$(gh pr checks "$PR" --json name,bucket,workflow || true)
+          # gh exits non-zero while checks are pending or failing but still prints the
+          # JSON, so its exit code is ignored; anything other than a JSON array means
+          # the query itself failed, and the merge is refused rather than assumed green.
+          checks=$(gh pr checks "$PR" --json name,bucket,workflow) || true
+          if ! jq -e 'type == "array"' <<<"$checks" >/dev/null 2>&1; then
+            echo "::error::Could not list the checks on PR #$PR; not merging."
+            exit 1
+          fi
           not_green=$(jq '[.[] | select(.workflow != "Auto-merge") | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$checks")
           if [ "$not_green" -ne 0 ]; then
             echo "Not merging PR #$PR yet:"
@@ -80,6 +90,15 @@ jobs:
             exit 0
           fi
 
+          # A rebase merge replays each commit onto the base and fails if one of
+          # them conflicts there, even when a later merge commit resolved it.
+          # rebaseable is null while GitHub is still computing it; try a rebase then.
+          method=--rebase
+          if [ "$(gh api "repos/$GH_REPO/pulls/$PR" --jq .rebaseable)" = "false" ]; then
+            echo "PR #$PR cannot be rebased onto its base; squash-merging instead."
+            method=--squash
+          fi
+
           # --match-head-commit: refuse if a new commit landed after the checks ran
-          gh pr merge "$PR" --rebase --delete-branch --match-head-commit "$head"
+          gh pr merge "$PR" "$method" --delete-branch --match-head-commit "$head"
           gh workflow run ci.yml --ref main
