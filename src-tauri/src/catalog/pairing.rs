@@ -16,19 +16,20 @@ enum Kind {
     Raw,
 }
 
-/// One JPG or RAW file.
+/// One JPG or RAW file. `name` and `stem` keep the original spelling.
 struct PhotoFile {
     path: String,
     name: String,
+    stem: String,
     /// Lowercase extension
     ext: String,
     kind: Kind,
 }
 
-/// Photo files found in a folder, grouped by file stem.
+/// Photo files found in a folder, grouped by case-folded file stem.
 #[derive(Default)]
 pub struct FileIndex {
-    /// stem -> every JPG and RAW with that stem
+    /// `fold_case(stem)` -> every JPG and RAW with that stem
     photos: HashMap<String, Vec<PhotoFile>>,
     /// (XMP file stem, path): "IMG_1.xmp" has stem "IMG_1", "IMG_1.CR3.xmp" has "IMG_1.CR3"
     xmps: Vec<(String, String)>,
@@ -51,7 +52,7 @@ pub struct Pairing {
 
 impl FileIndex {
     /// Classify one file by extension. Unknown extensions are ignored.
-    /// Stems are case-sensitive; extensions are not.
+    /// Neither stems nor extensions are case-sensitive (see `fold_case`).
     pub fn add(&mut self, path: &Path) {
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
             return;
@@ -75,12 +76,16 @@ impl FileIndex {
             return;
         };
         let name = path.file_name().unwrap_or_default().to_string_lossy();
-        self.photos.entry(stem).or_default().push(PhotoFile {
-            name: name.to_string(),
-            path: full_path,
-            ext,
-            kind,
-        });
+        self.photos
+            .entry(fold_case(&stem))
+            .or_default()
+            .push(PhotoFile {
+                name: name.to_string(),
+                path: full_path,
+                stem,
+                ext,
+                kind,
+            });
     }
 
     pub fn has_jpgs(&self) -> bool {
@@ -91,6 +96,16 @@ impl FileIndex {
     pub fn photo_count(&self) -> usize {
         self.photos.values().map(Vec::len).sum()
     }
+}
+
+/// Grouping key for a stem, so `img_1.jpg` pairs with `IMG_1.CR3`: cameras
+/// and import tools often disagree on case. Only ASCII letters are folded.
+/// Camera (DCF) names are ASCII, and ASCII folding is predictable: Unicode
+/// lowercasing differs from what file systems treat as equal (ß, dotted İ,
+/// NFC vs NFD) and can change a name's byte length, which `paths::insert_suffix`
+/// relies on staying the same. Non-ASCII stems still pair when spelled the same.
+fn fold_case(stem: &str) -> String {
+    stem.to_ascii_lowercase()
 }
 
 /// One session entry for a stem: a JPG and/or a RAW plus the XMPs that go
@@ -110,11 +125,8 @@ impl<'a> Entry<'a> {
         }
     }
 
-    fn has_ext(&self, ext: &str) -> bool {
-        [self.jpg, self.raw]
-            .into_iter()
-            .flatten()
-            .any(|f| f.ext.eq_ignore_ascii_case(ext))
+    fn files(&self) -> impl Iterator<Item = &'a PhotoFile> {
+        [self.jpg, self.raw].into_iter().flatten()
     }
 }
 
@@ -161,31 +173,44 @@ fn by_name(a: &PhotoFile, b: &PhotoFile) -> Ordering {
     natord::compare(&a.name, &b.name).then_with(|| a.path.cmp(&b.path))
 }
 
-/// The (stem, entry index) an XMP sidecar belongs to, so each XMP is moved
-/// or trashed along with exactly one entry:
-/// - "IMG_1.CR3.xmp" goes with IMG_1.CR3 (extension compared case-insensitively);
+/// The (stem key, entry index) an XMP sidecar belongs to, so each XMP is
+/// moved or trashed along with exactly one entry. Names match ignoring case:
+/// - "IMG_1.CR3.xmp" goes with IMG_1.CR3;
 /// - "IMG_1.xmp" goes with the primary entry of stem IMG_1;
 /// - "IMG_1.NEF.xmp" with no IMG_1.NEF also goes with that primary entry.
+///
+/// When a stem's entries differ only in case (IMG_1.jpg and img_1.JPG on a
+/// case-sensitive volume), the entry spelled exactly like the XMP wins.
 fn xmp_owner<'a>(
     groups: &HashMap<&'a str, Vec<Entry>>,
-    xmp_stem: &'a str,
+    xmp_stem: &str,
 ) -> Option<(&'a str, usize)> {
-    let split = xmp_stem.rsplit_once('.');
-    if let Some((base, ext)) = split {
-        let file_entry = groups
-            .get(base)
-            .and_then(|entries| entries.iter().position(|e| e.has_ext(ext)));
-        if let Some(i) = file_entry {
-            return Some((base, i));
+    let key = fold_case(xmp_stem);
+    let base = key.rsplit_once('.').map(|(base, _)| base);
+    if let Some((&stem, entries)) = base.and_then(|b| groups.get_key_value(b)) {
+        if let Some(i) = entry_with(entries, xmp_stem, |f| &f.name) {
+            return Some((stem, i));
         }
     }
-    if groups.contains_key(xmp_stem) {
-        return Some((xmp_stem, 0));
+    if let Some((&stem, entries)) = groups.get_key_value(key.as_str()) {
+        return Some((
+            stem,
+            entry_with(entries, xmp_stem, |f| &f.stem).unwrap_or(0),
+        ));
     }
-    split
-        .map(|(base, _)| base)
-        .filter(|base| groups.contains_key(base))
-        .map(|base| (base, 0))
+    base.and_then(|b| groups.get_key_value(b))
+        .map(|(&stem, _)| (stem, 0))
+}
+
+/// First entry holding a file whose `part` (name or stem) is `target`:
+/// spelled exactly the same if any, otherwise equal ignoring ASCII case.
+fn entry_with(entries: &[Entry], target: &str, part: impl Fn(&PhotoFile) -> &str) -> Option<usize> {
+    let find = |matches: &dyn Fn(&str) -> bool| {
+        entries
+            .iter()
+            .position(|e| e.files().any(|f| matches(part(f))))
+    };
+    find(&|s| s == target).or_else(|| find(&|s| s.eq_ignore_ascii_case(target)))
 }
 
 fn into_pairing<'a>(entries: impl Iterator<Item = Entry<'a>>) -> Pairing {
@@ -396,13 +421,79 @@ mod tests {
     }
 
     #[test]
-    fn stem_matching_is_case_sensitive() {
-        // Current behaviour: differently-cased stems do not pair.
+    fn pairs_stems_that_differ_only_in_case_keeping_original_paths() {
         let pairing = pair(&index(&["img_1.jpg", "IMG_1.CR3"]));
 
+        assert_eq!(pairing.paired_count, 1);
+        assert!(pairing.raw_only.is_empty());
+        let p = &pairing.pairs[0];
+        assert_eq!(p.jpg_path, "/photos/img_1.jpg");
+        assert_eq!(p.raw_path.as_deref(), Some("/photos/IMG_1.CR3"));
+    }
+
+    #[test]
+    fn attaches_xmps_whose_stem_case_differs_from_the_photos() {
+        let pairing = pair(&index(&[
+            "img_1.jpg",
+            "IMG_1.CR3",
+            "Img_1.xmp",
+            "img_1.cr3.xmp",
+            "IMG_2.NEF",
+            "img_2.xmp",
+        ]));
+
+        assert_eq!(
+            sorted_names(&pair_with_jpg(&pairing, "img_1.jpg").xmp_paths),
+            ["Img_1.xmp", "img_1.cr3.xmp"]
+        );
+        assert_eq!(sorted_names(&pairing.raw_only[0].xmp_paths), ["img_2.xmp"]);
+    }
+
+    #[test]
+    fn folds_only_ascii_case() {
+        // Non-ASCII letters are compared byte for byte (see `fold_case`).
+        let pairing = pair(&index(&["Ümlaut.jpg", "ümlaut.CR3"]));
         assert_eq!(pairing.paired_count, 0);
+        assert_eq!(raw_only_names(&pairing), ["ümlaut.CR3"]);
+    }
+
+    #[test]
+    fn keeps_jpgs_whose_stems_differ_only_in_case_as_separate_photos() {
+        // Both can exist on a case-sensitive volume; neither may be dropped.
+        let files = ["IMG_1.jpg", "img_1.JPG", "IMG_1.CR3"];
+        let pairing = pair(&index(&files));
+
+        assert_eq!(pairing.pairs.len(), 2);
+        assert_eq!(pairing.paired_count, 1);
         assert_eq!(pairing.jpg_only_count, 1);
-        assert_eq!(pairing.raw_only.len(), 1);
+        let primary = pair_with_jpg(&pairing, "IMG_1.jpg");
+        assert_eq!(file_name(primary.raw_path.as_deref().unwrap()), "IMG_1.CR3");
+        assert_eq!(pair_with_jpg(&pairing, "img_1.JPG").raw_path, None);
+        assert_eq!(all_paths(&pairing).len(), files.len());
+    }
+
+    #[test]
+    fn gives_each_case_variant_the_xmps_named_exactly_after_it() {
+        let pairing = pair(&index(&[
+            "IMG_1.jpg",
+            "img_1.JPG",
+            "IMG_1.xmp",
+            "img_1.xmp",
+            "IMG_1.jpg.xmp",
+            "img_1.JPG.xmp",
+            "IMG_1.JPG.xmp",
+        ]));
+
+        // An exact name wins; IMG_1.JPG.xmp matches neither exactly and goes
+        // to the first file with that name ignoring case.
+        assert_eq!(
+            sorted_names(&pair_with_jpg(&pairing, "IMG_1.jpg").xmp_paths),
+            ["IMG_1.JPG.xmp", "IMG_1.jpg.xmp", "IMG_1.xmp"]
+        );
+        assert_eq!(
+            sorted_names(&pair_with_jpg(&pairing, "img_1.JPG").xmp_paths),
+            ["img_1.JPG.xmp", "img_1.xmp"]
+        );
     }
 
     #[test]
@@ -493,6 +584,9 @@ mod tests {
             "IMG_2.NEF",
             "IMG_2.nef.xmp",
             "IMG_3.JPG",
+            "img_3.jpg",
+            "img_3.CR3",
+            "Img_3.xmp",
         ];
         let pairing = pair(&index(&files));
 

@@ -10,6 +10,8 @@ use std::path::Path;
 pub mod archive;
 pub mod delete;
 pub mod export;
+#[cfg(test)]
+mod rescan_tests;
 
 fn file_name(path: &Path) -> String {
     path.file_name()

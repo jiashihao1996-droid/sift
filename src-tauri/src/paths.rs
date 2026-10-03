@@ -83,9 +83,14 @@ fn with_suffix(path: &Path, stem: &str, suffix: &str) -> PathBuf {
 }
 
 /// Insert `suffix` after `stem` when `name` starts with it (`IMG.CR3.xmp` → `IMG_1.CR3.xmp`),
-/// otherwise before the last extension.
+/// otherwise before the last extension. The stem matches ignoring ASCII case, as
+/// pairing does (`img.cr3.xmp` → `img_1.cr3.xmp`); `name` keeps its own spelling.
 fn insert_suffix(name: &str, stem: &str, suffix: &str) -> String {
-    let split = match name.strip_prefix(stem) {
+    let after_stem = name
+        .get(..stem.len())
+        .filter(|head| head.eq_ignore_ascii_case(stem))
+        .map(|_| &name[stem.len()..]);
+    let split = match after_stem {
         Some(rest) if !stem.is_empty() && (rest.is_empty() || rest.starts_with('.')) => stem.len(),
         _ => name.rfind('.').filter(|&i| i > 0).unwrap_or(name.len()),
     };
@@ -190,6 +195,17 @@ mod tests {
         );
         assert_eq!(insert_suffix("README", "", "_1"), "README_1");
         assert_eq!(insert_suffix(".hidden", "", "_1"), ".hidden_1");
+    }
+
+    #[test]
+    fn insert_suffix_matches_stem_ignoring_ascii_case_and_keeps_the_name_case() {
+        assert_eq!(
+            insert_suffix("img_1.cr3.xmp", "IMG_1", "_1"),
+            "img_1_1.cr3.xmp"
+        );
+        assert_eq!(insert_suffix("img_1.JPG", "IMG_1", "_2"), "img_1_2.JPG");
+        assert_eq!(insert_suffix("img_10.jpg", "IMG_1", "_1"), "img_10_1.jpg");
+        assert_eq!(insert_suffix("Über.xmp", "über", "_1"), "Über_1.xmp");
     }
 
     fn touch(path: &Path) {
