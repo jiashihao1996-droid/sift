@@ -18,6 +18,8 @@ function pairs(statuses: PhotoStatus[]): PhotoPair[] {
     rawPath: null,
     rawFormat: null,
     status,
+    thumbnailPath: null,
+    dominantColor: null,
     source: 'jpg',
     xmpPaths: [],
   }))

@@ -8,7 +8,7 @@ import { ref, watch, nextTick, onMounted } from 'vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
-import { PhotoStatus } from '@/types'
+import { PhotoStatus, type PhotoPair } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { useContextMenu } from '@/composables/useContextMenu'
@@ -87,7 +87,7 @@ function getStatusColor(status: PhotoStatus): string {
   }
 }
 
-function getDominantColor(pair: { dominantColor?: string }): string {
+function getDominantColor(pair: Pick<PhotoPair, 'dominantColor'>): string {
   return pair.dominantColor || '#2a2a2a'
 }
 

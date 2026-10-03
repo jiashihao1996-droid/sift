@@ -1,0 +1,5 @@
+# ts-rs: `cargo test` writes TypeScript bindings for models/ into the frontend.
+# serde_json serializes u64 as a plain JSON number, so map large ints to number.
+[env]
+TS_RS_EXPORT_DIR = { value = "../src/types/generated", relative = true }
+TS_RS_LARGE_INT = "number"

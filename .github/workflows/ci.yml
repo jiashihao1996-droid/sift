@@ -78,3 +78,13 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test
+
+      # cargo test regenerates src/types/generated via ts-rs; it must match the commit
+      - name: Generated TS types are up to date
+        if: runner.os == 'macOS'
+        run: |
+          if [ -n "$(git status --porcelain -- src/types/generated)" ]; then
+            git status --short -- src/types/generated
+            echo "::error::Rust models changed without regenerating TS types. Run: npm run gen:types"
+            exit 1
+          fi

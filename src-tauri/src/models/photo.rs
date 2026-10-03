@@ -4,9 +4,11 @@
 // ============================================================
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Status of a photo pair in the culling workflow
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub enum PhotoStatus {
     Unprocessed,
@@ -16,7 +18,8 @@ pub enum PhotoStatus {
 }
 
 /// Source of the JPG preview image
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub enum PhotoSource {
     /// Original JPG file
@@ -26,7 +29,8 @@ pub enum PhotoSource {
 }
 
 /// A paired photo: one JPG + optional RAW
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct PhotoPair {
     pub id: String,
@@ -42,7 +46,8 @@ pub struct PhotoPair {
 }
 
 /// Result of scanning a folder
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub pairs: Vec<PhotoPair>,
@@ -55,7 +60,8 @@ pub struct ScanResult {
 }
 
 /// Why a photo file was left out of the session
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub enum SkipReason {
     /// RAW-only file whose embedded preview could not be extracted
@@ -63,7 +69,8 @@ pub enum SkipReason {
 }
 
 /// A photo file that was found but not loaded into the session
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct SkippedFile {
     pub path: String,
@@ -71,7 +78,8 @@ pub struct SkippedFile {
 }
 
 /// Thumbnail generation result for a single photo
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ThumbnailResult {
     pub id: String,
@@ -80,7 +88,8 @@ pub struct ThumbnailResult {
 }
 
 /// EXIF metadata extracted from a JPG
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ExifData {
     pub camera: String,
@@ -94,14 +103,16 @@ pub struct ExifData {
     pub file_size: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Dimensions {
     pub width: u32,
     pub height: u32,
 }
 
 /// Archive operation result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveResult {
     pub moved_count: usize,
@@ -110,7 +121,8 @@ pub struct ArchiveResult {
 }
 
 /// Archive/Export progress event payload
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveProgress {
     pub current: usize,
@@ -119,7 +131,8 @@ pub struct ArchiveProgress {
 }
 
 /// Export result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportResult {
     pub exported_count: usize,
@@ -127,7 +140,8 @@ pub struct ExportResult {
 }
 
 /// Input for archive command
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchivePairInput {
     pub jpg_path: String,
@@ -140,7 +154,8 @@ pub struct ArchivePairInput {
 }
 
 /// Input for export command
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportPairInput {
     pub jpg_path: String,
@@ -157,7 +172,8 @@ fn default_source() -> PhotoSource {
 }
 
 /// Input for thumbnail generation
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ThumbnailInput {
     pub id: String,
