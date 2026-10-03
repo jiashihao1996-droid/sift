@@ -427,8 +427,14 @@ mod tests {
         assert_eq!(pairing.paired_count, 1);
         assert!(pairing.raw_only.is_empty());
         let p = &pairing.pairs[0];
-        assert_eq!(p.jpg_path, "/photos/img_1.jpg");
-        assert_eq!(p.raw_path.as_deref(), Some("/photos/IMG_1.CR3"));
+        let original = |name: &str| {
+            Path::new("/photos")
+                .join(name)
+                .to_string_lossy()
+                .to_string()
+        };
+        assert_eq!(p.jpg_path, original("img_1.jpg"));
+        assert_eq!(p.raw_path, Some(original("IMG_1.CR3")));
     }
 
     #[test]
