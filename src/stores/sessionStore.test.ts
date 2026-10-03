@@ -72,7 +72,6 @@ describe('counts and progress', () => {
     expect(store.deletedCount).toBe(1)
     expect(store.unprocessedCount).toBe(2)
     expect(store.progress).toBe(50)
-    expect(store.activePairs.map((p) => p.id)).toEqual(['p0', 'p1', 'p3'])
   })
 
   it('reports zero progress for an empty session', () => {
@@ -183,7 +182,6 @@ describe('undo', () => {
 
     expect(statuses(store)).toEqual([S, U, U])
     expect(store.currentIndex).toBe(1)
-    expect(store.slideDirection).toBe('right')
   })
 
   it('reports when there is nothing to undo', () => {
@@ -220,10 +218,10 @@ describe('navigation', () => {
     expect(store.currentIndex).toBe(0)
 
     store.goNext()
-    expect([store.currentIndex, store.slideDirection]).toEqual([1, 'left'])
+    expect(store.currentIndex).toBe(1)
 
     store.goPrev()
-    expect([store.currentIndex, store.slideDirection]).toEqual([0, 'right'])
+    expect(store.currentIndex).toBe(0)
   })
 
   it('never changes marks', () => {
@@ -249,7 +247,7 @@ describe('navigation', () => {
     const store = storeWith([U, U, U])
 
     store.goTo(2)
-    expect([store.currentIndex, store.slideDirection]).toEqual([2, 'left'])
+    expect(store.currentIndex).toBe(2)
 
     store.goTo(5)
     store.goTo(-1)

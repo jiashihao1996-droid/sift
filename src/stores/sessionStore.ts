@@ -12,7 +12,6 @@ import {
   type ThumbnailResult,
   type FolderProgress,
   type UndoAction,
-  type SlideDirection,
 } from '@/types'
 import {
   scanFolder,
@@ -27,7 +26,6 @@ import {
   indexAfterMark,
   planBatches,
   positionPercent,
-  slideDirectionTo,
   toggledStatus,
   type MarkType,
 } from '@/core/review'
@@ -62,7 +60,6 @@ export const useSessionStore = defineStore('session', () => {
   const isScanning = ref(false)
   const scanResult = ref<ScanResult | null>(null)
   const undoStack = ref<UndoAction[]>([])
-  const slideDirection = ref<SlideDirection>('left')
   const isGeneratingThumbnails = ref(false)
   /** The latest mark key press, for feedback; `seq` tells repeats apart */
   const lastMark = ref<(MarkChange & { index: number; seq: number }) | null>(null)
@@ -86,9 +83,6 @@ export const useSessionStore = defineStore('session', () => {
   const starredCount = computed(() => counts.value[PhotoStatus.Starred])
   const deletedCount = computed(() => counts.value[PhotoStatus.Deleted])
   const unprocessedCount = computed(() => counts.value[PhotoStatus.Unprocessed])
-
-  /** Active (non-deleted) pairs for browsing */
-  const activePairs = computed(() => pairs.value.filter((p) => p.status !== PhotoStatus.Deleted))
 
   /** How far through the folder the current photo is */
   const progress = computed(() => positionPercent(currentIndex.value, pairs.value.length))
@@ -150,24 +144,15 @@ export const useSessionStore = defineStore('session', () => {
   /** Navigate to next photo; on the last one, report reaching the end instead */
   function goNext() {
     if (currentIndex.value < pairs.value.length - 1) {
-      slideDirection.value = 'left'
       currentIndex.value++
     } else if (pairs.value.length > 0) {
       endReachedCount.value++
     }
   }
 
-  /** Move to `index`, sliding in `direction`; no-op if already there */
-  function moveTo(index: number, direction: SlideDirection) {
-    if (index === currentIndex.value) return
-    slideDirection.value = direction
-    currentIndex.value = index
-  }
-
   /** Navigate to previous photo */
   function goPrev() {
     if (currentIndex.value > 0) {
-      slideDirection.value = 'right'
       currentIndex.value--
     }
   }
@@ -175,7 +160,6 @@ export const useSessionStore = defineStore('session', () => {
   /** Navigate to specific index */
   function goTo(index: number) {
     if (index >= 0 && index < pairs.value.length) {
-      slideDirection.value = slideDirectionTo(currentIndex.value, index)
       currentIndex.value = index
     }
   }
@@ -196,7 +180,7 @@ export const useSessionStore = defineStore('session', () => {
     pairs.value[idx] = { ...pair, status }
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
     if (isMarked && isLastPhoto.value) endReachedCount.value++
-    moveTo(indexAfterMark(status, idx, pairs.value.length), 'left')
+    currentIndex.value = indexAfterMark(status, idx, pairs.value.length)
     return isMarked
   }
 
@@ -218,7 +202,7 @@ export const useSessionStore = defineStore('session', () => {
     const pair = pairs.value[action.index]
     if (pair) {
       pairs.value[action.index] = { ...pair, status: action.previousStatus }
-      moveTo(action.index, slideDirectionTo(currentIndex.value, action.index))
+      currentIndex.value = action.index
     }
     return true
   }
@@ -272,7 +256,6 @@ export const useSessionStore = defineStore('session', () => {
     isScanning,
     scanResult,
     undoStack,
-    slideDirection,
     isGeneratingThumbnails,
     lastMark,
     endReachedCount,
@@ -284,7 +267,6 @@ export const useSessionStore = defineStore('session', () => {
     starredCount,
     deletedCount,
     unprocessedCount,
-    activePairs,
     progress,
     isLastPhoto,
     // Actions

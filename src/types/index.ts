@@ -46,6 +46,3 @@ export interface UndoAction {
 
 /** App page views */
 export type AppView = 'welcome' | 'culling' | 'summary'
-
-/** Slide direction for image transitions */
-export type SlideDirection = 'left' | 'right'

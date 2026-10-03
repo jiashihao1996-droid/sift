@@ -5,7 +5,7 @@
 // trivially testable.
 // ============================================================
 
-import { PhotoStatus, type PhotoPair, type SlideDirection, type UndoAction } from '@/types'
+import { PhotoStatus, type PhotoPair, type UndoAction } from '@/types'
 
 export type MarkType = UndoAction['type']
 
@@ -30,11 +30,6 @@ export function toggledStatus(current: PhotoStatus, type: MarkType): PhotoStatus
 export function indexAfterMark(status: PhotoStatus, currentIndex: number, total: number): number {
   if (status === PhotoStatus.Unprocessed) return currentIndex
   return Math.min(currentIndex + 1, total - 1)
-}
-
-/** Slide direction for moving between photos: forward slides left, backward slides right. */
-export function slideDirectionTo(fromIndex: number, toIndex: number): SlideDirection {
-  return toIndex < fromIndex ? 'right' : 'left'
 }
 
 export type StatusCounts = Record<PhotoStatus, number>
