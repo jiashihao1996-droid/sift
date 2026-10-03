@@ -5,7 +5,7 @@
 // trivially testable.
 // ============================================================
 
-import { PhotoStatus, type PhotoPair, type UndoAction } from '@/types'
+import { PhotoStatus, type PhotoPair, type SlideDirection, type UndoAction } from '@/types'
 
 export type MarkType = UndoAction['type']
 
@@ -42,6 +42,11 @@ export function findNextUnprocessed(pairs: readonly PhotoPair[], fromIndex: numb
 /** Where to go after marking: next unprocessed photo, else the next photo, else stay. */
 export function indexAfterMark(pairs: readonly PhotoPair[], currentIndex: number): number {
   return findNextUnprocessed(pairs, currentIndex) ?? Math.min(currentIndex + 1, pairs.length - 1)
+}
+
+/** Slide direction for moving between photos: forward slides left, backward slides right. */
+export function slideDirectionTo(fromIndex: number, toIndex: number): SlideDirection {
+  return toIndex < fromIndex ? 'right' : 'left'
 }
 
 export type StatusCounts = Record<PhotoStatus, number>

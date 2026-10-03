@@ -6,6 +6,7 @@ import {
   indexAfterMark,
   planBatches,
   progressPercent,
+  slideDirectionTo,
   toggledStatus,
 } from './review'
 
@@ -111,5 +112,15 @@ describe('planBatches', () => {
   it('keeps order and drops empty batches', () => {
     expect(planBatches([1, 2, 3], 10, 50)).toEqual([[1, 2, 3]])
     expect(planBatches([], 10, 50)).toEqual([])
+  })
+})
+
+describe('slideDirectionTo', () => {
+  it('slides left when moving forward', () => {
+    expect(slideDirectionTo(2, 5)).toBe('left')
+  })
+
+  it('slides right when moving backward, e.g. wrapping to an earlier photo', () => {
+    expect(slideDirectionTo(5, 0)).toBe('right')
   })
 })
