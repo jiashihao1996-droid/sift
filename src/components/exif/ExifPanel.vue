@@ -3,18 +3,32 @@
 // ExifPanel - Right slide-in drawer with EXIF metadata
 // ============================================================
 
-import { ref, watch } from 'vue'
-import { X, Camera, Aperture, Clock } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { X, Camera, Aperture, Clock, ChartArea } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { readExif } from '@/services/tauriCommands'
 import type { ExifData } from '@/types'
+import { useHistogram } from '@/composables/useHistogram'
+import HistogramView from './HistogramView.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
 
 const exifData = ref<ExifData | null>(null)
 const isLoading = ref(false)
+
+const histogramState = useHistogram(
+  computed(() => session.currentPair?.jpgPath ?? null),
+  computed(() => view.showExifPanel),
+)
+
+const histogramSource = computed(() => {
+  const pair = session.currentPair
+  if (pair?.source === 'rawPreview') return '基于 RAW 内嵌预览；RAW 本身通常还有高光余量'
+  if (pair?.rawPath) return '基于 JPG；对应的 RAW 通常还有高光余量'
+  return '基于 JPG'
+})
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '-'
@@ -59,6 +73,20 @@ watch(
           <X :size="14" class="text-sift-muted" />
         </button>
       </div>
+
+      <!-- Histogram (independent of EXIF loading) -->
+      <section class="p-4 border-b border-sift-border">
+        <div class="flex items-center gap-2 mb-2">
+          <ChartArea :size="14" class="text-sift-accent" />
+          <span class="text-xs text-sift-muted uppercase tracking-wider">直方图</span>
+        </div>
+        <HistogramView
+          :histogram="histogramState.histogram.value"
+          :is-loading="histogramState.isLoading.value"
+          :has-error="histogramState.hasError.value"
+          :source-label="histogramSource"
+        />
+      </section>
 
       <!-- Loading -->
       <div v-if="isLoading" class="p-4 space-y-3">
