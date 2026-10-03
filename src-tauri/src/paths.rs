@@ -53,7 +53,10 @@ pub fn claim_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> io::Resul
 }
 
 /// Claim the paths returned by `choose`, asking again whenever one is taken.
-fn claim_first_free(mut choose: impl FnMut() -> Vec<PathBuf>) -> io::Result<Vec<PathBuf>> {
+/// Exposed so callers' tests can inject a file between the choice and the claim.
+pub(crate) fn claim_first_free(
+    mut choose: impl FnMut() -> Vec<PathBuf>,
+) -> io::Result<Vec<PathBuf>> {
     let mut last_err = None;
     for _ in 0..MAX_CLAIM_ATTEMPTS {
         let paths = choose();

@@ -2,7 +2,8 @@
 // Sift - Archive
 // Moves surviving photos into RAW/ and JPG/ subfolders
 // Supports RAW-only pairs: RAW → RAW/, preview JPG → JPG/
-// Never overwrites: colliding pairs get a shared `_N` suffix in both folders
+// Never overwrites: colliding pairs get a shared `_N` suffix in both folders,
+// and each destination is claimed with `create_new` before anything is moved
 // ============================================================
 
 use super::file_name;
@@ -16,8 +17,9 @@ use std::path::{Path, PathBuf};
 ///
 /// The fallback removes `src` only after `fs::copy` has returned Ok, so a
 /// failed copy never loses the original. If the remove then fails, both copies
-/// exist and an error is returned: duplicated, never lost. `dest` must already
-/// be a fresh path from `paths::unique_paths_sharing_stem`.
+/// exist and an error is returned: duplicated, never lost. `dest` must be an
+/// empty placeholder claimed by `paths::claim_paths_sharing_stem`: `rename`
+/// and `fs::copy` both replace an existing destination.
 fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
     let src_str = src.to_string_lossy();
     let dest_str = dest.to_string_lossy();
@@ -228,10 +230,24 @@ fn pair_stem(pair: &ArchivePairInput) -> String {
 /// pair gets the same `_N` suffix in both folders, so a rescan still pairs it.
 /// Returns how many photos (JPG/RAW, not XMP) were moved.
 fn archive_pair(pair: &ArchivePairInput, dirs: &ArchiveDirs) -> Result<usize, String> {
+    archive_pair_choosing(pair, dirs, paths::unique_paths_sharing_stem)
+}
+
+/// `archive_pair` with the destination choice injectable, so tests can create
+/// a file between the choice and the claim.
+fn archive_pair_choosing(
+    pair: &ArchivePairInput,
+    dirs: &ArchiveDirs,
+    mut choose: impl FnMut(&[PathBuf], &str) -> Vec<PathBuf>,
+) -> Result<usize, String> {
     let files = plan_pair(pair, dirs);
     let candidates: Vec<PathBuf> = files.iter().map(|f| f.dest.clone()).collect();
-    let dests = paths::unique_paths_sharing_stem(&candidates, &pair_stem(pair));
+    let stem = pair_stem(pair);
+    let dests = paths::claim_first_free(|| choose(&candidates, &stem))
+        .map_err(|e| format!("Failed to reserve archive file names for {}: {}", stem, e))?;
 
+    // Every dest is now an empty placeholder this call created, so rename and
+    // fs::copy only ever replace our own file. A failed move leaves it behind.
     for (file, dest) in files.iter().zip(&dests) {
         match file.transfer {
             Transfer::Move => move_file(file.src, dest)?,
@@ -481,6 +497,49 @@ mod tests {
         assert_eq!(read(&base.join("RAW/IMG_2_1.CR3")), raw);
         assert_eq!(read(&base.join("RAW/IMG_2_1.xmp")), xmp);
         assert_eq!(read(&base.join("JPG/IMG_2_1.jpg")), "preview");
+    }
+
+    #[test]
+    fn a_file_created_after_the_names_were_chosen_is_never_overwritten() {
+        let (_tmp, base, cache) = layout();
+        let jpg = touch(&base.join("IMG_1.jpg"));
+        let raw = touch(&base.join("IMG_1.ARW"));
+        let xmp = touch(&base.join("IMG_1.xmp"));
+        let dirs = ArchiveDirs {
+            jpg: base.join("JPG"),
+            raw: base.join("RAW"),
+            preview_cache: cache.clone(),
+        };
+        fs::create_dir_all(&dirs.jpg).unwrap();
+        fs::create_dir_all(&dirs.raw).unwrap();
+        let mut is_first_try = true;
+
+        // A sync client drops RAW/IMG_1.ARW right after archive checked that
+        // the name was free: the window `create_new` has to close.
+        let moved = archive_pair_choosing(
+            &pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp]),
+            &dirs,
+            |candidates, stem| {
+                let chosen = paths::unique_paths_sharing_stem(candidates, stem);
+                if std::mem::take(&mut is_first_try) {
+                    fs::write(&chosen[1], "other process").unwrap();
+                }
+                chosen
+            },
+        )
+        .unwrap();
+
+        assert_eq!(moved, 2);
+        assert_eq!(read(&base.join("RAW/IMG_1.ARW")), "other process");
+        assert_eq!(read(&base.join("JPG/IMG_1_1.jpg")), jpg);
+        assert_eq!(read(&base.join("RAW/IMG_1_1.ARW")), raw);
+        assert_eq!(read(&base.join("RAW/IMG_1_1.xmp")), xmp);
+        assert!(!Path::new(&jpg).exists() && !Path::new(&raw).exists());
+        assert_eq!(
+            read(&base.join("JPG/IMG_1.jpg")),
+            "",
+            "the abandoned placeholder is left, never removed"
+        );
     }
 
     #[test]
