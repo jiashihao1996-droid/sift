@@ -224,6 +224,22 @@ mod tests {
     }
 
     #[test]
+    fn pairs_files_whose_stems_differ_only_in_case() {
+        let dir = folder(&["img_1.jpg", "IMG_1.CR3", "Img_1.xmp", "img_1.cr3.xmp"]);
+        let result = scan(dir.path());
+
+        assert_eq!(result.total_files, 2);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.raw_only_count, 0);
+        let pair = &result.pairs[0];
+        assert_eq!(file_name(&pair.jpg_path), "img_1.jpg");
+        assert_eq!(file_name(pair.raw_path.as_deref().unwrap()), "IMG_1.CR3");
+        let mut xmps: Vec<&str> = pair.xmp_paths.iter().map(|p| file_name(p)).collect();
+        xmps.sort();
+        assert_eq!(xmps, ["Img_1.xmp", "img_1.cr3.xmp"]);
+    }
+
+    #[test]
     fn accounts_for_every_photo_file() {
         let dir = folder(&[
             "IMG_1.jpg",
