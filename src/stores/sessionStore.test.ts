@@ -21,7 +21,7 @@ vi.mock('@/services/tauriCommands', () => ({
   clearProgress: vi.fn(async () => {}),
 }))
 
-const { Unprocessed: U, Starred: S, Deleted: D, Skipped: K } = PhotoStatus
+const { Unprocessed: U, Starred: S, Deleted: D } = PhotoStatus
 
 function makePairs(statuses: PhotoStatus[]): PhotoPair[] {
   return statuses.map((status, i) => ({
@@ -64,25 +64,19 @@ function scanResultOf(count: number): ScanResult {
 }
 
 describe('counts and progress', () => {
-  it('counts each status and computes processed percentage', () => {
-    const store = storeWith([U, S, D, K, U, U])
+  it('counts each status and reports how far through the folder the current photo is', () => {
+    const store = storeWith([U, S, D, U], 1)
 
-    expect(store.totalCount).toBe(6)
+    expect(store.totalCount).toBe(4)
     expect(store.starredCount).toBe(1)
     expect(store.deletedCount).toBe(1)
-    expect(store.skippedCount).toBe(1)
-    expect(store.unprocessedCount).toBe(3)
+    expect(store.unprocessedCount).toBe(2)
     expect(store.progress).toBe(50)
-    expect(store.activePairs.map((p) => p.id)).toEqual(['p0', 'p1', 'p3', 'p4', 'p5'])
+    expect(store.activePairs.map((p) => p.id)).toEqual(['p0', 'p1', 'p3'])
   })
 
   it('reports zero progress for an empty session', () => {
     expect(storeWith([]).progress).toBe(0)
-  })
-
-  it('has reached the end only when nothing is unprocessed', () => {
-    expect(storeWith([S, U]).hasReachedEnd).toBe(false)
-    expect(storeWith([S, D, K]).hasReachedEnd).toBe(true)
   })
 
   it('knows when the current photo is the last one', () => {
@@ -95,7 +89,6 @@ describe('marking', () => {
   it.each([
     ['markStar', S, 'starred', 'star'],
     ['markDelete', D, 'deleted', 'delete'],
-    ['markSkip', K, 'skipped', 'skip'],
   ] as const)('%s marks, records undo and advances', (action, status, outcome, type) => {
     const store = storeWith([U, U, U])
 
@@ -103,63 +96,51 @@ describe('marking', () => {
 
     expect(statuses(store)).toEqual([status, U, U])
     expect(store.undoStack).toEqual([{ type, index: 0, previousStatus: U }])
-    expect(store.markActionCount).toBe(1)
     expect(store.currentIndex).toBe(1)
-    expect(store.slideDirection).toBe('left')
   })
 
   it.each([
-    ['markStar', S, 'unstarred'],
-    ['markDelete', D, 'undeleted'],
-    ['markSkip', K, 'unskipped'],
+    ['markStar', S, 'unstarred', 'star'],
+    ['markDelete', D, 'undeleted', 'delete'],
   ] as const)(
-    '%s on an already-marked photo reverts it without recording undo',
-    (action, status, outcome) => {
-      const store = storeWith([status, U])
+    '%s on an already-marked photo unmarks it, records undo and stays',
+    (action, status, outcome, type) => {
+      const store = storeWith([U, status, U], 1)
 
       expect(store[action]()).toBe(outcome)
 
-      expect(statuses(store)).toEqual([U, U])
-      expect(store.undoStack).toEqual([])
-      expect(store.markActionCount).toBe(0)
+      expect(statuses(store)).toEqual([U, U, U])
+      expect(store.undoStack).toEqual([{ type, index: 1, previousStatus: status }])
       expect(store.currentIndex).toBe(1)
     },
   )
 
-  it('switching mark type records the previous status', () => {
+  it('switching mark type records the previous status and advances', () => {
     const store = storeWith([S, U])
     store.markDelete()
+
     expect(store.undoStack[0]).toEqual({ type: 'delete', index: 0, previousStatus: S })
+    expect(store.currentIndex).toBe(1)
   })
 
-  it('skips already-processed photos when advancing', () => {
-    const store = storeWith([U, S, D, U])
+  it('advances to the next photo even when it is already marked', () => {
+    const store = storeWith([U, S, U])
     store.markStar()
-    expect(store.currentIndex).toBe(3)
+    expect(store.currentIndex).toBe(1)
   })
 
-  it('wraps around to earlier unprocessed photos', () => {
-    const store = storeWith([U, S, U], 2)
-    store.markStar()
-
-    expect(store.currentIndex).toBe(0)
-    expect(store.slideDirection).toBe('right')
-  })
-
-  it('moves to the next photo when nothing is left unprocessed', () => {
-    const store = storeWith([S, U, S])
-    store.currentIndex = 1
-    store.markStar()
-    expect(store.currentIndex).toBe(2)
-  })
-
-  it('stays on the last photo when nothing is left unprocessed', () => {
-    const store = storeWith([S, U], 1)
-    store.slideDirection = 'right'
+  it('stays on the last photo and reports reaching the end', () => {
+    const store = storeWith([U, U], 1)
     store.markStar()
 
     expect(store.currentIndex).toBe(1)
-    expect(store.slideDirection).toBe('right')
+    expect(store.endReachedCount).toBe(1)
+  })
+
+  it('does not report the end when unmarking the last photo', () => {
+    const store = storeWith([U, S], 1)
+    store.markStar()
+    expect(store.endReachedCount).toBe(0)
   })
 
   it('is a no-op on an empty session', () => {
@@ -175,30 +156,35 @@ describe('undo', () => {
     store.markStar()
     store.markDelete()
 
-    store.undo()
+    expect(store.undo()).toBe(true)
 
     expect(statuses(store)).toEqual([S, U, U])
     expect(store.currentIndex).toBe(1)
     expect(store.slideDirection).toBe('right')
   })
 
-  it('does nothing when there is nothing to undo', () => {
+  it('reports when there is nothing to undo', () => {
     const store = storeWith([U, U], 1)
-    store.undo()
+
+    expect(store.undo()).toBe(false)
     expect(store.currentIndex).toBe(1)
   })
 
-  it('after a toggle-off, undoes the earlier recorded action', () => {
-    // Current behaviour: toggling a mark off is not itself undoable
+  it('undoes an unmark first, bringing the mark back', () => {
     const store = storeWith([U, U, U])
     store.markStar() // p0 starred, now on p1
     store.markStar() // p1 starred, now on p2
     store.goTo(0)
-    store.markStar() // p0 un-starred (not recorded)
+    store.markStar() // p0 unmarked, stays on p0
 
     store.undo()
 
-    expect(statuses(store)).toEqual([U, U, U])
+    expect(statuses(store)).toEqual([S, S, U])
+    expect(store.currentIndex).toBe(0)
+
+    store.undo()
+
+    expect(statuses(store)).toEqual([S, U, U])
     expect(store.currentIndex).toBe(1)
   })
 })
@@ -213,11 +199,27 @@ describe('navigation', () => {
     store.goNext()
     expect([store.currentIndex, store.slideDirection]).toEqual([1, 'left'])
 
-    store.goNext()
-    expect(store.currentIndex).toBe(1)
-
     store.goPrev()
     expect([store.currentIndex, store.slideDirection]).toEqual([0, 'right'])
+  })
+
+  it('never changes marks', () => {
+    const store = storeWith([S, D, U])
+
+    store.goNext()
+    store.goNext()
+    store.goPrev()
+
+    expect(statuses(store)).toEqual([S, D, U])
+  })
+
+  it('reports reaching the end when moving on from the last photo', () => {
+    const store = storeWith([U, U], 1)
+
+    store.goNext()
+
+    expect(store.currentIndex).toBe(1)
+    expect(store.endReachedCount).toBe(1)
   })
 
   it('jumps to an index and ignores out-of-range targets', () => {
@@ -312,6 +314,7 @@ describe('saved progress', () => {
     expect(statuses(store)).toEqual([S, D, U, U])
     expect(store.currentIndex).toBe(2)
     expect(store.restoredCount).toBe(2)
+    expect(store.isResumed).toBe(true)
   })
 
   it('starts fresh when saved progress cannot be read', async () => {
@@ -339,6 +342,37 @@ describe('saved progress', () => {
     })
   })
 
+  it('saves the position even when nothing is marked', async () => {
+    const store = await scannedStore(3)
+
+    store.goNext()
+    await settle(store)
+
+    expect(saveProgress).toHaveBeenLastCalledWith({
+      folder: '/photos',
+      currentKey: '/photos/IMG_1.jpg',
+      marks: {},
+    })
+  })
+
+  it('saves the mark again when an unmark is undone', async () => {
+    const store = await scannedStore(3)
+    store.goNext()
+    store.markStar() // p1 starred, now on p2
+    store.goPrev()
+    store.markStar() // p1 unmarked
+    await settle(store)
+
+    store.undo()
+    await settle(store)
+
+    expect(saveProgress).toHaveBeenLastCalledWith({
+      folder: '/photos',
+      currentKey: '/photos/IMG_1.jpg',
+      marks: { '/photos/IMG_1.jpg': S },
+    })
+  })
+
   it('clears saved progress once the last mark is undone', async () => {
     const store = await scannedStore(2)
     store.markDelete()
@@ -363,6 +397,7 @@ describe('saved progress', () => {
 
     expect(statuses(store)).toEqual([U, U])
     expect(store.restoredCount).toBe(0)
+    expect(store.isResumed).toBe(false)
     expect(clearProgress).toHaveBeenCalledWith('/photos')
   })
 

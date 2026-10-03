@@ -14,7 +14,6 @@ export default {
           muted: '#6B7280',
           star: '#F59E0B',
           delete: '#EF4444',
-          skip: '#6B7280',
           accent: '#3B82F6',
           success: '#10B981',
         },

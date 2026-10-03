@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // ============================================================
-// ActionBar - Floating action buttons (Star / Delete / Skip)
+// ActionBar - Floating action buttons (Star / Delete)
 // ============================================================
 
-import { Star, Trash2, SkipForward } from 'lucide-vue-next'
+import { Star, Trash2 } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { ref, computed } from 'vue'
 import { PhotoStatus } from '@/types'
@@ -15,7 +15,6 @@ const deleteActive = ref(false)
 
 const isStarred = computed(() => session.currentPair?.status === PhotoStatus.Starred)
 const isDeleted = computed(() => session.currentPair?.status === PhotoStatus.Deleted)
-const isSkipped = computed(() => session.currentPair?.status === PhotoStatus.Skipped)
 
 async function handleStar() {
   starActive.value = true
@@ -27,10 +26,6 @@ function handleDelete() {
   deleteActive.value = true
   session.markDelete()
   setTimeout(() => (deleteActive.value = false), 300)
-}
-
-function handleSkip() {
-  session.markSkip()
 }
 </script>
 
@@ -55,7 +50,7 @@ function handleSkip() {
       <span
         class="text-[11px] group-hover:text-white transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
         :class="isStarred ? 'text-sift-star' : 'text-white/60'"
-        >{{ isStarred ? '取消标记' : '标记' }}</span
+        >{{ isStarred ? '取消精选' : '精选' }}</span
       >
       <kbd class="text-[9px] text-white/30 bg-white/[0.06] px-1 rounded">F</kbd>
     </button>
@@ -75,27 +70,6 @@ function handleSkip() {
         >{{ isDeleted ? '取消删除' : '删除' }}</span
       >
       <kbd class="text-[9px] text-white/30 bg-white/[0.06] px-1 rounded">X</kbd>
-    </button>
-
-    <div class="w-px h-4 bg-white/10" />
-
-    <!-- Skip Button -->
-    <button
-      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg group btn-spring transition-colors"
-      :class="isSkipped ? 'bg-white/10 hover:bg-white/15' : 'hover:bg-white/10'"
-      @click="handleSkip"
-    >
-      <SkipForward
-        :size="16"
-        class="transition-colors"
-        :class="isSkipped ? 'text-white/70' : 'text-white/40 group-hover:text-white'"
-      />
-      <span
-        class="text-[11px] group-hover:text-white transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
-        :class="isSkipped ? 'text-white/70' : 'text-white/60'"
-        >{{ isSkipped ? '取消跳过' : '跳过' }}</span
-      >
-      <kbd class="text-[9px] text-white/30 bg-white/[0.06] px-1 rounded">&rarr;</kbd>
     </button>
   </div>
 </template>

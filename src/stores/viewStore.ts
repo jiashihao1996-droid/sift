@@ -34,14 +34,16 @@ export const useViewStore = defineStore('view', () => {
 
   // Toast
   const toastMessage = ref('')
-  const toastType = ref<'star' | 'delete' | 'skip' | 'undo' | 'info'>('info')
+  const toastType = ref<'star' | 'delete' | 'undo' | 'info'>('info')
   const toastVisible = ref(false)
 
   // Filter gallery
   const filterCategory = ref<PhotoStatus | null>(null)
 
+  /** Switching views leaves the old session behind, including its summary */
   function setView(view: AppView) {
     currentView.value = view
+    showSummaryCard.value = false
   }
 
   function toggleExifPanel() {
@@ -96,7 +98,7 @@ export const useViewStore = defineStore('view', () => {
     rotation.value += delta
   }
 
-  function showToast(message: string, type: 'star' | 'delete' | 'skip' | 'undo' | 'info' = 'info') {
+  function showToast(message: string, type: 'star' | 'delete' | 'undo' | 'info' = 'info') {
     toastMessage.value = message
     toastType.value = type
     toastVisible.value = true

@@ -22,7 +22,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     items: [
       { keys: [['F']], label: '标记精选 / 取消' },
       { keys: [['X'], ['Delete']], label: '标记删除 / 取消' },
-      { keys: [['Space'], ['→']], label: '跳过，下一张' },
+      { keys: [['→'], ['Space']], label: '下一张' },
       { keys: [['←'], ['A']], label: '上一张' },
       { keys: [[MOD_KEY, 'Z']], label: '撤销' },
     ],

@@ -24,10 +24,6 @@ const archiveTotal = ref(0)
 const currentFile = ref('')
 const resultMessage = ref('')
 
-const survivingPairs = computed(() =>
-  session.pairs.filter((p) => p.status === PhotoStatus.Starred || p.status === PhotoStatus.Skipped),
-)
-
 const starredPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Starred))
 
 const deletedPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Deleted))
@@ -62,7 +58,7 @@ async function handleArchive() {
     })
 
     try {
-      const pairsData = survivingPairs.value.map((p) => ({
+      const pairsData = starredPairs.value.map((p) => ({
         jpgPath: p.jpgPath,
         rawPath: p.rawPath,
         status: p.status,
@@ -70,8 +66,10 @@ async function handleArchive() {
         xmpPaths: p.xmpPaths,
       }))
 
-      const result = await archivePhotos(session.folderPath, pairsData)
-      resultMessage.value = `已删除 ${toDelete.length} 组，归档 ${result.movedCount} 个文件`
+      // Nothing to move: don't create empty JPG/ and RAW/ folders
+      const movedCount =
+        pairsData.length > 0 ? (await archivePhotos(session.folderPath, pairsData)).movedCount : 0
+      resultMessage.value = `已删除 ${toDelete.length} 组，归档 ${movedCount} 个文件`
       // Files have moved into JPG/ and RAW/; the saved marks no longer apply
       session.forgetProgress()
       isComplete.value = true
@@ -191,7 +189,7 @@ const progressPercent = computed(() => {
           <!-- Stats Summary -->
           <div class="grid grid-cols-3 gap-3 mb-5">
             <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-star">
-              <p class="text-[11px] text-sift-muted">已标记</p>
+              <p class="text-[11px] text-sift-muted">精选</p>
               <p class="text-lg font-bold text-white">
                 <RollingNumber :value="starredPairs.length" />
               </p>
@@ -202,10 +200,10 @@ const progressPercent = computed(() => {
                 <RollingNumber :value="deletedPairs.length" />
               </p>
             </div>
-            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-success">
-              <p class="text-[11px] text-sift-muted">保留</p>
+            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-accent">
+              <p class="text-[11px] text-sift-muted">未标记</p>
               <p class="text-lg font-bold text-white">
-                <RollingNumber :value="survivingPairs.length" />
+                <RollingNumber :value="unprocessedCount" />
               </p>
             </div>
           </div>
@@ -228,14 +226,14 @@ const progressPercent = computed(() => {
             <p class="text-[10px] text-sift-muted mt-0.5">→ RAW/ 和 JPG/ 子文件夹</p>
           </div>
 
-          <!-- Unprocessed warning -->
+          <!-- Unmarked photos stay put -->
           <div
             v-if="unprocessedCount > 0"
             class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
           >
             <span class="text-amber-400 text-xs mt-0.5">⚠️</span>
             <p class="text-xs text-amber-200/80">
-              还有 {{ unprocessedCount }} 张未处理照片，归档后它们将留在原位
+              {{ unprocessedCount }} 张未标记照片归档后留在原位
             </p>
           </div>
 

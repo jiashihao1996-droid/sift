@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { PhotoStatus, type FolderProgress, type PhotoPair } from '@/types'
-import { hasMarks, progressKey, restoreProgress, snapshotProgress } from './progress'
+import {
+  emptyProgress,
+  hasProgress,
+  progressKey,
+  restoreProgress,
+  snapshotProgress,
+} from './progress'
 
-const { Unprocessed: U, Starred: S, Deleted: D, Skipped: K } = PhotoStatus
+const { Unprocessed: U, Starred: S, Deleted: D } = PhotoStatus
 
 function jpg(name: string, status: PhotoStatus = U): PhotoPair {
   return {
@@ -43,13 +49,17 @@ describe('progressKey', () => {
 
 describe('snapshotProgress', () => {
   it('records only marked photos and the current photo', () => {
-    const pairs = [jpg('A', S), jpg('B'), rawOnly('C', D), jpg('D', K)]
+    const pairs = [jpg('A', S), jpg('B'), rawOnly('C', D)]
 
     expect(snapshotProgress('/photos', pairs, 1)).toEqual({
       folder: '/photos',
       currentKey: '/photos/B.jpg',
-      marks: { '/photos/A.jpg': S, '/photos/C.CR3': D, '/photos/D.jpg': K },
+      marks: { '/photos/A.jpg': S, '/photos/C.CR3': D },
     })
+  })
+
+  it('records no position on the first photo, where a fresh session starts anyway', () => {
+    expect(snapshotProgress('/photos', [jpg('A'), jpg('B')], 0).currentKey).toBeNull()
   })
 
   it('has no current photo for an empty session', () => {
@@ -57,10 +67,15 @@ describe('snapshotProgress', () => {
   })
 })
 
-describe('hasMarks', () => {
-  it('is false when nothing is marked', () => {
-    expect(hasMarks(saved({}))).toBe(false)
-    expect(hasMarks(saved({ '/photos/A.jpg': S }))).toBe(true)
+describe('hasProgress', () => {
+  it('is true once something is marked or the position moved past the first photo', () => {
+    expect(hasProgress(saved({ '/photos/A.jpg': S }))).toBe(true)
+    expect(hasProgress(saved({}, '/photos/B.jpg'))).toBe(true)
+  })
+
+  it('is false for an untouched folder', () => {
+    expect(hasProgress(saved({}))).toBe(false)
+    expect(hasProgress(emptyProgress('/photos'))).toBe(false)
   })
 })
 
@@ -70,7 +85,7 @@ describe('restoreProgress', () => {
 
     const result = restoreProgress(pairs, null)
 
-    expect(result).toEqual({ pairs, currentIndex: 0, restoredCount: 0 })
+    expect(result).toEqual({ pairs, currentIndex: 0, restoredCount: 0, isResumed: false })
   })
 
   it('reapplies saved marks by file path even though pair ids changed', () => {
@@ -85,18 +100,27 @@ describe('restoreProgress', () => {
     expect(result.pairs[0].id).toBe(pairs[0].id)
     expect(result.restoredCount).toBe(2)
     expect(result.currentIndex).toBe(1)
+    expect(result.isResumed).toBe(true)
+  })
+
+  it('resumes at a saved position even when nothing was marked', () => {
+    const result = restoreProgress([jpg('A'), jpg('B')], saved({}, '/photos/B.jpg'))
+
+    expect(result.currentIndex).toBe(1)
+    expect(result.restoredCount).toBe(0)
+    expect(result.isResumed).toBe(true)
   })
 
   it('drops marks for files that disappeared and keeps new files unprocessed', () => {
     const pairs = [jpg('A'), jpg('NEW')]
 
-    const result = restoreProgress(pairs, saved({ '/photos/A.jpg': K, '/photos/GONE.jpg': S }))
+    const result = restoreProgress(pairs, saved({ '/photos/A.jpg': D, '/photos/GONE.jpg': S }))
 
-    expect(result.pairs.map((p) => p.status)).toEqual([K, U])
+    expect(result.pairs.map((p) => p.status)).toEqual([D, U])
     expect(result.restoredCount).toBe(1)
   })
 
-  it('resumes at the first unprocessed photo when the saved one is gone', () => {
+  it('starts at the first photo when the saved one is gone', () => {
     const pairs = [jpg('A'), jpg('B'), jpg('C')]
 
     const result = restoreProgress(
@@ -104,15 +128,14 @@ describe('restoreProgress', () => {
       saved({ '/photos/A.jpg': S, '/photos/B.jpg': D }, '/photos/GONE.jpg'),
     )
 
-    expect(result.currentIndex).toBe(2)
+    expect(result.currentIndex).toBe(0)
+    expect(result.isResumed).toBe(true)
   })
 
-  it('falls back to the first photo when everything is marked', () => {
-    const pairs = [jpg('A'), jpg('B')]
+  it('is not resumed when nothing saved still applies', () => {
+    const result = restoreProgress([jpg('A')], saved({ '/photos/GONE.jpg': S }, '/photos/GONE.jpg'))
 
-    const result = restoreProgress(pairs, saved({ '/photos/A.jpg': S, '/photos/B.jpg': S }))
-
-    expect(result.currentIndex).toBe(0)
+    expect(result.isResumed).toBe(false)
   })
 
   it('does not mutate the scanned pairs', () => {

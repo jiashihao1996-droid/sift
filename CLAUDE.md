@@ -40,8 +40,9 @@ Rust（`src-tauri/src/`）：
 - `src/services/tauriCommands.ts` 是前端**唯一**调用 `invoke()` 的地方。
 - 与 Rust 共享的类型由 ts-rs 从 `src-tauri/src/models/` 生成到 `src/types/generated/`（不要手改，也不受 Prettier/ESLint 管）；改了 Rust 模型后运行 `npm run gen:types` 并一起提交，CI 会检查。`src/types/index.ts` 只负责转出，以及 `PhotoStatus` 常量（有编译期检查保证与 Rust 枚举一致）。
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
+- 照片只有三种状态：精选、删除、未标记（`PhotoStatus`）。`F`/`X` 切换标记，标记后前进一张、取消标记停在原地，每次改动都进撤销栈；`←`/`→`/`Space` 只导航、不改标记（规则在 `src/core/review.ts`）。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
-- 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存已标记的照片，key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，没有标记时删除文件；归档成功后清除。
+- 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存已标记的照片和当前位置（停在第一张不算），key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，既没有标记又停在第一张时删除文件；归档成功后清除。旧版本写入的已不存在的状态（如 `skipped`）在 `catalog/progress.rs` 读取时丢弃，其余标记照常恢复。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
 - asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。
 - 缓存目录在启动和窗口销毁时同步清理（`commands/cache.rs`，目录名见 `media/cache_dirs.rs`）。
@@ -74,9 +75,3 @@ Rust（`src-tauri/src/`）：
 - 格式化/重构与行为改动分开提交。
 - main 只经 PR 合入，CI 绿了再合。
 - 给 PR 打 `automerge` 标签，CI 全绿后由 `.github/workflows/automerge.yml` 自动 rebase 合并并删除分支（分支无法 rebase 时——通常是合并过 main 来解决冲突——改为 squash 合并）。改动 `.github/workflows/` 的 PR 不能自动合并（`GITHUB_TOKEN` 无权合并 workflow 变更），需手动合并。
-
-## 已知待办
-
-筛图交互的现状（`src/stores/sessionStore.test.ts` 有记录）：
-
-- 取消标记（再按一次同一个键）不进撤销栈；此时 Ctrl+Z 撤销的是更早一次已记录的标记。

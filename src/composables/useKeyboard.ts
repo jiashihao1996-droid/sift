@@ -63,8 +63,7 @@ export function useKeyboard() {
 
     // Cmd/Ctrl + Enter: open archive dialog
     if (isCtrlOrCmd && e.key === 'Enter') {
-      const processed = session.starredCount + session.deletedCount + session.skippedCount
-      if (processed > 0) {
+      if (session.starredCount + session.deletedCount > 0) {
         e.preventDefault()
         view.toggleArchiveDialog()
       }
@@ -72,29 +71,29 @@ export function useKeyboard() {
     }
 
     switch (e.key) {
+      // Mark keys ignore auto-repeat: holding one must not mark a run of photos
       case 'f':
       case 'F':
         e.preventDefault()
-        session.markStar()
+        if (!e.repeat) session.markStar()
         break
 
       case 'x':
       case 'X':
       case 'Delete':
-      case 'Backspace':
         e.preventDefault()
-        session.markDelete()
+        if (!e.repeat) session.markDelete()
         break
 
       case ' ':
         e.preventDefault()
-        session.markSkip()
+        session.goNext()
         break
 
       case 'ArrowRight':
-        e.preventDefault()
         if (!isCtrlOrCmd) {
-          session.markSkip()
+          e.preventDefault()
+          session.goNext()
         }
         break
 
@@ -111,8 +110,8 @@ export function useKeyboard() {
       case 'Z':
         if (isCtrlOrCmd) {
           e.preventDefault()
-          session.undo()
-          view.showToast('已撤销 ↩️', 'undo')
+          // Shift+Cmd+Z is the platform's redo, which Sift does not offer
+          if (!e.shiftKey && session.undo()) view.showToast('已撤销 ↩️', 'undo')
         } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault()
           view.toggleActualSize()

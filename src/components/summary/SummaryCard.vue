@@ -18,16 +18,16 @@ const total = computed(() => session.totalCount || 1)
 const segments = computed(() => {
   const s = session.starredCount
   const d = session.deletedCount
-  const k = session.skippedCount
+  const u = session.unprocessedCount
 
   const circumference = 2 * Math.PI * 45 // r=45
   const gap = 2 // gap between segments in svg units
   let offset = 0
 
   const items = [
-    { count: s, color: '#F59E0B', label: '已标记', offset: 0, length: 0 },
-    { count: d, color: '#EF4444', label: '已删除', offset: 0, length: 0 },
-    { count: k, color: '#6B7280', label: '已跳过', offset: 0, length: 0 },
+    { count: s, color: '#F59E0B', label: '精选', offset: 0, length: 0 },
+    { count: d, color: '#EF4444', label: '删除', offset: 0, length: 0 },
+    { count: u, color: '#6B7280', label: '未标记', offset: 0, length: 0 },
   ].filter((seg) => seg.count > 0)
 
   for (const seg of items) {
@@ -47,7 +47,7 @@ const starPercent = computed(() => {
 
 const encourageText = computed(() => {
   const starred = session.starredCount
-  if (starred === 0) return '没有标记任何照片'
+  if (starred === 0) return '还没有精选照片'
   if (starPercent.value <= 20) return '精挑细选，质量至上'
   if (starPercent.value <= 50) return '眼光不错，精选合集'
   return '满载而归，收获满满'
@@ -61,27 +61,22 @@ function continueBrowsing() {
   view.showSummaryCard = false
 }
 
-// Show summary card whenever a mark action happens and all photos are processed
+// Show the summary when the user moves on from the last photo
 watch(
-  () => session.markActionCount,
+  () => session.endReachedCount,
   () => {
-    if (session.hasReachedEnd) {
-      view.showSummaryCard = true
-      animateChart.value = false
-      setTimeout(() => {
-        animateChart.value = true
-      }, 300)
-    }
+    view.showSummaryCard = true
+    animateChart.value = false
+    setTimeout(() => {
+      animateChart.value = true
+    }, 300)
   },
 )
 </script>
 
 <template>
   <Transition name="modal">
-    <div
-      v-if="view.showSummaryCard && session.hasReachedEnd"
-      class="absolute inset-0 z-50 flex items-center justify-center"
-    >
+    <div v-if="view.showSummaryCard" class="absolute inset-0 z-50 flex items-center justify-center">
       <!-- Backdrop -->
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
@@ -149,7 +144,7 @@ watch(
               class="fill-sift-muted"
               font-size="7"
             >
-              标记率
+              精选率
             </text>
           </svg>
         </div>

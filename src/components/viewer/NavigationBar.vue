@@ -24,9 +24,7 @@ const displayPair = computed(() => {
   return session.currentPair
 })
 
-const processedCount = computed(
-  () => session.starredCount + session.deletedCount + session.skippedCount,
-)
+const processedCount = computed(() => session.starredCount + session.deletedCount)
 
 function goBack() {
   session.resetSession()
