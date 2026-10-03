@@ -6,7 +6,7 @@
 import { ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { open as openUrl } from '@tauri-apps/plugin-shell'
-import { FolderOpen, Camera, Image, Layers, ArrowRight } from 'lucide-vue-next'
+import { FolderOpen, Camera, Image, Layers, ArrowRight, History } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getErrorMessage } from '@/utils/error'
@@ -169,6 +169,24 @@ function startCulling() {
             {{ session.folderPath }}
           </div>
 
+          <!-- Restored progress from the last visit -->
+          <div
+            v-if="session.restoredCount > 0"
+            class="flex items-center justify-between gap-3 rounded-xl border border-sift-accent/30 bg-sift-accent/10 px-4 py-2.5 text-xs"
+          >
+            <span class="flex items-center gap-2 text-white/80">
+              <History :size="14" class="text-sift-accent shrink-0" />
+              已恢复上次进度：标记了 {{ session.restoredCount }} 张，从第
+              {{ session.currentIndex + 1 }} 张继续
+            </span>
+            <button
+              class="shrink-0 text-sift-muted hover:text-white transition-colors"
+              @click="session.restartSession()"
+            >
+              重新开始
+            </button>
+          </div>
+
           <!-- Start Button -->
           <button
             v-if="session.scanResult.pairs.length > 0"
@@ -176,7 +194,7 @@ function startCulling() {
             style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 300ms both"
             @click="startCulling"
           >
-            开始筛选
+            {{ session.restoredCount > 0 ? '继续筛选' : '开始筛选' }}
             <ArrowRight :size="16" />
           </button>
 

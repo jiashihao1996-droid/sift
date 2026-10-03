@@ -12,7 +12,7 @@ mod paths;
 #[cfg(test)]
 mod test_support;
 
-use commands::{archive, cache, delete, exif, export, file_actions, scan, thumbnail};
+use commands::{archive, cache, delete, exif, export, file_actions, progress, scan, thumbnail};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -42,6 +42,9 @@ pub fn run() {
             file_actions::copy_image_to_clipboard,
             cache::cleanup_cache,
             exif::read_exif,
+            progress::load_progress,
+            progress::save_progress,
+            progress::clear_progress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

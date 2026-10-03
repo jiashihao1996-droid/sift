@@ -4,16 +4,24 @@
 // ============================================================
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   PhotoStatus,
   type PhotoPair,
   type ScanResult,
   type ThumbnailResult,
+  type FolderProgress,
   type UndoAction,
   type SlideDirection,
 } from '@/types'
-import { scanFolder, generateThumbnails, cleanupCache } from '@/services/tauriCommands'
+import {
+  scanFolder,
+  generateThumbnails,
+  cleanupCache,
+  loadProgress,
+  saveProgress,
+  clearProgress,
+} from '@/services/tauriCommands'
 import {
   countByStatus,
   indexAfterMark,
@@ -22,10 +30,27 @@ import {
   toggledStatus,
   type MarkType,
 } from '@/core/review'
+import { hasMarks, restoreProgress, snapshotProgress } from '@/core/progress'
+import { createLatestWriter } from '@/utils/latestWriter'
 
 /** First thumbnail batch covers the visible viewport; the rest stream in chunks */
 const THUMBNAIL_FIRST_BATCH = 10
 const THUMBNAIL_CHUNK_SIZE = 50
+
+/** A folder with no marks left has nothing worth resuming */
+function writeProgress(progress: FolderProgress): Promise<void> {
+  return hasMarks(progress) ? saveProgress(progress) : clearProgress(progress.folder)
+}
+
+/** Saved progress is a convenience: failing to read it must not block the scan */
+async function loadProgressOrNone(folder: string): Promise<FolderProgress | null> {
+  try {
+    return await loadProgress(folder)
+  } catch (e) {
+    console.warn('[Sift] Failed to load saved progress:', e)
+    return null
+  }
+}
 
 export const useSessionStore = defineStore('session', () => {
   // ---- State ----
@@ -38,6 +63,12 @@ export const useSessionStore = defineStore('session', () => {
   const slideDirection = ref<SlideDirection>('left')
   const isGeneratingThumbnails = ref(false)
   const markActionCount = ref(0)
+  /** Marks brought back from the last visit to this folder */
+  const restoredCount = ref(0)
+
+  const progressWriter = createLatestWriter(writeProgress, (e) =>
+    console.warn('[Sift] Failed to save progress:', e),
+  )
 
   // ---- Getters ----
   const currentPair = computed(() => pairs.value[currentIndex.value] || null)
@@ -82,9 +113,11 @@ export const useSessionStore = defineStore('session', () => {
     folderPath.value = path
     try {
       const result = await scanFolder(path)
+      const restored = restoreProgress(result.pairs, await loadProgressOrNone(path))
       scanResult.value = result
-      pairs.value = result.pairs
-      currentIndex.value = 0
+      pairs.value = restored.pairs
+      currentIndex.value = restored.currentIndex
+      restoredCount.value = restored.restoredCount
       undoStack.value = []
     } finally {
       isScanning.value = false // 扫描完立即停止转圈，不等缩略图
@@ -189,6 +222,31 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  /** Save marks and position whenever either changes, so quitting midway loses nothing */
+  watch(
+    () => [currentIndex.value, pairs.value.map((p) => p.status)],
+    () => {
+      if (!folderPath.value || pairs.value.length === 0) return
+      progressWriter.schedule(snapshotProgress(folderPath.value, pairs.value, currentIndex.value))
+    },
+  )
+
+  /** Drop restored marks and start the folder over (also forgets the saved progress) */
+  function restartSession() {
+    pairs.value = pairs.value.map((p) =>
+      p.status === PhotoStatus.Unprocessed ? p : { ...p, status: PhotoStatus.Unprocessed },
+    )
+    currentIndex.value = 0
+    undoStack.value = []
+    restoredCount.value = 0
+  }
+
+  /** Forget the saved progress of the current folder, e.g. once it is archived */
+  function forgetProgress() {
+    if (!folderPath.value) return
+    progressWriter.schedule({ folder: folderPath.value, currentKey: null, marks: {} })
+  }
+
   /** Reset session */
   function resetSession() {
     // Clean up cache directories
@@ -200,6 +258,7 @@ export const useSessionStore = defineStore('session', () => {
     isScanning.value = false
     scanResult.value = null
     undoStack.value = []
+    restoredCount.value = 0
   }
 
   return {
@@ -213,6 +272,7 @@ export const useSessionStore = defineStore('session', () => {
     slideDirection,
     isGeneratingThumbnails,
     markActionCount,
+    restoredCount,
     // Getters
     currentPair,
     totalCount,
@@ -233,6 +293,10 @@ export const useSessionStore = defineStore('session', () => {
     markDelete,
     markSkip,
     undo,
+    restartSession,
+    forgetProgress,
     resetSession,
+    /** Resolves once pending progress writes are done (tests) */
+    progressSaved: progressWriter.idle,
   }
 })
