@@ -28,11 +28,31 @@ const starredPairs = computed(() => session.pairs.filter((p) => p.status === Pho
 
 const deletedPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Deleted))
 
-const rawOnlyCount = computed(() => session.pairs.filter((p) => p.source === 'rawPreview').length)
+/** Starred RAW-only photos get their preview saved as a JPG next to the RAW */
+const starredRawOnlyCount = computed(
+  () => starredPairs.value.filter((p) => p.source === 'rawPreview').length,
+)
 
 const unprocessedCount = computed(
   () => session.pairs.filter((p) => p.status === PhotoStatus.Unprocessed).length,
 )
+
+/** Where each kind of photo ends up, shown before archiving */
+const destinations = computed(() => [
+  { label: '精选', count: starredPairs.value.length, border: 'border-sift-star', to: '→ 精选/' },
+  {
+    label: '删除',
+    count: deletedPairs.value.length,
+    border: 'border-sift-delete',
+    to: '→ 回收站',
+  },
+  {
+    label: '未标记',
+    count: unprocessedCount.value,
+    border: 'border-sift-accent',
+    to: 'JPG 不动，RAW → RAW/',
+  },
+])
 
 async function handleArchive() {
   isArchiving.value = true
@@ -49,7 +69,7 @@ async function handleArchive() {
       await deletePair(pair.jpgPath, pair.rawPath, pair.source, pair.xmpPaths)
     }
 
-    // Step 2: Archive surviving pairs
+    // Step 2: Picks into 精选/, unmarked RAWs into RAW/
     // Listen for progress
     const unlisten = await onArchiveProgress((progress: ArchiveProgress) => {
       archiveProgress.value = progress.current
@@ -58,19 +78,19 @@ async function handleArchive() {
     })
 
     try {
-      const pairsData = starredPairs.value.map((p) => ({
-        jpgPath: p.jpgPath,
-        rawPath: p.rawPath,
-        status: p.status,
-        source: p.source,
-        xmpPaths: p.xmpPaths,
-      }))
+      const pairsData = session.pairs
+        .filter((p) => p.status !== PhotoStatus.Deleted)
+        .map((p) => ({
+          jpgPath: p.jpgPath,
+          rawPath: p.rawPath,
+          status: p.status,
+          source: p.source,
+          xmpPaths: p.xmpPaths,
+        }))
 
-      // Nothing to move: don't create empty JPG/ and RAW/ folders
-      const movedCount =
-        pairsData.length > 0 ? (await archivePhotos(session.folderPath, pairsData)).movedCount : 0
-      resultMessage.value = `已删除 ${toDelete.length} 组，归档 ${movedCount} 个文件`
-      // Files have moved into JPG/ and RAW/; the saved marks no longer apply
+      const result = await archivePhotos(session.folderPath, pairsData)
+      resultMessage.value = `已删除 ${toDelete.length} 组，归档 ${result.movedCount} 个文件`
+      // Files have moved into 精选/ and RAW/; the saved marks no longer apply
       session.forgetProgress()
       isComplete.value = true
     } finally {
@@ -186,55 +206,38 @@ const progressPercent = computed(() => {
           <h3 class="text-lg font-bold text-white text-center mb-1">归档与导出</h3>
           <p class="text-xs text-sift-muted text-center mb-5">整理你的照片</p>
 
-          <!-- Stats Summary -->
+          <!-- Where each kind of photo goes -->
           <div class="grid grid-cols-3 gap-3 mb-5">
-            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-star">
-              <p class="text-[11px] text-sift-muted">精选</p>
+            <div
+              v-for="dest in destinations"
+              :key="dest.label"
+              class="bg-sift-card/60 rounded-xl p-3 border-l-2"
+              :class="dest.border"
+            >
+              <p class="text-[11px] text-sift-muted">{{ dest.label }}</p>
               <p class="text-lg font-bold text-white">
-                <RollingNumber :value="starredPairs.length" />
+                <RollingNumber :value="dest.count" />
               </p>
-            </div>
-            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-delete">
-              <p class="text-[11px] text-sift-muted">待删除</p>
-              <p class="text-lg font-bold text-white">
-                <RollingNumber :value="deletedPairs.length" />
-              </p>
-            </div>
-            <div class="bg-sift-card/60 rounded-xl p-3 border-l-2 border-sift-accent">
-              <p class="text-[11px] text-sift-muted">未标记</p>
-              <p class="text-lg font-bold text-white">
-                <RollingNumber :value="unprocessedCount" />
-              </p>
+              <p class="text-[10px] text-sift-muted mt-0.5">{{ dest.to }}</p>
             </div>
           </div>
 
-          <!-- RAW Only info -->
+          <!-- RAW-only picks -->
           <div
-            v-if="rawOnlyCount > 0"
+            v-if="starredRawOnlyCount > 0"
             class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
           >
             <span class="text-amber-400 text-xs mt-0.5">📷</span>
             <p class="text-xs text-amber-200/80">
-              包含 {{ rawOnlyCount }} 张纯 RAW 照片（预览从 RAW 提取），归档后将生成配对 JPG
+              {{ starredRawOnlyCount }} 张精选的纯 RAW 照片会在 精选/ 里生成同名 JPG 预览
             </p>
           </div>
 
           <!-- Archive path -->
           <div class="bg-sift-card/40 rounded-lg px-3 py-2 mb-5">
-            <p class="text-[11px] text-sift-muted mb-1">归档至</p>
+            <p class="text-[11px] text-sift-muted mb-1">整理位置</p>
             <p class="text-xs text-white truncate">{{ session.folderPath }}/</p>
-            <p class="text-[10px] text-sift-muted mt-0.5">→ RAW/ 和 JPG/ 子文件夹</p>
-          </div>
-
-          <!-- Unmarked photos stay put -->
-          <div
-            v-if="unprocessedCount > 0"
-            class="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-5 flex items-start gap-2"
-          >
-            <span class="text-amber-400 text-xs mt-0.5">⚠️</span>
-            <p class="text-xs text-amber-200/80">
-              {{ unprocessedCount }} 张未标记照片归档后留在原位
-            </p>
+            <p class="text-[10px] text-sift-muted mt-0.5">重名时整组加 _1、_2 后缀，不会覆盖文件</p>
           </div>
 
           <!-- Actions -->
@@ -244,7 +247,7 @@ const progressPercent = computed(() => {
               @click="handleArchive"
             >
               <Archive :size="16" />
-              归档所有保留的照片
+              归档
             </button>
 
             <button
@@ -253,7 +256,7 @@ const progressPercent = computed(() => {
               @click="handleExport"
             >
               <Download :size="16" />
-              导出 {{ starredPairs.length }} 张标记照片
+              导出 {{ starredPairs.length }} 张精选照片
             </button>
 
             <button

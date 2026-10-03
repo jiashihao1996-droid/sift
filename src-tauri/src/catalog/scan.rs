@@ -1,7 +1,8 @@
 // ============================================================
 // Sift - Folder Scan
 // Smart scan: detects folder structure and pairs JPG with RAW
-// Supports: loose files, archived JPG/RAW subdirectories, or both
+// Supports: loose files, RAWs that archive moved into RAW/ (paired with the
+// JPGs left in the folder), and the older JPG/ + RAW/ archive layout
 // RAW-only files get their embedded JPEG preview extracted; any whose
 // preview can't be extracted are reported in `skipped`, never dropped
 // ============================================================
@@ -9,6 +10,7 @@
 use crate::catalog::pairing::{self, FileIndex, RawOnly};
 use crate::media::raw_preview::extract_raw_preview;
 use crate::models::photo::{PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile};
+use crate::organize::archive::RAW_DIR;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::path::Path;
@@ -17,8 +19,8 @@ use walkdir::WalkDir;
 /// RAW files are 25-60MB each; unbounded parallel preview extraction can exhaust memory
 const PREVIEW_EXTRACTION_THREADS: usize = 2;
 
-/// Archive layout produced by Sift itself (see commands/archive.rs)
-const ARCHIVED_SUBDIRS: [&str; 2] = ["JPG", "RAW"];
+/// JPG folder of the archive layout before 精选/ (JPG/ + RAW/)
+const LEGACY_JPG_DIR: &str = "JPG";
 
 pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult, String> {
     if !folder.is_dir() {
@@ -28,13 +30,15 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     let mut index = FileIndex::default();
     index_dir(folder, &mut index);
 
-    // Root has no JPGs: maybe it was already archived into JPG/ + RAW/
-    if !index.has_jpgs() {
-        for sub in ARCHIVED_SUBDIRS {
-            let dir = folder.join(sub);
-            if dir.is_dir() {
-                index_dir(&dir, &mut index);
-            }
+    // Root has no JPGs: maybe it was archived with the older JPG/ + RAW/ layout
+    let legacy_jpg_dir = (!index.has_jpgs()).then(|| folder.join(LEGACY_JPG_DIR));
+    // Archive moves unmarked pairs' RAWs into RAW/, next to their JPGs
+    for dir in [Some(folder.join(RAW_DIR)), legacy_jpg_dir]
+        .into_iter()
+        .flatten()
+    {
+        if dir.is_dir() {
+            index_dir(&dir, &mut index);
         }
     }
 
@@ -256,6 +260,30 @@ mod tests {
     }
 
     #[test]
+    fn pairs_jpgs_left_in_place_with_raws_in_the_raw_subfolder() {
+        let dir = folder(&["IMG_1.JPG", "RAW/IMG_1.CR3", "RAW/IMG_1.xmp"]);
+
+        let result = scan(dir.path());
+
+        assert_eq!(names(&result), ["IMG_1.JPG"]);
+        let pair = &result.pairs[0];
+        assert_eq!(pair.raw_path.as_deref().map(file_name), Some("IMG_1.CR3"));
+        assert_eq!(pair.xmp_paths.len(), 1);
+    }
+
+    #[test]
+    fn a_raw_in_the_raw_subfolder_without_a_jpg_is_still_loaded() {
+        let dir = folder(&["IMG_1.JPG"]);
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        write(dir.path(), "RAW/IMG_2.ARW", &raw);
+
+        let result = scan(dir.path());
+
+        assert_eq!(result.pairs.len(), 2);
+        assert_eq!(result.raw_only_count, 1);
+    }
+
+    #[test]
     fn reads_archived_jpg_and_raw_subfolders_when_root_has_no_jpg() {
         let dir = folder(&["JPG/IMG_1.JPG", "RAW/IMG_1.CR3", "RAW/IMG_1.xmp"]);
         let result = scan(dir.path());
@@ -265,8 +293,8 @@ mod tests {
     }
 
     #[test]
-    fn ignores_archived_subfolders_when_root_has_jpg() {
-        let dir = folder(&["IMG_1.JPG", "JPG/IMG_2.JPG"]);
+    fn ignores_other_subfolders_when_root_has_jpg() {
+        let dir = folder(&["IMG_1.JPG", "JPG/IMG_2.JPG", "精选/IMG_3.JPG"]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
     }
 

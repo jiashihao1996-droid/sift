@@ -116,7 +116,7 @@ pub struct Dimensions {
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveResult {
     pub moved_count: usize,
-    pub jpg_folder: String,
+    pub picks_folder: String,
     pub raw_folder: String,
 }
 
@@ -158,7 +158,7 @@ pub struct FolderProgress {
 pub struct ArchivePairInput {
     pub jpg_path: String,
     pub raw_path: Option<String>,
-    pub status: String,
+    pub status: PhotoStatus,
     #[serde(default = "default_source")]
     pub source: PhotoSource,
     #[serde(default)]

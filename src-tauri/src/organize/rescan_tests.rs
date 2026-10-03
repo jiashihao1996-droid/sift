@@ -4,10 +4,12 @@
 // when a pair's JPG, RAW and XMPs spell their stem in different cases.
 // ============================================================
 
-use super::archive::archive_pairs;
+use super::archive::{archive_pairs, PICKS_DIR};
 use super::export::export_pairs;
 use crate::catalog::scan::scan_folder;
-use crate::models::photo::{ArchivePairInput, ExportPairInput, PhotoPair, PhotoSource};
+use crate::models::photo::{
+    ArchivePairInput, ExportPairInput, PhotoPair, PhotoSource, PhotoStatus,
+};
 use std::fs;
 use std::path::Path;
 use tempfile::{tempdir, TempDir};
@@ -48,44 +50,75 @@ fn assert_rescanned_as_one_pair(pairs: &[PhotoPair], jpg: &str, raw: &str, xmps:
     assert_eq!(names, xmps);
 }
 
-#[test]
-fn archived_mixed_case_pair_keeps_each_stem_and_one_suffix_and_pairs_on_rescan() {
-    let tmp = TempDir::new().unwrap();
-    let base = tmp.path().join("photos");
-    let cache = tmp.path().join("cache");
-    fs::create_dir_all(&cache).unwrap();
-    // An earlier archive already holds IMG_1, so the new group must move on to _1
-    write(&base.join("JPG/IMG_1.JPG"), "earlier jpg");
-    write(&base.join("RAW/IMG_1.CR3"), "earlier raw");
-    let [jpg, raw, xmp, raw_xmp] = <[String; 4]>::try_from(sources(&base)).unwrap();
+fn archive_group(base: &Path, status: PhotoStatus) {
+    let cache = tempdir().unwrap();
+    let [jpg, raw, xmp, raw_xmp] = <[String; 4]>::try_from(sources(base)).unwrap();
     let pair = ArchivePairInput {
         jpg_path: jpg,
         raw_path: Some(raw),
-        status: "starred".to_string(),
+        status,
         source: PhotoSource::Jpg,
         xmp_paths: vec![xmp, raw_xmp],
     };
+    archive_pairs(base, &[pair], cache.path(), &mut |_| {}).unwrap();
+}
 
-    archive_pairs(&base, &[pair], &cache, &mut |_| {}).unwrap();
+fn assert_contents(dir: &Path, moved: [(&str, &str); 4]) {
+    for (dest, original) in moved {
+        assert_eq!(fs::read_to_string(dir.join(dest)).unwrap(), original);
+    }
+}
+
+#[test]
+fn archived_mixed_case_pick_keeps_each_stem_and_one_suffix_and_pairs_on_rescan() {
+    let base = TempDir::new().unwrap();
+    let picks = base.path().join(PICKS_DIR);
+    // An earlier archive already holds IMG_1, so the new group must move on to _1
+    write(&picks.join("IMG_1.JPG"), "earlier jpg");
+
+    archive_group(base.path(), PhotoStatus::Starred);
 
     assert_eq!(
-        fs::read_to_string(base.join("JPG/IMG_1.JPG")).unwrap(),
+        fs::read_to_string(picks.join("IMG_1.JPG")).unwrap(),
         "earlier jpg"
     );
-    assert_eq!(
-        fs::read_to_string(base.join("RAW/IMG_1.CR3")).unwrap(),
-        "earlier raw"
+    assert_contents(
+        &picks,
+        [
+            ("img_1_1.jpg", "img_1.jpg"),
+            ("IMG_1_1.CR3", "IMG_1.CR3"),
+            ("Img_1_1.xmp", "Img_1.xmp"),
+            ("img_1_1.cr3.xmp", "img_1.cr3.xmp"),
+        ],
     );
-    for (dest, original) in [
-        ("JPG/img_1_1.jpg", "img_1.jpg"),
-        ("RAW/IMG_1_1.CR3", "IMG_1.CR3"),
-        ("RAW/Img_1_1.xmp", "Img_1.xmp"),
-        ("RAW/img_1_1.cr3.xmp", "img_1.cr3.xmp"),
-    ] {
-        assert_eq!(fs::read_to_string(base.join(dest)).unwrap(), original);
-    }
     assert_rescanned_as_one_pair(
-        &rescan(&base),
+        &rescan(&picks),
+        "img_1_1.jpg",
+        "IMG_1_1.CR3",
+        ["Img_1_1.xmp", "img_1_1.cr3.xmp"],
+    );
+}
+
+#[test]
+fn archived_unmarked_pair_pairs_its_jpg_in_place_with_its_raw_on_rescan() {
+    let base = TempDir::new().unwrap();
+    // RAW/ already holds another card's IMG_1, so the group moves on to _1
+    // and the JPG left in place is renamed to match
+    write(&base.path().join("RAW/IMG_1.CR3"), "earlier raw");
+
+    archive_group(base.path(), PhotoStatus::Unprocessed);
+
+    assert_contents(
+        base.path(),
+        [
+            ("img_1_1.jpg", "img_1.jpg"),
+            ("RAW/IMG_1_1.CR3", "IMG_1.CR3"),
+            ("RAW/Img_1_1.xmp", "Img_1.xmp"),
+            ("RAW/img_1_1.cr3.xmp", "img_1.cr3.xmp"),
+        ],
+    );
+    assert_rescanned_as_one_pair(
+        &rescan(base.path()),
         "img_1_1.jpg",
         "IMG_1_1.CR3",
         ["Img_1_1.xmp", "img_1_1.cr3.xmp"],
