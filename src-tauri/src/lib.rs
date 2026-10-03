@@ -23,7 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             cache::allow_cache_dirs(app)?;
-            scan::restore_folder_grants(app)?;
+            scan::restore_folder_grants(app);
             Ok(())
         })
         .on_window_event(|_window, event| {

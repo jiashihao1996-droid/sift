@@ -51,15 +51,23 @@ fn authorize(app: &AppHandle, folder: &Path) -> Result<(), String> {
 }
 
 /// Re-grant folders the user opened in earlier runs, so "recent folders" work.
-pub fn restore_folder_grants(app: &tauri::App) -> Result<(), String> {
+/// Best effort: a folder that can't be restored is logged and skipped, since
+/// failing app setup over it would keep Sift from starting at all.
+pub fn restore_folder_grants(app: &tauri::App) {
+    let file = match grants_file(app.handle()) {
+        Ok(file) => file,
+        Err(e) => return eprintln!("[Sift] Not restoring folder grants: {}", e),
+    };
     let scope = app.asset_protocol_scope();
-    let file = grants_file(app.handle())?;
     for folder in folder_grants::load(&file).iter().filter(|f| f.is_dir()) {
-        scope
-            .allow_directory(folder, true)
-            .map_err(|e| format!("Failed to restore folder grant: {}", e))?;
+        if let Err(e) = scope.allow_directory(folder, true) {
+            eprintln!(
+                "[Sift] Failed to restore folder grant {}: {}",
+                folder.display(),
+                e
+            );
+        }
     }
-    Ok(())
 }
 
 fn grants_file(app: &AppHandle) -> Result<PathBuf, String> {
