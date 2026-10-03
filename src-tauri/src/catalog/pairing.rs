@@ -88,10 +88,6 @@ impl FileIndex {
             });
     }
 
-    pub fn has_jpgs(&self) -> bool {
-        self.photos.values().flatten().any(|f| f.kind == Kind::Jpg)
-    }
-
     /// Number of JPG and RAW files seen (XMP sidecars excluded)
     pub fn photo_count(&self) -> usize {
         self.photos.values().map(Vec::len).sum()

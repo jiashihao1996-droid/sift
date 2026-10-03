@@ -2,7 +2,8 @@
 // Sift - Folder Scan
 // Smart scan: detects folder structure and pairs JPG with RAW
 // Supports: loose files, RAWs that archive moved into RAW/ (paired with the
-// JPGs left in the folder), and the older JPG/ + RAW/ archive layout
+// JPGs left in the folder), and the older JPG/ + RAW/ archive layout, even
+// with new photos copied into the root next to it
 // RAW-only files get their embedded JPEG preview extracted; any whose
 // preview can't be extracted are reported in `skipped`, never dropped
 // ============================================================
@@ -19,7 +20,7 @@ use walkdir::WalkDir;
 /// RAW files are 25-60MB each; unbounded parallel preview extraction can exhaust memory
 const PREVIEW_EXTRACTION_THREADS: usize = 2;
 
-/// JPG folder of the archive layout before 精选/ (JPG/ + RAW/)
+/// JPG folder of the archive layout before 精选/ (JPG/ + RAW/); its RAWs are in RAW/
 const LEGACY_JPG_DIR: &str = "JPG";
 
 pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult, String> {
@@ -30,13 +31,10 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     let mut index = FileIndex::default();
     index_dir(folder, &mut index);
 
-    // Root has no JPGs: maybe it was archived with the older JPG/ + RAW/ layout
-    let legacy_jpg_dir = (!index.has_jpgs()).then(|| folder.join(LEGACY_JPG_DIR));
-    // Archive moves unmarked pairs' RAWs into RAW/, next to their JPGs
-    for dir in [Some(folder.join(RAW_DIR)), legacy_jpg_dir]
-        .into_iter()
-        .flatten()
-    {
+    // RAW/ holds the RAWs of JPGs in the root (archive) or in JPG/ (older
+    // archives). Reading only one side would turn every RAW of the other into
+    // a RAW-only entry, so both are always read when present.
+    for dir in [folder.join(RAW_DIR), folder.join(LEGACY_JPG_DIR)] {
         if dir.is_dir() {
             index_dir(&dir, &mut index);
         }
@@ -293,8 +291,20 @@ mod tests {
     }
 
     #[test]
-    fn ignores_other_subfolders_when_root_has_jpg() {
-        let dir = folder(&["IMG_1.JPG", "JPG/IMG_2.JPG", "精选/IMG_3.JPG"]);
+    fn pairs_the_jpg_and_raw_subfolders_even_when_root_has_photos() {
+        // An older archive's JPG/ + RAW/, plus a new card copied into the root
+        let dir = folder(&["DSC_1.JPG", "DSC_1.ARW", "JPG/DSC_2.JPG", "RAW/DSC_2.ARW"]);
+
+        let result = scan(dir.path());
+
+        assert_eq!(names(&result), ["DSC_1.JPG", "DSC_2.JPG"]);
+        assert!(result.pairs.iter().all(|p| p.raw_path.is_some()));
+        assert_eq!(result.raw_only_count, 0);
+    }
+
+    #[test]
+    fn ignores_other_subfolders() {
+        let dir = folder(&["IMG_1.JPG", "精选/IMG_3.JPG", "other/IMG_4.JPG"]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
     }
 
