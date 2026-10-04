@@ -11,6 +11,7 @@ import {
   scanFolder,
 } from '@/services/tauriCommands'
 import { useSessionStore } from './sessionStore'
+import { useViewStore } from './viewStore'
 
 vi.mock('@/services/tauriCommands', () => ({
   scanFolder: vi.fn(),
@@ -47,6 +48,8 @@ function storeWith(statuses: PhotoStatus[], currentIndex = 0) {
 const statuses = (store: ReturnType<typeof useSessionStore>) => store.pairs.map((p) => p.status)
 
 beforeEach(() => {
+  // The view store reads viewer preferences; keep tests off the real storage
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
   setActivePinia(createPinia())
   vi.resetAllMocks() // also undoes per-test mockResolvedValue overrides
   vi.restoreAllMocks()
@@ -169,6 +172,39 @@ describe('marking', () => {
     expect(store.markStar()).toBe('starred')
     expect(store.undoStack).toEqual([])
     expect(store.lastMark).toBeNull()
+  })
+})
+
+describe('marking with stay-after-mark on', () => {
+  function stayingStoreWith(statuses: PhotoStatus[], currentIndex = 0) {
+    useViewStore().stayAfterMark = true
+    return storeWith(statuses, currentIndex)
+  }
+
+  it('stays on the marked photo so a burst can be compared in place', () => {
+    const store = stayingStoreWith([U, U, U], 1)
+
+    store.markStar()
+    expect([statuses(store), store.currentIndex]).toEqual([[U, S, U], 1])
+
+    store.markDelete()
+    expect([statuses(store), store.currentIndex]).toEqual([[U, D, U], 1])
+  })
+
+  it('does not report reaching the end when marking the last photo', () => {
+    const store = stayingStoreWith([U, U], 1)
+    store.markStar()
+    expect(store.endReachedCount).toBe(0)
+  })
+
+  it('still records every change for undo', () => {
+    const store = stayingStoreWith([U, U])
+    store.markStar()
+    store.markStar()
+
+    expect(store.undoStack).toHaveLength(2)
+    store.undo()
+    expect([statuses(store), store.currentIndex]).toEqual([[S, U], 0])
   })
 })
 

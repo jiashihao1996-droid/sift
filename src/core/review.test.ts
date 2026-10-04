@@ -3,6 +3,7 @@ import { PhotoStatus, type PhotoPair } from '@/types'
 import {
   countByStatus,
   indexAfterMark,
+  movesOnAfterMark,
   planBatches,
   positionPercent,
   toggledStatus,
@@ -54,6 +55,26 @@ describe('indexAfterMark', () => {
 
   it('stays put after unmarking, so the photo can be decided again', () => {
     expect(indexAfterMark(U, 1, 3)).toBe(1)
+  })
+
+  it('stays on the marked photo when stay-after-mark is on', () => {
+    expect(indexAfterMark(S, 0, 3, true)).toBe(0)
+    expect(indexAfterMark(D, 1, 3, true)).toBe(1)
+    expect(indexAfterMark(U, 1, 3, true)).toBe(1)
+  })
+})
+
+describe('movesOnAfterMark', () => {
+  it('moves on after marking unless stay-after-mark is on', () => {
+    expect(movesOnAfterMark(S, false)).toBe(true)
+    expect(movesOnAfterMark(D, false)).toBe(true)
+    expect(movesOnAfterMark(S, true)).toBe(false)
+    expect(movesOnAfterMark(D, true)).toBe(false)
+  })
+
+  it('never moves on after unmarking', () => {
+    expect(movesOnAfterMark(U, false)).toBe(false)
+    expect(movesOnAfterMark(U, true)).toBe(false)
   })
 })
 

@@ -2,12 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useViewStore } from './viewStore'
 
+const STORAGE_KEY = 'sift.stayAfterMark'
+
+function stubStorage(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial))
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value),
+  })
+  return data
+}
+
 beforeEach(() => {
+  stubStorage()
   setActivePinia(createPinia())
 })
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('setView', () => {
@@ -47,5 +60,46 @@ describe('showToast', () => {
 
     expect(view.toastVisible).toBe(true)
     expect([view.toastMessage, view.toastType]).toEqual(['second', 'delete'])
+  })
+})
+
+describe('stayAfterMark', () => {
+  it('is off by default, so marking keeps moving on', () => {
+    expect(useViewStore().stayAfterMark).toBe(false)
+  })
+
+  it('restores the saved preference', () => {
+    stubStorage({ [STORAGE_KEY]: 'true' })
+    expect(useViewStore().stayAfterMark).toBe(true)
+  })
+
+  it('saves each toggle and announces the new state', () => {
+    const data = stubStorage()
+    const view = useViewStore()
+
+    view.toggleStayAfterMark()
+    expect([view.stayAfterMark, data.get(STORAGE_KEY)]).toEqual([true, 'true'])
+    expect(view.toastMessage).toContain('停在当前照片')
+
+    view.toggleStayAfterMark()
+    expect([view.stayAfterMark, data.get(STORAGE_KEY)]).toEqual([false, 'false'])
+    expect(view.toastMessage).toContain('自动前进')
+  })
+
+  it('falls back to the default and still toggles when storage is unavailable', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('denied')
+      },
+      setItem: () => {
+        throw new Error('denied')
+      },
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const view = useViewStore()
+
+    expect(view.stayAfterMark).toBe(false)
+    view.toggleStayAfterMark()
+    expect(view.stayAfterMark).toBe(true)
   })
 })
