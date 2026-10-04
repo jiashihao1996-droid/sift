@@ -1,0 +1,16 @@
+# cargo-deny (run in CI): `cargo deny check advisories` from src-tauri/.
+# Only RustSec advisories are checked; licenses, bans and sources are not.
+
+[graph]
+# Sift ships for macOS and Windows only; skip Linux-only crates (GTK stack)
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+[advisories]
+# Vulnerabilities always fail. Unmaintained crates fail only when Sift depends on
+# them directly; transitive ones (pulled in by Tauri) are out of our hands.
+unmaintained = "workspace"
+ignore = []

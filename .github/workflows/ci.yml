@@ -1,12 +1,24 @@
 name: CI
 
+# On pull requests, `changes` decides which jobs the PR needs; jobs it rules
+# out are skipped, which still counts as a successful CI run for auto-merge.
+# Rust runs on Windows only for PRs (local `npm run check:rust` covers macOS);
+# main runs both platforms.
+
 on:
   pull_request:
   push:
     branches: [main]
-  # Auto-merge dispatches this on main after merging: merges made with
-  # GITHUB_TOKEN don't trigger push events, and main must save the cache
+  # Auto-merge dispatches this on main after merging a Cargo.lock change:
+  # merges made with GITHUB_TOKEN don't trigger push events, and main must
+  # save the Rust cache that PRs restore from
   workflow_dispatch:
+  # Weekly advisory check: new RustSec advisories land without any code change
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
 
 env:
   # CI never needs debug info, and generating it is slowest on Windows
@@ -18,7 +30,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      frontend: ${{ steps.classify.outputs.frontend }}
+      rust: ${{ steps.classify.outputs.rust }}
+      deps: ${{ steps.classify.outputs.deps }}
+    steps:
+      - name: Classify changed files
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # Renames count on both sides. The API lists at most 3000 files;
+          # past that (or for an empty PR) run everything.
+          files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate \
+            --jq '.[] | .filename, (.previous_filename // empty)')
+          count=$(grep -c . <<<"$files" || true)
+
+          frontend=false rust=false deps=false
+          if [ "$count" -eq 0 ] || [ "$count" -ge 3000 ]; then
+            frontend=true rust=true deps=true
+          fi
+          while IFS= read -r f; do
+            case "$f" in
+              '') ;;
+              .github/workflows/ci.yml) frontend=true rust=true deps=true ;;
+              # Version fields are checked by sync-version.mjs in the frontend job
+              src-tauri/Cargo.toml) frontend=true rust=true deps=true ;;
+              src-tauri/tauri.conf.json) frontend=true rust=true ;;
+              src-tauri/Cargo.lock | src-tauri/deny.toml) rust=true deps=true ;;
+              src-tauri/*) rust=true ;;
+              # Written by cargo test (ts-rs), type-checked by the frontend
+              src/types/generated/*) frontend=true rust=true ;;
+              *) frontend=true ;;
+            esac
+          done <<<"$files"
+
+          {
+            echo "frontend=$frontend"
+            echo "rust=$rust"
+            echo "deps=$deps"
+          } | tee -a "$GITHUB_OUTPUT"
+
   frontend:
+    needs: changes
+    # changes is skipped outside PRs; !failure() keeps a failed changes job fatal
+    if: >-
+      !cancelled() && !failure() && github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,18 +105,17 @@ jobs:
         run: npm run check
 
   rust:
+    needs: changes
+    if: >-
+      !cancelled() && !failure() && github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true')
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest]
+        platform: ${{ fromJSON(github.event_name == 'pull_request' && '["windows-latest"]' || '["macos-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -61,11 +128,11 @@ jobs:
           # just burns minutes in the post step and the 10 GB cache quota
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # tauri::generate_context! embeds the frontend, so dist/ must exist
-      - name: Build frontend
-        run: |
-          npm ci
-          npm run build
+      # tauri::generate_context! embeds the frontend, so dist/ must exist;
+      # Rust checks and tests never load it, so a stub stands in for npm run build
+      - name: Stub frontend build
+        shell: bash
+        run: mkdir -p dist && echo '<!doctype html><title>Sift</title>' > dist/index.html
 
       - name: cargo fmt
         working-directory: src-tauri
@@ -81,10 +148,26 @@ jobs:
 
       # cargo test regenerates src/types/generated via ts-rs; it must match the commit
       - name: Generated TS types are up to date
-        if: runner.os == 'macOS'
+        shell: bash
         run: |
           if [ -n "$(git status --porcelain -- src/types/generated)" ]; then
             git status --short -- src/types/generated
             echo "::error::Rust models changed without regenerating TS types. Run: npm run gen:types"
             exit 1
           fi
+
+  audit:
+    needs: changes
+    if: >-
+      !cancelled() && !failure() &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.deps == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # RustSec advisories; config in src-tauri/deny.toml
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: src-tauri/Cargo.toml
+          command: check
+          command-arguments: advisories

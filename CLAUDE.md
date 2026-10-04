@@ -14,7 +14,7 @@ npm run format          # Prettier 写入；Rust 用 cd src-tauri && cargo fmt
 npm run release -- 1.2.0
 ```
 
-提交前两个 check 都必须通过；CI（`.github/workflows/ci.yml`）跑的是同一套。
+提交前两个 check 都必须通过；CI（`.github/workflows/ci.yml`）跑的是同一套，但按改动路径跳过用不到的 job（只改前端/文档不跑 Rust，只改 Rust 不跑前端），PR 上 Rust 只跑 Windows（macOS 靠本地 `check:rust`），main 上两个平台都跑。依赖有 RustSec 漏洞时 CI 的 `audit` job 会失败（配置 `src-tauri/deny.toml`）。
 Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端），首次先 `npm run build`。
 
 ## 架构
