@@ -27,10 +27,11 @@ Rust（`src-tauri/src/`）：
 | `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                         | 否         |
 | `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`                              | 否         |
 | `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`）、`delete`（进回收站）、`export`（复制精选） | 否         |
+| `os/`       | 交给系统：`reveal`（在文件管理器中显示）、`clipboard`（复制图片）；路径只经参数/环境变量传入，不拼进脚本   | 否         |
 | `models/`   | 与前端共享的 serde 结构体                                                                                  | 否         |
 | `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                             | 否         |
 
-- 新逻辑写进 `catalog/`、`media/` 或 `organize/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
+- 新逻辑写进 `catalog/`、`media/`、`organize/` 或 `os/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
 - 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名和路径只在 `media/cache_dirs.rs` 定义（`cache_dirs::path` / `ensure`）。
 - 测试样本在代码里合成（`src/test_support.rs`：噪点 JPEG、最小 TIFF RAW），不提交二进制文件。
 

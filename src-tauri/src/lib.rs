@@ -8,6 +8,7 @@ mod commands;
 mod media;
 mod models;
 mod organize;
+mod os;
 mod paths;
 #[cfg(test)]
 mod test_support;
