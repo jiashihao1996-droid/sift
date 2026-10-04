@@ -11,7 +11,13 @@ import { useViewStore } from '@/stores/viewStore'
 import { archivePhotos, exportPicks, deletePair, onArchiveProgress } from '@/services/tauriCommands'
 import { PhotoStatus, type ArchiveProgress } from '@/types'
 import RollingNumber from '@/components/status/RollingNumber.vue'
-import { getErrorMessage } from '@/utils/error'
+import ArchiveFailure from './ArchiveFailure.vue'
+import {
+  describeFailure,
+  toOrganizeError,
+  type FailureReport,
+  type OrganizeStage,
+} from '@/core/organizeError'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -23,6 +29,8 @@ const archiveProgress = ref(0)
 const archiveTotal = ref(0)
 const currentFile = ref('')
 const resultMessage = ref('')
+/** Set when archiving or exporting stopped partway */
+const failure = ref<FailureReport | null>(null)
 
 const starredPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Starred))
 
@@ -57,6 +65,7 @@ const destinations = computed(() => [
 async function handleArchive() {
   isArchiving.value = true
   archiveProgress.value = 0
+  const stage: OrganizeStage = { operation: 'archive', step: 'delete', deletedGroups: 0 }
 
   try {
     // Step 1: Delete pairs marked as Deleted
@@ -67,10 +76,11 @@ async function handleArchive() {
           ? pair.rawPath.split('/').pop() || pair.rawPath
           : pair.jpgPath.split('/').pop() || pair.jpgPath
       await deletePair(pair.jpgPath, pair.rawPath, pair.source, pair.xmpPaths)
+      stage.deletedGroups++
     }
 
     // Step 2: Picks into 精选/, unmarked RAWs into RAW/
-    // Listen for progress
+    stage.step = 'move'
     const unlisten = await onArchiveProgress((progress: ArchiveProgress) => {
       archiveProgress.value = progress.current
       archiveTotal.value = progress.total
@@ -97,7 +107,7 @@ async function handleArchive() {
       unlisten()
     }
   } catch (e) {
-    resultMessage.value = `归档失败：${getErrorMessage(e)}`
+    failure.value = describeFailure(stage, toOrganizeError(e))
   } finally {
     isArchiving.value = false
   }
@@ -125,17 +135,22 @@ async function handleExport() {
     resultMessage.value = `已导出 ${result.exportedCount} 个标记文件至 ${result.exportFolder}`
     isComplete.value = true
   } catch (e) {
-    resultMessage.value = `导出失败：${getErrorMessage(e)}`
+    failure.value = describeFailure({ operation: 'export', folder: selected }, toOrganizeError(e))
   } finally {
     isExporting.value = false
   }
 }
 
 function close() {
+  // After a partial archive the session no longer matches the folder: the
+  // only way on is home, so the backdrop does not dismiss that failure
+  if (failure.value && !failure.value.canRetry) return
+  failure.value = null
   view.toggleArchiveDialog()
 }
 
 function done() {
+  failure.value = null
   session.resetSession()
   view.setView('welcome')
   view.toggleArchiveDialog()
@@ -181,6 +196,13 @@ const progressPercent = computed(() => {
             返回首页
           </button>
         </div>
+
+        <ArchiveFailure
+          v-else-if="failure"
+          :report="failure"
+          @retry="failure = null"
+          @home="done"
+        />
 
         <!-- Archiving Progress -->
         <div v-else-if="isArchiving || isExporting" class="py-4">

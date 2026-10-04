@@ -20,7 +20,7 @@ export async function scanFolder(folderPath: string): Promise<ScanResult> {
   return invoke<ScanResult>('scan_folder', { folderPath })
 }
 
-/** Delete a photo pair (move to system trash) */
+/** Delete a photo pair (move to system trash). Rejects with an `OrganizeError`. */
 export async function deletePair(
   jpgPath: string,
   rawPath: string | null,
@@ -30,7 +30,7 @@ export async function deletePair(
   return invoke<void>('delete_pair', { jpgPath, rawPath, source, xmpPaths })
 }
 
-/** Archive surviving photos into RAW/ and JPG/ subfolders */
+/** Archive picks into 精选/ and unmarked RAWs into RAW/. Rejects with an `OrganizeError`. */
 export async function archivePhotos(
   folderPath: string,
   pairs: {
@@ -44,7 +44,7 @@ export async function archivePhotos(
   return invoke<ArchiveResult>('archive_photos', { folderPath, pairs })
 }
 
-/** Export starred photos to a target directory */
+/** Export starred photos to a target directory. Rejects with an `OrganizeError`. */
 export async function exportPicks(
   pairs: { jpgPath: string; rawPath: string | null; source: PhotoSource; xmpPaths: string[] }[],
   targetFolder: string,

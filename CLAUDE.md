@@ -40,7 +40,7 @@ Rust（`src-tauri/src/`）：
 - `src/core/` 放纯 TS 规则（如 `review.ts`：标记切换、下一张、计数、分批），不引入 Vue/Pinia/Tauri；store 只管响应式状态并调用它。
 - `src/services/tauriCommands.ts` 是前端**唯一**调用 `invoke()` 的地方。
 - 与 Rust 共享的类型由 ts-rs 从 `src-tauri/src/models/` 生成到 `src/types/generated/`（不要手改，也不受 Prettier/ESLint 管）；改了 Rust 模型后运行 `npm run gen:types` 并一起提交，CI 会检查。`src/types/index.ts` 只负责转出，以及 `PhotoStatus` 常量（有编译期检查保证与 Rust 枚举一致）。
-- Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。
+- Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。例外：整理类命令（`archive_photos`、`export_picks`、`delete_pair`）reject `OrganizeError`（`models/organize.rs`：错误类别、卡住的文件、英文原文、失败前已处理的照片数），前端用 `src/core/organizeError.ts` 的 `toOrganizeError()` 收窄、`describeFailure()` 转成中文说明和建议，在归档对话框的失败页（`ArchiveFailure.vue`）显示。错误类别在 `organize/error.rs` 按 `io::ErrorKind` 和 trash 错误判定，新的错误来源要走这里而不是拼字符串。
 - 照片只有三种状态：精选、删除、未标记（`PhotoStatus`）。`F`/`X` 切换标记，标记后前进一张、取消标记停在原地，每次改动都进撤销栈；`←`/`→`/`Space` 只导航、不改标记（规则在 `src/core/review.ts`）。
 - 归档布局（`organize/archive.rs`）：精选的 JPG + RAW + XMP 移入 `精选/`（纯 RAW 另存同名 JPG 预览）；未标记的 JPG 留在原位，RAW 和 XMP 移入 `RAW/`；只在有文件要移入时才建文件夹。扫描总会读取 `RAW/`（与原位 JPG 配对）和旧布局的 `JPG/`（与 `RAW/` 配对），其他子文件夹不读。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
