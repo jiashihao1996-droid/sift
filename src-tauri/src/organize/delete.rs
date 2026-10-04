@@ -83,13 +83,17 @@ pub fn plan_delete(
 }
 
 /// Carry out a plan. `trash_file` is injected so tests can run without the
-/// system trash; production passes `trash::delete`.
+/// system trash; production passes `trash::delete`. On failure the error
+/// counts the files of this pair already trashed.
 pub fn execute_delete(
     plan: &DeletePlan,
     mut trash_file: impl FnMut(&Path) -> Result<(), OrganizeError>,
 ) -> Result<(), OrganizeError> {
-    for item in &plan.trash {
-        trash_file(&item.path).map_err(|e| e.context(format_args!("{}", item.label)))?;
+    for (trashed, item) in plan.trash.iter().enumerate() {
+        trash_file(&item.path).map_err(|e| {
+            e.context(format_args!("{}", item.label))
+                .with_completed(trashed)
+        })?;
     }
     if let Some(preview) = &plan.preview {
         std::fs::remove_file(preview)
@@ -233,8 +237,30 @@ mod tests {
             "{:?}",
             err
         );
+        assert_eq!(err.completed, 0);
         assert!(Path::new(&raw).exists());
         assert!(Path::new(&preview).exists());
+    }
+
+    #[test]
+    fn a_failure_counts_the_files_of_the_pair_already_trashed() {
+        let tmp = TempDir::new().unwrap();
+        let bin = tmp.path().join("bin");
+        let jpg = touch(&tmp.path().join("IMG_1.jpg"));
+        let raw = touch(&tmp.path().join("RAW/IMG_1.ARW"));
+        let plan = plan_in(&tmp, &jpg, Some(&raw), None, &[]).unwrap();
+        let mut trash = fake_trash(&bin);
+
+        let err = execute_delete(&plan, |path| {
+            if path == Path::new(&raw) {
+                return Err(OrganizeError::other("permission denied"));
+            }
+            trash(path)
+        })
+        .unwrap_err();
+
+        assert_eq!(err.completed, 1, "the JPG is already in the trash");
+        assert!(bin.join("IMG_1.jpg").exists());
     }
 
     #[test]
