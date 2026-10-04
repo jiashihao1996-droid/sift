@@ -15,6 +15,11 @@ name: Auto-merge
 #   changes the key of the Rust cache that PRs restore from. (A new stable
 #   rustc changes it too; the next Cargo.lock merge, usually the weekly
 #   Dependabot PR, refreshes it.)
+# - After merging a release PR (branch release/vX.Y.Z, opened by
+#   `npm run release`), this dispatches release.yml, which waits for that main
+#   CI run and then tags and builds the release. A release PR always changes
+#   Cargo.lock; CI is dispatched for it regardless, because release.yml needs
+#   a run on the merged commit.
 # - CI skips jobs a PR does not need; a skipped job still leaves the CI run
 #   successful and shows up as "skipping" in the checks below.
 
@@ -57,7 +62,7 @@ jobs:
             exit 0
           fi
 
-          pr=$(gh pr view "$PR" --json state,isDraft,labels,headRefOid)
+          pr=$(gh pr view "$PR" --json state,isDraft,labels,headRefOid,headRefName)
           if [ "$(jq -r .state <<<"$pr")" != "OPEN" ] || [ "$(jq -r .isDraft <<<"$pr")" = "true" ]; then
             echo "PR #$PR is not an open, ready-for-review PR."
             exit 0
@@ -109,7 +114,17 @@ jobs:
           # --match-head-commit: refuse if a new commit landed after the checks ran
           gh pr merge "$PR" "$method" --delete-branch --match-head-commit "$head"
 
-          if grep -qx 'src-tauri/Cargo.lock' <<<"$files"; then
+          release=
+          if [[ "$(jq -r .headRefName <<<"$pr")" =~ ^release/v(.+)$ ]]; then
+            release=${BASH_REMATCH[1]}
+          fi
+
+          if grep -qx 'src-tauri/Cargo.lock' <<<"$files" || [ -n "$release" ]; then
             echo "Cargo.lock changed; running CI on main to refresh the Rust cache."
             gh workflow run ci.yml --ref main
+          fi
+
+          if [ -n "$release" ]; then
+            echo "Release PR merged; dispatching the release of $release."
+            gh workflow run release.yml --ref main -f version="$release"
           fi
