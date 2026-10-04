@@ -57,33 +57,23 @@ fn first_free_suffix(
         .expect("some suffix is always free")
 }
 
-/// How many suffixes `claim_paths_sharing_stem` tries before giving up. Each
-/// retry means another process created one of our names in the instant
-/// between checking and claiming, so hitting this is practically impossible.
+/// How many suffixes `claim_first_free` tries before giving up. Each retry
+/// means another process created one of our names in the instant between
+/// checking and claiming, so hitting this is practically impossible.
 const MAX_CLAIM_ATTEMPTS: usize = 100;
 
-/// Like `unique_paths_sharing_stem`, but also reserves every destination by
-/// creating it as an empty file with `create_new`. That is atomic: if a file
-/// appears at a name after it was checked, the claim fails instead of the
-/// caller's copy overwriting it. Callers then write over their own
-/// placeholders (`fs::copy` keeps the source's metadata, unlike writing
-/// through the handle).
+/// Reserve the destinations returned by `choose` (usually
+/// `unique_paths_sharing_stem`) by creating each as an empty file with
+/// `create_new`. That is atomic: if a file appears at a name after it was
+/// checked, the claim fails instead of the caller's copy overwriting it.
+/// Callers then write over their own placeholders (`fs::copy` keeps the
+/// source's metadata, unlike writing through the handle).
 ///
-/// When a name turns out to be taken, the whole group moves on to the next
-/// free suffix so it keeps sharing one stem. Placeholders already created for
-/// the abandoned suffix stay behind as empty files.
-pub fn claim_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> io::Result<Vec<PathBuf>> {
-    claim_first_free(
-        || unique_paths_sharing_stem(candidates, stem),
-        &mut Vec::new(),
-    )
-}
-
-/// Claim the paths returned by `choose`, asking again whenever one is taken.
+/// When a name turns out to be taken, `choose` is asked again, and the whole
+/// group moves on to the next free suffix so it keeps sharing one stem.
 /// Every placeholder this call creates is pushed onto `created`, including
 /// those of an abandoned suffix and those created before an error, so the
 /// caller can clean up after itself (`organize::transfer`).
-/// Exposed so callers' tests can inject a file between the choice and the claim.
 pub(crate) fn claim_first_free(
     mut choose: impl FnMut() -> Vec<PathBuf>,
     created: &mut Vec<PathBuf>,
@@ -351,7 +341,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let group = in_dir(dir.path(), &["DSC_0001.JPG", "DSC_0001.ARW"]);
 
-        let got = claim_paths_sharing_stem(&group, "DSC_0001").unwrap();
+        let got = claim_first_free(
+            || unique_paths_sharing_stem(&group, "DSC_0001"),
+            &mut Vec::new(),
+        )
+        .unwrap();
 
         assert_eq!(got, group);
         assert!(got.iter().all(|p| is_empty_file(p)));
@@ -436,7 +430,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let group = in_dir(&dir.path().join("missing"), &["DSC_0001.JPG"]);
 
-        let err = claim_paths_sharing_stem(&group, "DSC_0001").unwrap_err();
+        let err = claim_first_free(
+            || unique_paths_sharing_stem(&group, "DSC_0001"),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }

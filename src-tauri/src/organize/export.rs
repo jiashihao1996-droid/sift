@@ -4,14 +4,19 @@
 // Supports RAW-only pairs: exports RAW original only
 // Never overwrites: colliding pairs get a shared `_N` suffix, and each
 // destination is claimed with `create_new` before anything is copied
+// A pair is exported whole or not at all: when one of its files fails, the
+// copies already made are emptied and removed with the placeholders, so the
+// target never holds half a pair or an empty file
 // ============================================================
 
 use super::file_name;
+use super::transfer::{discard_copy, remove_empty_placeholders};
 use crate::models::organize::OrganizeError;
 use crate::models::photo::{ArchiveProgress, ExportPairInput, PhotoSource};
-use crate::paths::claim_paths_sharing_stem;
+use crate::paths;
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 
 /// One source file to copy; `kind` labels errors, and only photos count as exported.
 struct ExportFile<'a> {
@@ -95,29 +100,58 @@ fn pair_stem(pair: &ExportPairInput) -> String {
 
 /// Copy a pair's files under one shared, non-colliding suffix; returns the photo count.
 fn copy_group(files: &[ExportFile], target: &Path, stem: &str) -> Result<usize, OrganizeError> {
+    copy_group_with(files, target, stem, &mut |src, dest| fs::copy(src, dest))
+}
+
+type CopyFn<'a> = dyn FnMut(&Path, &Path) -> io::Result<u64> + 'a;
+
+/// `copy_group` with the copy injectable, so tests can fail it.
+fn copy_group_with(
+    files: &[ExportFile],
+    target: &Path,
+    stem: &str,
+    copy: &mut CopyFn,
+) -> Result<usize, OrganizeError> {
     let candidates: Vec<_> = files
         .iter()
         .map(|f| target.join(file_name(f.src)))
         .collect();
-    let dests = claim_paths_sharing_stem(&candidates, stem).map_err(|e| {
-        OrganizeError::io(&e, files[0].src, "Failed to reserve export file names for")
-    })?;
+    let mut placeholders = Vec::new();
+    let claimed = paths::claim_first_free(
+        || paths::unique_paths_sharing_stem(&candidates, stem),
+        &mut placeholders,
+    );
+    let dests = match claimed {
+        Ok(dests) => dests,
+        Err(e) => {
+            remove_empty_placeholders(&placeholders, &[]);
+            let action = "Failed to reserve export file names for";
+            return Err(OrganizeError::io(&e, files[0].src, action));
+        }
+    };
 
-    // Every dest is now an empty placeholder this call created, so fs::copy
-    // only ever replaces our own file. A failed copy leaves the placeholder.
-    for (file, dest) in files.iter().zip(&dests) {
-        fs::copy(file.src, dest).map_err(|e| {
+    // Every dest is now an empty placeholder this call created, so the copy
+    // only ever replaces our own file.
+    for (copied, (file, dest)) in files.iter().zip(&dests).enumerate() {
+        if let Err(e) = copy(file.src, dest) {
+            // The sources are untouched: empty this pair's copies, then remove them
+            for (done, done_dest) in files.iter().zip(&dests).take(copied + 1) {
+                discard_copy(done.src, done_dest);
+            }
+            remove_empty_placeholders(&placeholders, &[]);
             let action = format!("Failed to copy {} to {}:", file.kind, dest.display());
-            OrganizeError::io(&e, file.src, &action)
-        })?;
+            return Err(OrganizeError::io(&e, file.src, &action));
+        }
     }
+    let exported: Vec<&Path> = dests.iter().map(PathBuf::as_path).collect();
+    remove_empty_placeholders(&placeholders, &exported);
     Ok(files.iter().filter(|f| f.is_photo()).count())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::models::organize::OrganizeErrorKind;
     use tempfile::{tempdir, TempDir};
 
     struct Fixture {
@@ -272,5 +306,33 @@ mod tests {
         assert_eq!(progress[0].current, 2);
         assert_eq!(progress[0].total, 2);
         assert_eq!(progress[0].current_file, "DSC_0002.JPG");
+    }
+
+    #[test]
+    fn a_pair_that_fails_halfway_leaves_nothing_in_the_target() {
+        let fx = Fixture::new();
+        fx.existing("IMG_1.jpg", "other card");
+        let jpg = fx.source("IMG_1.jpg", "jpg");
+        let raw = fx.source("IMG_1.ARW", "raw");
+        let input = pair(&jpg, Some(&raw), &[], PhotoSource::Jpg);
+        let files = files_to_export(&input);
+
+        let err = copy_group_with(&files, fx.target.path(), "IMG_1", &mut |src, dest| {
+            if src == Path::new(&raw) {
+                return Err(io::Error::from(io::ErrorKind::StorageFull));
+            }
+            fs::copy(src, dest)
+        })
+        .unwrap_err();
+
+        assert_eq!(err.kind, OrganizeErrorKind::DiskFull);
+        let mut names: Vec<_> = fs::read_dir(fx.target.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["IMG_1.jpg"], "only the file that was already there");
+        assert_eq!(fx.read("IMG_1.jpg"), "other card");
+        assert_eq!(fs::read_to_string(&jpg).unwrap(), "jpg", "source untouched");
     }
 }
