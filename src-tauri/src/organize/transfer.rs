@@ -44,6 +44,12 @@ pub fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
     if fs::rename(src, dest).is_ok() {
         return Ok(());
     }
+    copy_then_remove(src, dest)
+}
+
+/// `move_file`'s fallback, separate so tests can reach it without having to
+/// make `rename` fail (which differs per platform).
+fn copy_then_remove(src: &Path, dest: &Path) -> Result<(), String> {
     if let Err(e) = fs::copy(src, dest) {
         discard_copy(src, dest);
         return Err(format!(
@@ -282,12 +288,12 @@ mod tests {
     #[test]
     fn a_failed_copy_empties_the_placeholder_and_keeps_the_source() {
         let tmp = TempDir::new().unwrap();
-        // A directory can be neither renamed onto a file nor copied
+        // A directory can't be copied as a file, on any platform
         let src = tmp.path().join("a.jpg");
         fs::create_dir(&src).unwrap();
         let dest = write(&tmp.path().join("sub/a.jpg"), "partial copy");
 
-        let err = move_file(&src, &dest).unwrap_err();
+        let err = copy_then_remove(&src, &dest).unwrap_err();
 
         assert!(err.contains("Failed to copy"), "{}", err);
         assert!(src.is_dir());
