@@ -51,6 +51,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             scan::scan_folder,
             delete::delete_pairs,
+            delete::folder_no_trash_reason,
             archive::archive_photos,
             export::export_picks,
             thumbnail::generate_thumbnails,

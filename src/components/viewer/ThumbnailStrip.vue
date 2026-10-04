@@ -5,7 +5,7 @@
 // ============================================================
 
 import { ref, watch, nextTick, onMounted } from 'vue'
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus, type PhotoPair } from '@/types'

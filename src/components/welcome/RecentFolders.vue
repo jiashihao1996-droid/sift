@@ -3,7 +3,7 @@
 // RecentFolders - Quick reopen list on the welcome page
 // ============================================================
 
-import { Folder, X } from 'lucide-vue-next'
+import { Folder, X } from '@lucide/vue'
 import { extractFileName } from '@/utils/path'
 
 defineProps<{ folders: string[] }>()

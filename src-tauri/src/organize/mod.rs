@@ -12,6 +12,7 @@ pub mod delete;
 pub mod delete_batch;
 mod error;
 pub mod export;
+pub mod no_trash;
 mod transfer;
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ import type {
   ArchivePairInput,
   DeletePairInput,
   DeleteResult,
+  NoTrashReason,
   ScanResult,
   ExifData,
   ThumbnailResult,
@@ -26,10 +27,22 @@ export async function scanFolder(folderPath: string): Promise<ScanResult> {
 /**
  * Move pairs to the system trash in batches, carrying on past failures; the
  * result lists each pair as trashed or failed. Files already gone count as
- * trashed.
+ * trashed. `permanent` is the user's confirmation for this archive that files
+ * on a volume without a trash are deleted for good; it never affects others.
  */
-export async function deletePairs(pairs: DeletePairInput[]): Promise<DeleteResult> {
-  return invoke<DeleteResult>('delete_pairs', { pairs })
+export async function deletePairs(
+  pairs: DeletePairInput[],
+  permanent = false,
+): Promise<DeleteResult> {
+  return invoke<DeleteResult>('delete_pairs', { pairs, permanent })
+}
+
+/**
+ * Why the folder's volume has no trash (network share, FAT/exFAT card on
+ * Windows), or null when deleting there goes to the trash
+ */
+export async function folderNoTrashReason(folderPath: string): Promise<NoTrashReason | null> {
+  return invoke<NoTrashReason | null>('folder_no_trash_reason', { folderPath })
 }
 
 /** Listen for delete progress events (pairs handled so far) */

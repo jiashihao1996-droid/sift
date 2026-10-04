@@ -5,7 +5,7 @@
 // ============================================================
 
 import { computed, ref, watch } from 'vue'
-import { TriangleAlert, X } from 'lucide-vue-next'
+import { TriangleAlert, X } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { describeSkipped } from '@/core/scanReport'
 

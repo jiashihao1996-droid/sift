@@ -4,7 +4,7 @@
 // ============================================================
 
 import { ref, nextTick, type Component, markRaw } from 'vue'
-import { FolderOpen, Copy, FileImage } from 'lucide-vue-next'
+import { FolderOpen, Copy, FileImage } from '@lucide/vue'
 import { showInFolder, copyImageToClipboard } from '@/services/tauriCommands'
 import type { PhotoPair } from '@/types'
 

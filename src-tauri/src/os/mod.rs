@@ -1,5 +1,5 @@
 //! Hand a user file to the operating system: reveal it in the file manager,
-//! copy it to the clipboard.
+//! copy it to the clipboard; and ask it whether a volume has a trash.
 //!
 //! Paths come from the frontend, so they never become part of a script's
 //! source text: they go to the child process as a separate argument or an
@@ -7,6 +7,7 @@
 
 pub mod clipboard;
 pub mod reveal;
+pub mod trash_support;
 
 use std::path::Path;
 

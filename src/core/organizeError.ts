@@ -28,7 +28,8 @@ const KIND_TEXT: Record<OrganizeErrorKind, { reason: string; advice: string }> =
   },
   trashUnsupported: {
     reason: '这个位置不支持回收站',
-    advice: '标记删除的照片没有被删除。可以先把照片复制到电脑上再整理。',
+    advice:
+      '标记删除的照片没有被删除。返回后在归档页勾选「永久删除」确认，或先把照片复制到电脑上再整理。',
   },
   automationDenied: {
     reason: 'Sift 没有控制「访达」的权限',
