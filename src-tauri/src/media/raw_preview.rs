@@ -320,7 +320,7 @@ mod tests {
     ///   SIFT_RAW_SAMPLES=/path/to/raws cargo test real_raw -- --ignored --nocapture
     #[test]
     #[ignore = "needs SIFT_RAW_SAMPLES pointing at a folder of real RAW files"]
-    fn real_raw_samples_yield_decodable_upright_previews() {
+    fn real_raw_samples_yield_upright_previews_and_capture_times() {
         let samples = std::env::var("SIFT_RAW_SAMPLES").expect("set SIFT_RAW_SAMPLES");
         let cache = tempdir().unwrap();
         let mut checked = 0;
@@ -361,11 +361,13 @@ mod tests {
         if outer > 1 && embedded != outer {
             return Err(format!("orientation {embedded}, RAW says {outer}"));
         }
+        let taken = crate::media::capture_time::read_capture_time(raw).ok_or("no capture time")?;
         Ok(format!(
-            "{}x{}, {} KB, orientation {embedded}",
+            "{}x{}, {} KB, orientation {embedded}, taken at {} ms",
             img.width(),
             img.height(),
-            bytes.len() / 1024
+            bytes.len() / 1024,
+            taken.local_ms
         ))
     }
 }

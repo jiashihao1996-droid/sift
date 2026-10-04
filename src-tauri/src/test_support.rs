@@ -150,3 +150,118 @@ pub fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     fs::write(&path, bytes).expect("write fixture");
     path
 }
+
+#[derive(Clone, Copy)]
+pub enum ExifByteOrder {
+    Little,
+    Big,
+}
+
+/// A TIFF whose IFD0 points at an Exif IFD holding `tags` as ASCII values,
+/// the way cameras store DateTimeOriginal and its companions. On its own it
+/// also passes for a TIFF-based RAW.
+pub fn exif_tiff(tags: &[(u16, &str)], order: ExifByteOrder) -> Vec<u8> {
+    const EXIF_IFD_AT: u32 = 8 + 18; // header + IFD0 with one entry
+    let le = matches!(order, ExifByteOrder::Little);
+    let mut out = tiff_header(le);
+    push_u16(&mut out, 1, le);
+    push_u16(&mut out, 0x8769, le); // ExifIFD pointer
+    push_u16(&mut out, 4, le); // LONG
+    push_u32(&mut out, 1, le);
+    push_u32(&mut out, EXIF_IFD_AT, le);
+    push_u32(&mut out, 0, le); // no next IFD
+    out.extend(ascii_ifd(tags, EXIF_IFD_AT, le));
+    out
+}
+
+/// A little-endian TIFF with `tags` directly in IFD0, like a CR3's CMT2 box
+pub fn flat_exif_tiff(tags: &[(u16, &str)]) -> Vec<u8> {
+    let mut out = tiff_header(true);
+    out.extend(ascii_ifd(tags, 8, true));
+    out
+}
+
+fn tiff_header(le: bool) -> Vec<u8> {
+    let mut out = if le { b"II".to_vec() } else { b"MM".to_vec() };
+    push_u16(&mut out, 0x2A, le);
+    push_u32(&mut out, 8, le);
+    out
+}
+
+/// An IFD at file offset `at` of ASCII entries, followed by the strings
+/// too long to sit in an entry's value field
+fn ascii_ifd(tags: &[(u16, &str)], at: u32, le: bool) -> Vec<u8> {
+    let mut data_at = at as usize + 2 + tags.len() * 12 + 4;
+    let (mut ifd, mut data) = (Vec::new(), Vec::new());
+    push_u16(&mut ifd, tags.len() as u16, le);
+    for &(tag, value) in tags {
+        let mut bytes = value.as_bytes().to_vec();
+        bytes.push(0);
+        push_u16(&mut ifd, tag, le);
+        push_u16(&mut ifd, 2, le); // ASCII
+        push_u32(&mut ifd, bytes.len() as u32, le);
+        if bytes.len() <= 4 {
+            bytes.resize(4, 0);
+            ifd.extend(bytes);
+        } else {
+            push_u32(&mut ifd, data_at as u32, le);
+            data_at += bytes.len();
+            data.extend(bytes);
+        }
+    }
+    push_u32(&mut ifd, 0, le); // no next IFD
+    ifd.extend(data);
+    ifd
+}
+
+fn push_u16(out: &mut Vec<u8>, v: u16, le: bool) {
+    out.extend(if le { v.to_le_bytes() } else { v.to_be_bytes() });
+}
+
+fn push_u32(out: &mut Vec<u8>, v: u32, le: bool) {
+    out.extend(if le { v.to_le_bytes() } else { v.to_be_bytes() });
+}
+
+/// Insert `tiff` into `jpeg` as its APP1/EXIF segment
+pub fn jpeg_with_exif(jpeg: &[u8], tiff: &[u8]) -> Vec<u8> {
+    let mut out = vec![0xFF, 0xD8, 0xFF, 0xE1];
+    out.extend(((2 + 6 + tiff.len()) as u16).to_be_bytes());
+    out.extend(b"Exif\0\0");
+    out.extend(tiff);
+    out.extend(&jpeg[2..]);
+    out
+}
+
+/// A Fujifilm RAF: a header whose offset field points at an embedded JPEG
+pub fn raf_with_jpeg(jpeg: &[u8]) -> Vec<u8> {
+    const JPEG_AT: usize = 160;
+    let mut out = b"FUJIFILMCCD-RAW 0201FF129502".to_vec();
+    out.resize(84, 0);
+    out.extend((JPEG_AT as u32).to_be_bytes());
+    out.extend((jpeg.len() as u32).to_be_bytes());
+    out.resize(JPEG_AT, 0);
+    out.extend(jpeg);
+    out
+}
+
+/// An ISO base media box
+pub fn bmff_box(kind: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut out = ((8 + payload.len()) as u32).to_be_bytes().to_vec();
+    out.extend(kind);
+    out.extend(payload);
+    out
+}
+
+/// A Canon CR3 skeleton: ftyp, then moov > Canon uuid > CMT1, CMT2
+pub fn cr3_with_cmt2(cmt2: &[u8]) -> Vec<u8> {
+    const CANON_UUID: [u8; 16] = [
+        0x85, 0xC0, 0xB6, 0x87, 0x82, 0x0F, 0x11, 0xE0, 0x81, 0x11, 0xF4, 0xCE, 0x46, 0x2B, 0x6A,
+        0x48,
+    ];
+    let mut canon = CANON_UUID.to_vec();
+    canon.extend(bmff_box(b"CMT1", b"II*\0\x08\0\0\0\0\0"));
+    canon.extend(bmff_box(b"CMT2", cmt2));
+    let mut out = bmff_box(b"ftyp", b"crx \0\0\0\x01crx isom");
+    out.extend(bmff_box(b"moov", &bmff_box(b"uuid", &canon)));
+    out
+}

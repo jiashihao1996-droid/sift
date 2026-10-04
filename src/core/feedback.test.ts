@@ -13,6 +13,7 @@ function pair(overrides: Partial<PhotoPair> = {}): PhotoPair {
     dominantColor: null,
     source: 'jpg',
     xmpPaths: [],
+    captureTime: null,
     ...overrides,
   }
 }

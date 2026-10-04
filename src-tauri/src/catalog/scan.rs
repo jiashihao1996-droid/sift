@@ -10,12 +10,17 @@
 // Empty (0-byte) photo files are reported in `skipped` too, rather than
 // paired: they are leftovers of an interrupted copy or move, and pairing one
 // would push the real photo with the same name out of its pair.
+// Each pair gets its capture time, from the JPG first and the RAW when the
+// JPG doesn't record one; the session sorts by it.
 // ============================================================
 
 use crate::catalog::file_types::{is_jpg, is_raw};
 use crate::catalog::pairing::{self, FileIndex, RawOnly};
+use crate::media::capture_time::read_capture_time;
 use crate::media::raw_preview::extract_raw_preview;
-use crate::models::photo::{PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile};
+use crate::models::photo::{
+    CaptureTime, PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile,
+};
 use crate::organize::archive::RAW_DIR;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
@@ -56,6 +61,9 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     let raw_only_count = raw_only_pairs.len();
     let mut pairs = pairing.pairs;
     pairs.extend(raw_only_pairs);
+    pairs.par_iter_mut().for_each(|pair| {
+        pair.capture_time = capture_time_of(pair);
+    });
     pairing::sort_naturally(&mut pairs);
 
     Ok(ScanResult {
@@ -65,6 +73,18 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
         jpg_only_count: pairing.jpg_only_count,
         raw_only_count,
         skipped,
+    })
+}
+
+/// A RAW-only pair's `jpg_path` is a preview in the cache, which doesn't
+/// record when the photo was taken; its RAW does.
+fn capture_time_of(pair: &PhotoPair) -> Option<CaptureTime> {
+    let jpg = (pair.source == PhotoSource::Jpg).then(|| Path::new(&pair.jpg_path));
+    jpg.and_then(read_capture_time).or_else(|| {
+        pair.raw_path
+            .as_deref()
+            .map(Path::new)
+            .and_then(read_capture_time)
     })
 }
 
@@ -166,7 +186,8 @@ fn raw_preview_pair(raw: RawOnly, cache_dir: &Path) -> Result<PhotoPair, Skipped
 mod tests {
     use super::*;
     use crate::test_support::{
-        noise_jpeg, tiff_raw_declaring_preview_len, tiff_raw_with_preview, write,
+        exif_tiff, jpeg_with_exif, noise_jpeg, raf_with_jpeg, tiff_raw_declaring_preview_len,
+        tiff_raw_with_preview, write, ExifByteOrder,
     };
     use tempfile::{tempdir, TempDir};
 
@@ -437,6 +458,92 @@ mod tests {
             ]
         );
         assert_eq!(result.total_files, 4, "empty photos are still counted");
+    }
+
+    fn exif_taken_at(datetime: &str) -> Vec<u8> {
+        exif_tiff(&[(0x9003, datetime)], ExifByteOrder::Little)
+    }
+
+    fn local_ms(pair: &PhotoPair) -> Option<i64> {
+        pair.capture_time.map(|t| t.local_ms)
+    }
+
+    #[test]
+    fn records_capture_times_but_keeps_file_name_order() {
+        let dir = tempdir().unwrap();
+        let jpeg = noise_jpeg(16, 16);
+        write(
+            dir.path(),
+            "DSC_0001.JPG",
+            &jpeg_with_exif(&jpeg, &exif_taken_at("2026:09:15 10:00:05")),
+        );
+        write(
+            dir.path(),
+            "DSC_0002.JPG",
+            &jpeg_with_exif(&jpeg, &exif_taken_at("2026:09:15 10:00:01")),
+        );
+        write(dir.path(), "DSC_0003.JPG", &jpeg);
+
+        let result = scan(dir.path());
+
+        assert_eq!(
+            names(&result),
+            ["DSC_0001.JPG", "DSC_0002.JPG", "DSC_0003.JPG"]
+        );
+        let times: Vec<_> = result.pairs.iter().map(local_ms).collect();
+        assert!(times[0] > times[1]);
+        assert_eq!(times[2], None);
+    }
+
+    #[test]
+    fn reads_the_raw_when_its_jpg_has_no_capture_time() {
+        let dir = tempdir().unwrap();
+        write(dir.path(), "DSC_0001.JPG", &noise_jpeg(16, 16));
+        write(
+            dir.path(),
+            "DSC_0001.ARW",
+            &exif_taken_at("2026:09:15 10:00:00"),
+        );
+
+        let result = scan(dir.path());
+
+        assert_eq!(result.paired_count, 1);
+        assert!(local_ms(&result.pairs[0]).is_some());
+    }
+
+    #[test]
+    fn reads_a_raw_only_photo_from_the_raw_not_its_cached_preview() {
+        let dir = tempdir().unwrap();
+        let preview = jpeg_with_exif(&noise_jpeg(256, 256), &exif_taken_at("2026:09:15 10:00:00"));
+        write(dir.path(), "DSCF0001.RAF", &raf_with_jpeg(&preview));
+
+        let result = scan(dir.path());
+
+        assert_eq!(result.raw_only_count, 1);
+        assert!(local_ms(&result.pairs[0]).is_some());
+    }
+
+    /// Times scanning a real or generated folder:
+    /// `SIFT_SCAN_BENCH_DIR=~/photos cargo test --release scan_benchmark -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs SIFT_SCAN_BENCH_DIR"]
+    fn scan_benchmark() {
+        let dir = std::env::var("SIFT_SCAN_BENCH_DIR").expect("set SIFT_SCAN_BENCH_DIR");
+        let cache = tempdir().unwrap();
+        for run in 1..=5 {
+            let started = std::time::Instant::now();
+            let result = scan_folder(Path::new(&dir), cache.path()).unwrap();
+            let timed = result
+                .pairs
+                .iter()
+                .filter(|p| p.capture_time.is_some())
+                .count();
+            println!(
+                "run {run}: {} pairs ({timed} with capture time) in {:?}",
+                result.pairs.len(),
+                started.elapsed()
+            );
+        }
     }
 
     #[test]

@@ -35,6 +35,7 @@ function makePairs(statuses: PhotoStatus[]): PhotoPair[] {
     dominantColor: null,
     source: 'jpg',
     xmpPaths: [],
+    captureTime: null,
   }))
 }
 
