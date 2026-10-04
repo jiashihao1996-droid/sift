@@ -29,6 +29,7 @@ import {
   toggledStatus,
   type MarkType,
 } from '@/core/review'
+import { nearestFirst } from '@/core/preload'
 import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
 import { createLatestWriter } from '@/utils/latestWriter'
@@ -123,7 +124,8 @@ export const useSessionStore = defineStore('session', () => {
 
     // 分批生成缩略图（后台异步，不阻塞 startScan 返回）
     if (pairs.value.length > 0) {
-      void generateAllThumbnails(pairs.value.map((p) => ({ id: p.id, jpgPath: p.jpgPath })))
+      const inputs = pairs.value.map((p) => ({ id: p.id, jpgPath: p.jpgPath }))
+      void generateAllThumbnails(nearestFirst(inputs, currentIndex.value))
     }
   }
 

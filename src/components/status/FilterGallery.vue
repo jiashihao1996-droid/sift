@@ -6,7 +6,7 @@
 import { computed } from 'vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
-import { PhotoStatus, type PhotoPair } from '@/types'
+import { PhotoStatus } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { Star, Trash2, Circle, X } from 'lucide-vue-next'
 
@@ -51,13 +51,6 @@ const filteredPairs = computed(() => {
     .map((pair, index) => ({ pair, originalIndex: index }))
     .filter(({ pair }) => pair.status === view.filterCategory)
 })
-
-function getThumbnailSrc(pair: Pick<PhotoPair, 'thumbnailPath' | 'jpgPath'>): string {
-  if (pair.thumbnailPath) {
-    return convertFileSrc(pair.thumbnailPath)
-  }
-  return convertFileSrc(pair.jpgPath)
-}
 
 function getFileName(pair: { jpgPath: string; rawPath?: string | null; source?: string }): string {
   // For RAW-only photos, show the RAW filename
@@ -164,8 +157,10 @@ function switchCategory(key: PhotoStatus) {
               :class="[originalIndex === session.currentIndex ? 'ring-1.5 ring-sift-accent' : '']"
               @click="handleSelect(originalIndex)"
             >
+              <!-- Only the generated thumbnail: the full-size photo is far too costly here -->
               <img
-                :src="getThumbnailSrc(pair)"
+                v-if="pair.thumbnailPath"
+                :src="convertFileSrc(pair.thumbnailPath)"
                 :alt="getFileName(pair)"
                 class="w-full h-full object-cover"
                 loading="lazy"
