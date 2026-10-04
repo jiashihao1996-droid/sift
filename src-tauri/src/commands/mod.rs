@@ -4,6 +4,7 @@ pub mod delete;
 pub mod exif;
 pub mod export;
 pub mod file_actions;
+pub mod organizing;
 pub mod progress;
 pub mod scan;
 pub mod thumbnail;
