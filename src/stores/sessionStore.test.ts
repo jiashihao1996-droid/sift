@@ -469,6 +469,23 @@ describe('saved progress', () => {
     expect(clearProgress).toHaveBeenLastCalledWith('/photos')
   })
 
+  it('dropping trashed pairs keeps the current photo and clears undo', async () => {
+    const store = await scannedStore(3)
+    store.goTo(2)
+    store.markDelete()
+    store.goTo(2)
+    await settle(store)
+    vi.mocked(saveProgress).mockClear()
+
+    store.dropPairs(['p0'])
+    await settle(store)
+
+    expect(store.pairs.map((p) => p.id)).toEqual(['p1', 'p2'])
+    expect(store.currentPair?.id).toBe('p2')
+    expect(store.undoStack).toEqual([])
+    expect(saveProgress).toHaveBeenCalled()
+  })
+
   it('does not save anything when the session is reset', async () => {
     const store = await scannedStore(2)
 

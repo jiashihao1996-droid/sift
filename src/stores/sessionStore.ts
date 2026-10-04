@@ -31,6 +31,7 @@ import {
   type MarkType,
 } from '@/core/review'
 import { nearestFirst } from '@/core/preload'
+import { withoutPairs } from '@/core/archiveFlow'
 import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
 import { createLatestWriter } from '@/utils/latestWriter'
@@ -232,6 +233,18 @@ export const useSessionStore = defineStore('session', () => {
     isResumed.value = false
   }
 
+  /**
+   * Remove pairs whose files are gone, e.g. trashed by an archive that then
+   * stopped. Undo steps point at indexes, so they are dropped too.
+   */
+  function dropPairs(ids: readonly string[]) {
+    if (ids.length === 0) return
+    const next = withoutPairs(pairs.value, currentIndex.value, ids)
+    pairs.value = next.pairs
+    currentIndex.value = next.currentIndex
+    undoStack.value = []
+  }
+
   /** Forget the saved progress of the current folder, e.g. once it is archived */
   function forgetProgress() {
     if (!folderPath.value) return
@@ -284,6 +297,7 @@ export const useSessionStore = defineStore('session', () => {
     undo,
     restartSession,
     forgetProgress,
+    dropPairs,
     resetSession,
     /** Resolves once pending progress writes are done (tests) */
     progressSaved: progressWriter.idle,
