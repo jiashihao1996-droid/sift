@@ -90,6 +90,43 @@ pub fn opaque_raw_with_preview(preview: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Append `preview` to `main` as an MPF large thumbnail, the way cameras
+/// embed a ~1616x1080 preview after the full-size photo.
+pub fn jpeg_with_mpf_preview(main: &[u8], preview: &[u8]) -> Vec<u8> {
+    // SOI + APP2 marker/length + "MPF\0": where the MPF TIFF header starts
+    const MPF_TIFF_AT: usize = 10;
+    const TABLE_AT: u32 = 26; // TIFF header (8) + IFD with one entry (18)
+    const TIFF_LEN: usize = TABLE_AT as usize + 32; // + two 16-byte MP entries
+    let preview_at = MPF_TIFF_AT + TIFF_LEN + (main.len() - 2);
+
+    let mut tiff = b"II*\0".to_vec();
+    tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 offset
+    tiff.extend_from_slice(&1u16.to_le_bytes()); // one entry: MPEntry
+    tiff.extend_from_slice(&0xB002u16.to_le_bytes());
+    tiff.extend_from_slice(&7u16.to_le_bytes()); // UNDEFINED
+    tiff.extend_from_slice(&32u32.to_le_bytes()); // two 16-byte entries
+    tiff.extend_from_slice(&TABLE_AT.to_le_bytes());
+    tiff.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
+    for (attr, size, offset) in [
+        (0x2003_0000u32, main.len(), 0),
+        (0x0001_0002, preview.len(), preview_at - MPF_TIFF_AT),
+    ] {
+        tiff.extend_from_slice(&attr.to_le_bytes());
+        tiff.extend_from_slice(&(size as u32).to_le_bytes());
+        tiff.extend_from_slice(&(offset as u32).to_le_bytes());
+        tiff.extend_from_slice(&[0; 4]); // dependent images
+    }
+
+    let mut out = vec![0xFF, 0xD8, 0xFF, 0xE2];
+    out.extend_from_slice(&((2 + 4 + tiff.len()) as u16).to_be_bytes());
+    out.extend_from_slice(b"MPF\0");
+    out.extend_from_slice(&tiff);
+    out.extend_from_slice(&main[2..]);
+    assert_eq!(out.len(), preview_at, "MPF fixture offsets out of sync");
+    out.extend_from_slice(preview);
+    out
+}
+
 /// Orientation as seen by an independent parser (kamadak-exif), used to
 /// cross-check our own byte-level APP1 handling.
 pub fn exif_orientation(jpeg: &[u8]) -> Option<u16> {
