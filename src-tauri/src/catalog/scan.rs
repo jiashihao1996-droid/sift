@@ -5,7 +5,8 @@
 // JPGs left in the folder), and the older JPG/ + RAW/ archive layout, even
 // with new photos copied into the root next to it
 // RAW-only files get their embedded JPEG preview extracted; any whose
-// preview can't be extracted are reported in `skipped`, never dropped
+// preview can't be extracted are reported in `skipped`, never dropped, and
+// so is anything that can't be read (a folder or one of its entries)
 // ============================================================
 
 use crate::catalog::pairing::{self, FileIndex, RawOnly};
@@ -29,19 +30,20 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     }
 
     let mut index = FileIndex::default();
-    index_dir(folder, &mut index);
+    let mut skipped = index_dir(folder, &mut index);
 
     // RAW/ holds the RAWs of JPGs in the root (archive) or in JPG/ (older
     // archives). Reading only one side would turn every RAW of the other into
     // a RAW-only entry, so both are always read when present.
     for dir in [folder.join(RAW_DIR), folder.join(LEGACY_JPG_DIR)] {
         if dir.is_dir() {
-            index_dir(&dir, &mut index);
+            skipped.extend(index_dir(&dir, &mut index));
         }
     }
 
     let pairing = pairing::pair(&index);
-    let (raw_only_pairs, skipped) = extract_previews(pairing.raw_only, preview_cache_dir)?;
+    let (raw_only_pairs, no_preview) = extract_previews(pairing.raw_only, preview_cache_dir)?;
+    skipped.extend(no_preview);
 
     let raw_only_count = raw_only_pairs.len();
     let mut pairs = pairing.pairs;
@@ -58,14 +60,29 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     })
 }
 
-/// Add the files directly inside `dir` (non-recursive) to the index
-fn index_dir(dir: &Path, index: &mut FileIndex) {
-    WalkDir::new(dir)
-        .max_depth(1)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .for_each(|e| index.add(e.path()));
+/// Add the files directly inside `dir` (non-recursive) to the index.
+/// Whatever can't be read (the folder itself or one of its entries) is
+/// returned as skipped: it may hold photos the user would otherwise lose
+/// track of.
+fn index_dir(dir: &Path, index: &mut FileIndex) -> Vec<SkippedFile> {
+    let mut unreadable = Vec::new();
+    for entry in WalkDir::new(dir).max_depth(1) {
+        match entry {
+            Ok(e) if e.path().is_file() => index.add(e.path()),
+            Ok(_) => {}
+            Err(e) => unreadable.push(unreadable_entry(dir, &e)),
+        }
+    }
+    unreadable
+}
+
+fn unreadable_entry(dir: &Path, error: &walkdir::Error) -> SkippedFile {
+    let path = error.path().unwrap_or(dir);
+    eprintln!("[Sift] Failed to read {}: {}", path.display(), error);
+    SkippedFile {
+        path: path.to_string_lossy().to_string(),
+        reason: SkipReason::Unreadable,
+    }
 }
 
 /// Extract embedded previews for RAW-only files. RAWs whose preview can't be
@@ -306,6 +323,25 @@ mod tests {
     fn ignores_other_subfolders() {
         let dir = folder(&["IMG_1.JPG", "精选/IMG_3.JPG", "other/IMG_4.JPG"]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_a_subfolder_that_cannot_be_read() {
+        use std::fs::{set_permissions, Permissions};
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = folder(&["IMG_1.JPG", "RAW/IMG_1.CR3"]);
+        let raw_dir = dir.path().join(RAW_DIR);
+        set_permissions(&raw_dir, Permissions::from_mode(0o000)).unwrap();
+
+        let result = scan(dir.path());
+        set_permissions(&raw_dir, Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(names(&result), ["IMG_1.JPG"]);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].reason, SkipReason::Unreadable);
+        assert_eq!(Path::new(&result.skipped[0].path), raw_dir);
     }
 
     #[test]

@@ -66,6 +66,9 @@ pub struct ScanResult {
 pub enum SkipReason {
     /// RAW-only file whose embedded preview could not be extracted
     NoPreview,
+    /// A folder or folder entry that could not be read (permissions, I/O
+    /// error); `path` may be a folder whose photos are all unaccounted for
+    Unreadable,
 }
 
 /// A photo file that was found but not loaded into the session
