@@ -15,6 +15,11 @@ use std::path::Path;
 /// This filters out small EXIF thumbnails
 const MIN_PREVIEW_SIZE: usize = 50 * 1024;
 
+/// Largest embedded preview we will read. Real full-size previews are a few
+/// MB; a bigger declared length means a corrupt or hostile file, and reading
+/// it could exhaust memory.
+const MAX_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
+
 /// Generate a cache filename for a RAW file based on its path
 /// Uses the file stem + a hash of the full path to avoid collisions
 fn cache_filename(raw_path: &Path) -> String {
@@ -148,6 +153,11 @@ fn extract_via_exif(raw_path: &str) -> Result<Vec<u8>, String> {
 /// Read and validate JPEG data at a specific offset in a file
 fn read_jpeg_at_offset(path: &str, offset: u64, length: usize) -> Result<Vec<u8>, String> {
     let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let file_len = file
+        .metadata()
+        .map_err(|e| format!("Failed to read file size: {}", e))?
+        .len();
+    let length = preview_read_len(offset, length, file_len)?;
     file.seek(SeekFrom::Start(offset))
         .map_err(|e| format!("Failed to seek to JPEG offset: {}", e))?;
 
@@ -163,6 +173,21 @@ fn read_jpeg_at_offset(path: &str, offset: u64, length: usize) -> Result<Vec<u8>
     }
 }
 
+/// How many bytes to read for a preview that EXIF says is `length` bytes at
+/// `offset`. Both come from the file itself, so they are untrusted: the read
+/// stops at the end of the file and never exceeds `MAX_PREVIEW_BYTES`.
+fn preview_read_len(offset: u64, length: usize, file_len: u64) -> Result<usize, String> {
+    let available = file_len
+        .checked_sub(offset)
+        .filter(|&n| n > 0)
+        .ok_or_else(|| format!("JPEG offset {} is past the end of the file", offset))?;
+    let length = usize::try_from(available).map_or(length, |n| length.min(n));
+    if length > MAX_PREVIEW_BYTES {
+        return Err(format!("Embedded JPEG too large: {} bytes", length));
+    }
+    Ok(length)
+}
+
 /// Strategy 2: Binary scan for the largest embedded JPEG
 /// Works for non-TIFF RAW formats: CR3, RAF, etc.
 fn extract_via_jpeg_scan(raw_path: &str) -> Result<Vec<u8>, String> {
@@ -176,7 +201,8 @@ fn extract_via_jpeg_scan(raw_path: &str) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
     use crate::test_support::{
-        exif_orientation, noise_jpeg, opaque_raw_with_preview, tiff_raw_with_preview, write,
+        exif_orientation, noise_jpeg, opaque_raw_with_preview, tiff_raw_declaring_preview_len,
+        tiff_raw_with_preview, write,
     };
     use tempfile::tempdir;
 
@@ -231,6 +257,36 @@ mod tests {
         let dir = tempdir().unwrap();
         let tiny = noise_jpeg(16, 16);
         let raw = write(dir.path(), "a.NEF", &tiff_raw_with_preview(&tiny, None));
+
+        assert!(extract(&raw, dir.path()).is_err());
+    }
+
+    #[test]
+    fn clamps_the_declared_preview_length_to_the_end_of_the_file() {
+        assert_eq!(preview_read_len(100, 1_000, 600), Ok(500));
+        assert_eq!(preview_read_len(100, 200, 600), Ok(200));
+        assert!(preview_read_len(600, 200, 600).is_err());
+        assert!(preview_read_len(700, 200, 600).is_err());
+    }
+
+    #[test]
+    fn rejects_previews_larger_than_the_cap() {
+        let huge_file = 10 * MAX_PREVIEW_BYTES as u64;
+        assert!(preview_read_len(0, MAX_PREVIEW_BYTES + 1, huge_file).is_err());
+        assert!(preview_read_len(0, u32::MAX as usize, huge_file).is_err());
+        assert_eq!(
+            preview_read_len(0, MAX_PREVIEW_BYTES, huge_file),
+            Ok(MAX_PREVIEW_BYTES)
+        );
+    }
+
+    #[test]
+    fn errors_instead_of_allocating_for_a_bogus_preview_length() {
+        // EXIF claims a 4GB preview; only the bytes actually in the file are read
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let raw = tiff_raw_declaring_preview_len(&preview[..1024], u32::MAX);
+        let raw = write(dir.path(), "a.NEF", &raw);
 
         assert!(extract(&raw, dir.path()).is_err());
     }

@@ -144,7 +144,9 @@ fn raw_preview_pair(raw: RawOnly, cache_dir: &Path) -> Result<PhotoPair, Skipped
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{noise_jpeg, tiff_raw_with_preview, write};
+    use crate::test_support::{
+        noise_jpeg, tiff_raw_declaring_preview_len, tiff_raw_with_preview, write,
+    };
     use tempfile::{tempdir, TempDir};
 
     fn scan(dir: &Path) -> ScanResult {
@@ -225,6 +227,19 @@ mod tests {
         assert_eq!(result.raw_only_count, 0);
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(file_name(&result.skipped[0].path), "DSC_1.ARW");
+        assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
+    }
+
+    #[test]
+    fn reports_a_raw_whose_exif_declares_a_huge_preview() {
+        let dir = tempdir().unwrap();
+        let raw = tiff_raw_declaring_preview_len(&noise_jpeg(16, 16), u32::MAX);
+        write(dir.path(), "DSC_1.NEF", &raw);
+
+        let result = scan(dir.path());
+
+        assert!(result.pairs.is_empty());
+        assert_eq!(result.skipped.len(), 1);
         assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
     }
 
