@@ -16,6 +16,8 @@ import {
   onArchiveProgress,
   onCloseBlocked,
   onDeleteProgress,
+  onExportProgress,
+  showInFolder,
 } from '@/services/tauriCommands'
 import { PhotoStatus, type ArchiveProgress } from '@/types'
 import { runArchive } from '@/core/archiveFlow'
@@ -35,6 +37,8 @@ const currentFile = ref('')
 const resultMessage = ref('')
 /** Set when archiving or exporting stopped partway */
 const failure = ref<FailureReport | null>(null)
+/** The last export, shown on the options page so archiving can follow */
+const exportNotice = ref<{ fileCount: number; folder: string } | null>(null)
 /** The user tried to close or quit Sift while organizing */
 const isCloseBlocked = ref(false)
 
@@ -139,7 +143,13 @@ async function handleExport() {
   if (!selected || typeof selected !== 'string') return
 
   isExporting.value = true
+  archiveProgress.value = 0
+  archiveTotal.value = 0
+  currentFile.value = ''
+  exportNotice.value = null
+  let stopProgress: UnlistenFn | undefined
   try {
+    stopProgress = await onExportProgress(showProgress)
     const pairsData = starredPairs.value.map((p) => ({
       jpgPath: p.jpgPath,
       rawPath: p.rawPath,
@@ -148,13 +158,18 @@ async function handleExport() {
     }))
 
     const result = await organizing(() => exportPicks(pairsData, selected))
-    resultMessage.value = `已导出 ${result.exportedCount} 个标记文件至 ${result.exportFolder}`
-    isComplete.value = true
+    // Back to the options: exporting picks is often followed by archiving
+    exportNotice.value = { fileCount: result.exportedCount, folder: result.exportFolder }
   } catch (e) {
     failure.value = describeFailure({ operation: 'export', folder: selected }, toOrganizeError(e))
   } finally {
+    stopProgress?.()
     isExporting.value = false
   }
+}
+
+function revealExport(folder: string) {
+  showInFolder(folder).catch((e) => console.warn('[Sift] Failed to reveal export folder:', e))
 }
 
 function close() {
@@ -165,11 +180,13 @@ function close() {
   // only way on is home, so the backdrop does not dismiss that failure
   if (failure.value && !failure.value.canRetry) return
   failure.value = null
+  exportNotice.value = null
   view.toggleArchiveDialog()
 }
 
 function done() {
   failure.value = null
+  exportNotice.value = null
   session.resetSession()
   view.setView('welcome')
   view.toggleArchiveDialog()
@@ -253,6 +270,27 @@ const progressPercent = computed(() => {
         <div v-else>
           <h3 class="text-lg font-bold text-white text-center mb-1">归档与导出</h3>
           <p class="text-xs text-sift-muted text-center mb-5">整理你的照片</p>
+
+          <!-- The export just finished -->
+          <div
+            v-if="exportNotice"
+            class="bg-sift-success/10 border border-sift-success/20 rounded-lg px-3 py-2 mb-5 flex items-center gap-2"
+            role="status"
+          >
+            <CheckCircle :size="14" class="text-sift-success shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p class="text-xs text-white/90">已导出 {{ exportNotice.fileCount }} 个照片文件</p>
+              <p class="text-[11px] text-sift-muted truncate" :title="exportNotice.folder">
+                {{ exportNotice.folder }}
+              </p>
+            </div>
+            <button
+              class="text-[11px] text-sift-accent hover:text-white shrink-0 transition-colors"
+              @click="revealExport(exportNotice.folder)"
+            >
+              在文件夹中显示
+            </button>
+          </div>
 
           <!-- Where each kind of photo goes -->
           <div class="grid grid-cols-3 gap-3 mb-5">
