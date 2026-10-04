@@ -13,8 +13,10 @@ mod paths;
 #[cfg(test)]
 mod test_support;
 
-use commands::{archive, cache, delete, exif, export, file_actions, progress, scan, thumbnail};
-use tauri::{AppHandle, Manager};
+use commands::{
+    archive, cache, delete, exif, export, file_actions, organizing, progress, scan, thumbnail,
+};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +29,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .manage(organizing::Organizing::default())
         .setup(|app| {
             // Clean up any leftover cache from previous sessions; only the
             // single running instance gets here
@@ -35,10 +38,15 @@ pub fn run() {
             scan::restore_folder_grants(app);
             Ok(())
         })
-        .on_window_event(|_window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                cache::cleanup_cache_sync();
+        .on_window_event(|window, event| match event {
+            // Archiving, exporting or deleting must not be cut off mid-way
+            WindowEvent::CloseRequested { api, .. }
+                if organizing::refuse_while_organizing(window.app_handle()) =>
+            {
+                api.prevent_close();
             }
+            WindowEvent::Destroyed => cache::cleanup_cache_sync(),
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             scan::scan_folder,
@@ -53,9 +61,18 @@ pub fn run() {
             progress::load_progress,
             progress::save_progress,
             progress::clear_progress,
+            organizing::set_organizing,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting (Cmd+Q on macOS) is refused for the same reason as closing
+            if let RunEvent::ExitRequested { api, .. } = event {
+                if organizing::refuse_while_organizing(app) {
+                    api.prevent_exit();
+                }
+            }
+        });
 }
 
 /// Bring the running instance's window forward when the user launches Sift again
