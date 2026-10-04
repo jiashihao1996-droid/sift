@@ -145,7 +145,7 @@ fn read_ifd_orientation(tiff: &[u8], ifd_off: usize, le: bool) -> Option<u16> {
 }
 
 /// Parse TIFF header. Returns (little_endian, ifd0_offset).
-fn parse_tiff_header(tiff: &[u8]) -> Option<(bool, usize)> {
+pub(super) fn parse_tiff_header(tiff: &[u8]) -> Option<(bool, usize)> {
     if tiff.len() < 8 {
         return None;
     }
@@ -162,7 +162,7 @@ fn parse_tiff_header(tiff: &[u8]) -> Option<(bool, usize)> {
     Some((le, ifd0))
 }
 
-fn read_u16(b: &[u8], le: bool) -> u16 {
+pub(super) fn read_u16(b: &[u8], le: bool) -> u16 {
     if le {
         u16::from_le_bytes([b[0], b[1]])
     } else {
@@ -170,7 +170,7 @@ fn read_u16(b: &[u8], le: bool) -> u16 {
     }
 }
 
-fn read_u32(b: &[u8], le: bool) -> u32 {
+pub(super) fn read_u32(b: &[u8], le: bool) -> u32 {
     if le {
         u32::from_le_bytes([b[0], b[1], b[2], b[3]])
     } else {
