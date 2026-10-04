@@ -10,6 +10,8 @@ use std::path::Path;
 pub mod archive;
 pub mod delete;
 pub mod export;
+mod transfer;
+
 #[cfg(test)]
 mod rescan_tests;
 
