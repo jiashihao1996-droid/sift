@@ -49,6 +49,16 @@ function handleStatusClick(status: PhotoStatus) {
 
     <!-- Right: Status counts (clickable) -->
     <div class="flex items-center gap-4 min-w-[200px] justify-end">
+      <!-- Stay after mark: only shown while on, click to switch back -->
+      <button
+        v-if="view.stayAfterMark"
+        class="h-6 rounded px-2 text-xs text-sift-accent bg-sift-accent/10 hover:bg-sift-accent/20 transition-colors cursor-pointer"
+        title="标记后停在当前照片（L 切换）"
+        @click="view.toggleStayAfterMark()"
+      >
+        停留
+      </button>
+
       <!-- Starred -->
       <button
         class="flex items-center gap-1.5 h-full rounded px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"

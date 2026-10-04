@@ -85,6 +85,14 @@ export function useKeyboard() {
         if (!e.repeat) session.markDelete()
         break
 
+      case 'l':
+      case 'L':
+        if (!isCtrlOrCmd) {
+          e.preventDefault()
+          if (!e.repeat) view.toggleStayAfterMark()
+        }
+        break
+
       case ' ':
         e.preventDefault()
         session.goNext()

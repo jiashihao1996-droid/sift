@@ -11,6 +11,25 @@ import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
 
 const PANE_CENTER: Point = { x: 0, y: 0 }
 const TOAST_DURATION_MS = 3000
+const STAY_AFTER_MARK_KEY = 'sift.stayAfterMark'
+
+/** A viewer preference, not session progress: unreadable storage means the default */
+function loadStayAfterMark(): boolean {
+  try {
+    return localStorage.getItem(STAY_AFTER_MARK_KEY) === 'true'
+  } catch (e) {
+    console.warn('[Sift] Failed to read stay-after-mark preference', e)
+    return false
+  }
+}
+
+function saveStayAfterMark(value: boolean): void {
+  try {
+    localStorage.setItem(STAY_AFTER_MARK_KEY, String(value))
+  } catch (e) {
+    console.warn('[Sift] Failed to save stay-after-mark preference', e)
+  }
+}
 
 export type ToastType = 'star' | 'delete' | 'undo' | 'info'
 
@@ -20,6 +39,8 @@ export const useViewStore = defineStore('view', () => {
   const showArchiveDialog = ref(false)
   const showSummaryCard = ref(false)
   const showShortcutHelp = ref(false)
+  /** Marking stays on the photo instead of moving on, for comparing a burst in place */
+  const stayAfterMark = ref(loadStayAfterMark())
 
   // Zoom state
   const zoomLevel = ref(1)
@@ -113,6 +134,12 @@ export const useViewStore = defineStore('view', () => {
     }, durationMs)
   }
 
+  function toggleStayAfterMark() {
+    stayAfterMark.value = !stayAfterMark.value
+    saveStayAfterMark(stayAfterMark.value)
+    showToast(stayAfterMark.value ? '标记后停在当前照片' : '标记后自动前进')
+  }
+
   function toggleCompare(currentIdx: number) {
     if (compareMode.value) {
       exitCompare()
@@ -148,6 +175,7 @@ export const useViewStore = defineStore('view', () => {
     showArchiveDialog,
     showSummaryCard,
     showShortcutHelp,
+    stayAfterMark,
     zoomLevel,
     zoomOffsetX,
     zoomOffsetY,
@@ -171,6 +199,7 @@ export const useViewStore = defineStore('view', () => {
     toggleActualSize,
     rotateBy,
     showToast,
+    toggleStayAfterMark,
     toggleCompare,
     exitCompare,
     swapCompare,

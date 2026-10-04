@@ -24,11 +24,22 @@ export function toggledStatus(current: PhotoStatus, type: MarkType): PhotoStatus
 }
 
 /**
- * Where to go after pressing a mark key: marking moves on to the next photo
- * (staying on the last one), unmarking stays so the photo can be decided again.
+ * Whether pressing a mark key moves on: marking does, unless the user chose to
+ * stay on the photo (comparing a burst in place); unmarking never does, so the
+ * photo can be decided again.
  */
-export function indexAfterMark(status: PhotoStatus, currentIndex: number, total: number): number {
-  if (status === PhotoStatus.Unprocessed) return currentIndex
+export function movesOnAfterMark(status: PhotoStatus, stayAfterMark: boolean): boolean {
+  return status !== PhotoStatus.Unprocessed && !stayAfterMark
+}
+
+/** Where to go after pressing a mark key; moving on stops at the last photo */
+export function indexAfterMark(
+  status: PhotoStatus,
+  currentIndex: number,
+  total: number,
+  stayAfterMark = false,
+): number {
+  if (!movesOnAfterMark(status, stayAfterMark)) return currentIndex
   return Math.min(currentIndex + 1, total - 1)
 }
 

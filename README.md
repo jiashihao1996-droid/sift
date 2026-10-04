@@ -97,6 +97,7 @@ npm run tauri build
 | → / Space      | 下一张                      |
 | ← / A          | 上一张                      |
 | Ctrl/Cmd+Z     | 撤销                        |
+| L              | 标记后停在当前照片/自动前进 |
 | I              | 显示/隐藏 EXIF              |
 | C              | 进入/退出对比模式           |
 | R              | 顺时针旋转 90°              |
