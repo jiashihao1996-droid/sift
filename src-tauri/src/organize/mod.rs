@@ -9,6 +9,7 @@ use std::path::Path;
 
 pub mod archive;
 pub mod delete;
+mod error;
 pub mod export;
 mod transfer;
 
