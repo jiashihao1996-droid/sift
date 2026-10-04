@@ -1,12 +1,11 @@
 <script setup lang="ts">
 // ============================================================
-// ArchiveDialog - Modal for archiving and exporting photos
+// ArchiveDialog - Modal for archiving, deleting only, and exporting photos
 // ============================================================
 
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { UnlistenFn } from '@tauri-apps/api/event'
-import { CheckCircle, Download, Archive } from 'lucide-vue-next'
+import { CheckCircle, Download, Archive, Trash2 } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import {
@@ -15,58 +14,42 @@ import {
   deletePairs,
   folderNoTrashReason,
   onArchiveProgress,
-  onCloseBlocked,
   onDeleteProgress,
   onExportProgress,
-  showInFolder,
 } from '@/services/tauriCommands'
-import { PhotoStatus, type ArchiveProgress, type NoTrashReason } from '@/types'
-import { runArchive } from '@/core/archiveFlow'
+import { PhotoStatus, type DeletePairInput, type NoTrashReason } from '@/types'
+import { runArchive, runDeleteOnly } from '@/core/archiveFlow'
 import { needsPermanentConfirm } from '@/core/noTrash'
+import {
+  describeDeleted,
+  describeFailure,
+  toOrganizeError,
+  type FailureReport,
+} from '@/core/organizeError'
+import { useOrganizeRun } from '@/composables/useOrganizeRun'
 import RollingNumber from '@/components/status/RollingNumber.vue'
 import ArchiveFailure from './ArchiveFailure.vue'
 import DeleteNotice from './DeleteNotice.vue'
-import { describeFailure, toOrganizeError, type FailureReport } from '@/core/organizeError'
+import OrganizeNotice from './OrganizeNotice.vue'
+import OrganizeProgress from './OrganizeProgress.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
+const { currentFile, isCloseBlocked, percent, run: runOrganize } = useOrganizeRun()
 
-const isArchiving = ref(false)
-const isExporting = ref(false)
+/** What is running, for the progress title */
+const activity = ref<'archive' | 'delete' | 'export' | null>(null)
+const ACTIVITY_TITLES = { archive: '归档中...', delete: '删除中...', export: '导出中...' }
 const isComplete = ref(false)
-const archiveProgress = ref(0)
-const archiveTotal = ref(0)
-const currentFile = ref('')
 const resultMessage = ref('')
-/** Set when archiving or exporting stopped partway */
+/** Set when archiving, deleting or exporting stopped partway */
 const failure = ref<FailureReport | null>(null)
-/** The last export, shown on the options page so archiving can follow */
-const exportNotice = ref<{ fileCount: number; folder: string } | null>(null)
+/** The last delete-only run or export, shown on the options page */
+const notice = ref<{ message: string; folder: string | null } | null>(null)
 /** Why deleting in this folder would be permanent; null when it has a trash */
 const noTrash = ref<NoTrashReason | null>(null)
-/** Asked anew for every archive, never remembered */
+/** Asked anew for every run that deletes, never remembered */
 const isPermanentConfirmed = ref(false)
-/** The user tried to close or quit Sift while organizing */
-const isCloseBlocked = ref(false)
-
-let stopListeningForClose: UnlistenFn | undefined
-onMounted(async () => {
-  stopListeningForClose = await onCloseBlocked(() => {
-    isCloseBlocked.value = true
-  })
-})
-onUnmounted(() => stopListeningForClose?.())
-
-/** Nothing may close the dialog, go home or quit until this resolves */
-async function organizing<T>(work: () => Promise<T>): Promise<T> {
-  view.setOrganizing(true)
-  isCloseBlocked.value = false
-  try {
-    return await work()
-  } finally {
-    view.setOrganizing(false)
-  }
-}
 
 const starredPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Starred))
 
@@ -117,33 +100,39 @@ const destinations = computed(() => [
   },
 ])
 
-function showProgress(progress: ArchiveProgress) {
-  archiveProgress.value = progress.current
-  archiveTotal.value = progress.total
-  currentFile.value = progress.currentFile
+/**
+ * Whether this run deletes for good, or null when that still needs the
+ * user's confirmation. The confirmation covers this run only: a retry asks
+ * again.
+ */
+function takePermanentConfirmation(): boolean | null {
+  if (mustConfirmPermanent.value && !isPermanentConfirmed.value) return null
+  isPermanentConfirmed.value = false
+  return mustConfirmPermanent.value
+}
+
+function deleteDeps(isPermanent: boolean) {
+  return {
+    deletePairs: (pairs: DeletePairInput[]) => deletePairs(pairs, isPermanent),
+    dropPairs: session.dropPairs,
+  }
 }
 
 async function handleArchive() {
+  const isPermanent = takePermanentConfirmation()
+  if (isPermanent === null) return
   // Captured now: the progress to forget is this folder's, whatever happens next
   const folder = session.folderPath
-  if (mustConfirmPermanent.value && !isPermanentConfirmed.value) return
-  const isPermanent = mustConfirmPermanent.value
-  // Confirmed for this attempt only: a retry asks again
-  isPermanentConfirmed.value = false
-  isArchiving.value = true
-  archiveProgress.value = 0
-  archiveTotal.value = 0
-  currentFile.value = ''
-  let unlisten: UnlistenFn[] = []
-
+  activity.value = 'archive'
+  notice.value = null
   try {
-    unlisten = await Promise.all([onDeleteProgress(showProgress), onArchiveProgress(showProgress)])
-    const outcome = await organizing(() =>
-      runArchive(folder, session.pairs, {
-        deletePairs: (pairs) => deletePairs(pairs, isPermanent),
-        archivePhotos,
-        dropPairs: session.dropPairs,
-      }),
+    const outcome = await runOrganize([onDeleteProgress, onArchiveProgress], () =>
+      runArchive(
+        folder,
+        session.pairs,
+        { ...deleteDeps(isPermanent), archivePhotos },
+        { isPermanent },
+      ),
     )
     if (!outcome.ok) {
       failure.value = outcome.report
@@ -158,8 +147,37 @@ async function handleArchive() {
     const stage = { operation: 'archive', step: 'move', deletedGroups: 0 } as const
     failure.value = describeFailure(stage, toOrganizeError(e))
   } finally {
-    unlisten.forEach((stop) => stop())
-    isArchiving.value = false
+    activity.value = null
+  }
+}
+
+/** Delete the marked photos and nothing else; culling can go on afterwards */
+async function handleDeleteOnly() {
+  const isPermanent = takePermanentConfirmation()
+  if (isPermanent === null) return
+  const marked = deletedPairs.value.length
+  activity.value = 'delete'
+  notice.value = null
+  try {
+    const outcome = await runOrganize([onDeleteProgress], () =>
+      runDeleteOnly(session.pairs, deleteDeps(isPermanent), { isPermanent }),
+    )
+    if (!outcome.ok) {
+      failure.value = outcome.report
+      return
+    }
+    notice.value = { message: describeDeleted(outcome.deletedGroups, isPermanent), folder: null }
+  } catch (e) {
+    const stage = {
+      operation: 'delete',
+      step: 'delete',
+      deletedGroups: 0,
+      failedGroups: marked,
+      isPermanent,
+    } as const
+    failure.value = describeFailure(stage, toOrganizeError(e))
+  } finally {
+    activity.value = null
   }
 }
 
@@ -172,14 +190,9 @@ async function handleExport() {
 
   if (!selected || typeof selected !== 'string') return
 
-  isExporting.value = true
-  archiveProgress.value = 0
-  archiveTotal.value = 0
-  currentFile.value = ''
-  exportNotice.value = null
-  let stopProgress: UnlistenFn | undefined
+  activity.value = 'export'
+  notice.value = null
   try {
-    stopProgress = await onExportProgress(showProgress)
     const pairsData = starredPairs.value.map((p) => ({
       jpgPath: p.jpgPath,
       rawPath: p.rawPath,
@@ -187,19 +200,17 @@ async function handleExport() {
       xmpPaths: p.xmpPaths,
     }))
 
-    const result = await organizing(() => exportPicks(pairsData, selected))
+    const result = await runOrganize([onExportProgress], () => exportPicks(pairsData, selected))
     // Back to the options: exporting picks is often followed by archiving
-    exportNotice.value = { fileCount: result.exportedCount, folder: result.exportFolder }
+    notice.value = {
+      message: `已导出 ${result.exportedCount} 个照片文件`,
+      folder: result.exportFolder,
+    }
   } catch (e) {
     failure.value = describeFailure({ operation: 'export', folder: selected }, toOrganizeError(e))
   } finally {
-    stopProgress?.()
-    isExporting.value = false
+    activity.value = null
   }
-}
-
-function revealExport(folder: string) {
-  showInFolder(folder).catch((e) => console.warn('[Sift] Failed to reveal export folder:', e))
 }
 
 function close() {
@@ -210,22 +221,17 @@ function close() {
   // only way on is home, so the backdrop does not dismiss that failure
   if (failure.value && !failure.value.canRetry) return
   failure.value = null
-  exportNotice.value = null
+  notice.value = null
   view.toggleArchiveDialog()
 }
 
 function done() {
   failure.value = null
-  exportNotice.value = null
+  notice.value = null
   session.resetSession()
   view.setView('welcome')
   view.toggleArchiveDialog()
 }
-
-const progressPercent = computed(() => {
-  if (archiveTotal.value === 0) return 0
-  return Math.round((archiveProgress.value / archiveTotal.value) * 100)
-})
 </script>
 
 <template>
@@ -270,57 +276,20 @@ const progressPercent = computed(() => {
           @home="done"
         />
 
-        <!-- Archiving Progress -->
-        <div v-else-if="isArchiving || isExporting" class="py-4">
-          <h3 class="text-lg font-bold text-white text-center mb-4">
-            {{ isArchiving ? '归档中...' : '导出中...' }}
-          </h3>
-          <!-- Progress Bar -->
-          <div class="h-2 bg-sift-card rounded-full overflow-hidden mb-3">
-            <div
-              class="h-full rounded-full bg-gradient-to-r from-sift-accent to-blue-400 transition-all duration-300 relative overflow-hidden"
-              :style="{ width: `${progressPercent}%` }"
-            >
-              <div class="absolute inset-0 shimmer-bar" />
-            </div>
-          </div>
-          <p class="text-xs text-sift-muted text-center truncate">
-            {{ currentFile }}
-          </p>
-          <p
-            class="text-[11px] text-center mt-3"
-            :class="isCloseBlocked ? 'text-sift-star' : 'text-sift-muted'"
-            role="status"
-          >
-            {{ isCloseBlocked ? '正在整理照片，完成后才能关闭 Sift' : '整理完成前请不要关闭 Sift' }}
-          </p>
-        </div>
+        <OrganizeProgress
+          v-else-if="activity"
+          :title="ACTIVITY_TITLES[activity]"
+          :percent="percent"
+          :current-file="currentFile"
+          :is-close-blocked="isCloseBlocked"
+        />
 
         <!-- Default: Archive Options -->
         <div v-else>
           <h3 class="text-lg font-bold text-white text-center mb-1">归档与导出</h3>
           <p class="text-xs text-sift-muted text-center mb-5">整理你的照片</p>
 
-          <!-- The export just finished -->
-          <div
-            v-if="exportNotice"
-            class="bg-sift-success/10 border border-sift-success/20 rounded-lg px-3 py-2 mb-5 flex items-center gap-2"
-            role="status"
-          >
-            <CheckCircle :size="14" class="text-sift-success shrink-0" />
-            <div class="min-w-0 flex-1">
-              <p class="text-xs text-white/90">已导出 {{ exportNotice.fileCount }} 个照片文件</p>
-              <p class="text-[11px] text-sift-muted truncate" :title="exportNotice.folder">
-                {{ exportNotice.folder }}
-              </p>
-            </div>
-            <button
-              class="text-[11px] text-sift-accent hover:text-white shrink-0 transition-colors"
-              @click="revealExport(exportNotice.folder)"
-            >
-              在文件夹中显示
-            </button>
-          </div>
+          <OrganizeNotice v-if="notice" :message="notice.message" :folder="notice.folder" />
 
           <!-- Where each kind of photo goes -->
           <div class="grid grid-cols-3 gap-3 mb-5">
@@ -371,6 +340,17 @@ const progressPercent = computed(() => {
             >
               <Archive :size="16" />
               归档
+            </button>
+
+            <button
+              v-if="deletedPairs.length > 0"
+              class="w-full h-11 rounded-xl border border-sift-delete/40 text-sift-text text-sm flex items-center justify-center gap-2 hover:bg-sift-delete/10 transition-colors btn-spring disabled:opacity-40 disabled:pointer-events-none"
+              :disabled="mustConfirmPermanent && !isPermanentConfirmed"
+              title="只处理标记删除的照片，其他文件都不移动，删完可以接着筛"
+              @click="handleDeleteOnly"
+            >
+              <Trash2 :size="16" />
+              只删除，不整理（{{ deletedPairs.length }} 组）
             </button>
 
             <button
