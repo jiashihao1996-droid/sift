@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useViewStore } from './viewStore'
+import { setOrganizing } from '@/services/tauriCommands'
+
+vi.mock('@/services/tauriCommands', () => ({ setOrganizing: vi.fn(async () => {}) }))
 
 const STORAGE_KEY = 'sift.stayAfterMark'
 
@@ -101,5 +104,19 @@ describe('stayAfterMark', () => {
     expect(view.stayAfterMark).toBe(false)
     view.toggleStayAfterMark()
     expect(view.stayAfterMark).toBe(true)
+  })
+})
+
+describe('organizing', () => {
+  it('tells Rust while organizing so closing the window is refused', () => {
+    const view = useViewStore()
+
+    view.setOrganizing(true)
+    expect(view.isOrganizing).toBe(true)
+    expect(setOrganizing).toHaveBeenLastCalledWith(true)
+
+    view.setOrganizing(false)
+    expect(view.isOrganizing).toBe(false)
+    expect(setOrganizing).toHaveBeenLastCalledWith(false)
   })
 })

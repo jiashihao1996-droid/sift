@@ -27,6 +27,7 @@ const displayPair = computed(() => {
 const processedCount = computed(() => session.starredCount + session.deletedCount)
 
 function goBack() {
+  if (view.isOrganizing) return
   session.resetSession()
   view.setView('welcome')
 }
