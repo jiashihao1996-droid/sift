@@ -44,6 +44,17 @@ pub struct OrganizeError {
     pub completed: usize,
 }
 
+/// Why a folder's volume has no system trash, so deleting there is permanent
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub enum NoTrashReason {
+    /// A network share (SMB, NAS, NFS, WebDAV)
+    NetworkVolume,
+    /// Removable FAT/exFAT media on Windows, such as an SD card
+    RemovableFat,
+}
+
 /// A pair to delete, as the frontend knows it
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
