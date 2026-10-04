@@ -9,9 +9,10 @@ set -euo pipefail
 # 在最新的 main 上新建 release/v<version>，同步版本号、把 CHANGELOG 的
 # [Unreleased] 落到新版本，只提交这几个文件，推送后开发布 PR（automerge）。
 # PR 的 CI 全绿后 automerge 合并，并派发 release.yml：等 main 上这个提交的
-# CI 通过后打 tag、构建 draft release。
+# CI 通过后打 tag、构建 draft release。开 PR 前先在本地跑 npm run check 和
+# npm run check:rust，失败就中止。
 #
-#   --dry-run  做到本地提交为止，打印改动后还原，不推送、不开 PR
+#   --dry-run  做到本地提交和检查为止，打印改动后还原，不推送、不开 PR
 # ============================================================
 
 RED='\033[0;31m'
@@ -107,6 +108,9 @@ check_preconditions() {
   awk '/^## \[Unreleased\]$/ { f = 1; next } /^## \[/ { f = 0 } f && /^- / { n++ } END { exit !n }' \
     CHANGELOG.md || error "CHANGELOG.md 的 [Unreleased] 下没有条目，没有可发布的内容。"
 
+  [[ -d node_modules ]] || error "缺少 node_modules，请先运行: npm ci"
+  [[ -f dist/index.html ]] || error "缺少 dist/（check:rust 需要它），请先运行: npm run build"
+
   if [[ "$DRY_RUN" == false ]]; then
     gh auth status >/dev/null 2>&1 || error "gh 未登录，请先运行: gh auth login"
   fi
@@ -163,9 +167,27 @@ restore() {
   git branch --quiet -D "$BRANCH"
 }
 
+# 在发布提交上跑和 CI 相同的检查：Actions 不可用时发布也不会绕过检查
+run_checks() {
+  info "本地检查: npm run check ..."
+  npm run --silent check || error "npm run check 失败，已中止发布。"
+  info "本地检查: npm run check:rust ..."
+  npm run --silent check:rust || error "npm run check:rust 失败，已中止发布。"
+
+  # cargo test 会重新生成 src/types/generated，有变化说明 main 上的类型过期了
+  [[ -z "$(git status --porcelain)" ]] || {
+    git status --short
+    error "检查改动了工作区（多半是生成的 TS 类型过期，先在 main 上修好），已中止发布。"
+  }
+  ok "本地检查全部通过"
+}
+
 # shellcheck disable=SC2016 # 反引号是 Markdown，不是命令替换
 pr_body() {
   printf '发布 %s。\n\n%s\n\n' "$TAG" "$(release_notes)"
+  printf '## 本地检查\n\n发布脚本在本提交（%s）上运行 `npm run check` 和 `npm run check:rust`，全部通过。\n\n' \
+    "$(git rev-parse --short HEAD)"
+  printf '## 合并之后\n\n'
   printf 'CI 全绿后 automerge 会合并本 PR，并派发 `release.yml`：等 main 上这个提交的 CI 通过后打 tag `%s`、构建 draft release。' "$TAG"
   printf '如果手动合并，请运行：\n\n```bash\ngh workflow run release.yml --repo %s -f version=%s\n```\n' "$(origin_repo)" "$VERSION"
 }
@@ -195,6 +217,7 @@ main() {
   bump_files
   git add -- "${RELEASE_FILES[@]}"
   git commit --quiet -m "chore(release): ${TAG}"
+  run_checks
 
   echo ""
   echo -e "${CYAN}════════════════════════════════════════${NC}"
