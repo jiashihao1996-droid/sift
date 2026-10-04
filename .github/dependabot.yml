@@ -42,6 +42,9 @@ updates:
         patterns: ['*']
         update-types: [major]
 
+  # Third-party actions are pinned to commit SHAs with the version in a comment;
+  # Dependabot bumps both. dtolnay/rust-toolchain pins its `stable` branch, which
+  # has no version tags, so refresh that SHA by hand.
   - package-ecosystem: github-actions
     directory: /
     schedule:
