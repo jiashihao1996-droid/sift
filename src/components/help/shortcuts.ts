@@ -25,6 +25,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: [['→'], ['Space']], label: '下一张' },
       { keys: [['←'], ['A']], label: '上一张' },
       { keys: [[MOD_KEY, 'Z']], label: '撤销' },
+      { keys: [['L']], label: '标记后停在当前照片 / 自动前进' },
     ],
   },
   {

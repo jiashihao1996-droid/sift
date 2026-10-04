@@ -24,6 +24,7 @@ import {
 import {
   countByStatus,
   indexAfterMark,
+  movesOnAfterMark,
   planBatches,
   positionPercent,
   toggledStatus,
@@ -32,6 +33,7 @@ import {
 import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
 import { createLatestWriter } from '@/utils/latestWriter'
+import { useViewStore } from './viewStore'
 
 /** First thumbnail batch covers the visible viewport; the rest stream in chunks */
 const THUMBNAIL_FIRST_BATCH = 10
@@ -165,9 +167,9 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
-   * Toggle a mark on the current photo: marking advances, unmarking stays.
-   * Every change is undoable. Returns whether the photo ended up marked, or
-   * null if there is no photo.
+   * Toggle a mark on the current photo: marking advances (unless the viewer is
+   * set to stay after marking), unmarking stays. Every change is undoable.
+   * Returns whether the photo ended up marked, or null if there is no photo.
    */
   function toggleMark(type: MarkType): boolean | null {
     const idx = currentIndex.value
@@ -176,11 +178,12 @@ export const useSessionStore = defineStore('session', () => {
 
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
+    const { stayAfterMark } = useViewStore()
     undoStack.value.push({ type, index: idx, previousStatus: pair.status })
     pairs.value[idx] = { ...pair, status }
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
-    if (isMarked && isLastPhoto.value) endReachedCount.value++
-    currentIndex.value = indexAfterMark(status, idx, pairs.value.length)
+    if (movesOnAfterMark(status, stayAfterMark) && isLastPhoto.value) endReachedCount.value++
+    currentIndex.value = indexAfterMark(status, idx, pairs.value.length, stayAfterMark)
     return isMarked
   }
 
