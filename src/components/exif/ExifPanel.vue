@@ -4,7 +4,7 @@
 // ============================================================
 
 import { computed, ref, watch } from 'vue'
-import { X, Camera, Aperture, Clock, ChartArea } from 'lucide-vue-next'
+import { X, Camera, Aperture, Clock, ChartArea } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { readExif } from '@/services/tauriCommands'

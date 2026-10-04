@@ -4,7 +4,7 @@
 // what went wrong, what was already done, where it got stuck, what to do
 // ============================================================
 
-import { TriangleAlert } from 'lucide-vue-next'
+import { TriangleAlert } from '@lucide/vue'
 import type { FailureReport } from '@/core/organizeError'
 
 defineProps<{ report: FailureReport }>()

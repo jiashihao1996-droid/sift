@@ -5,7 +5,7 @@
 // ============================================================
 
 import { computed, watch } from 'vue'
-import { Undo2 } from 'lucide-vue-next'
+import { Undo2 } from '@lucide/vue'
 import { useViewStore } from '@/stores/viewStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { markToast, photoName } from '@/core/feedback'
