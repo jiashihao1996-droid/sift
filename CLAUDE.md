@@ -76,7 +76,9 @@ Rust（`src-tauri/src/`）：
 
 - 版本号唯一来源是 `package.json`；`scripts/sync-version.mjs` 同步到 lock、`tauri.conf.json`、`Cargo.toml`。CI 用 `--check` 校验。
 - 每个面向用户的改动都更新 `CHANGELOG.md` 的 `[Unreleased]`。
-- 发布：`npm run release -- x.y.z` → 推 tag → `release.yml` 构建 draft release。
+- 发布：在最新的 main 上、工作区干净时运行 `npm run release -- x.y.z`（先用 `--dry-run` 预览）。脚本新建 `release/vx.y.z`，同步版本号，把 CHANGELOG 的 `[Unreleased]` 落到新版本小节，只提交这几个文件（提交标题 `chore(release): vx.y.z`，`release.yml` 靠它找发布提交），然后开带 `automerge` 标签的发布 PR。不要手动改版本号直接推 main。
+- PR CI 全绿后 automerge 合并，并派发 `main` 的 CI 和 `release.yml`。`release.yml` 的 `verify` job（ubuntu）等 main 上这个提交的 CI 通过后打 tag，然后三个平台构建 draft release，不重跑检查。手动合并的发布 PR 需要自己派发一次：`gh workflow run release.yml --repo jiashihao1996-droid/sift -f version=x.y.z`。main 的 CI 被取消（同一时间有别的合并）时，`gh run rerun` 那次 CI，再重跑 `release.yml`。
+- 不支持预发布版本号（如 `1.2.0-beta.1`）：Windows MSI 只接受纯数字的预发布号，脚本会拒绝。主、次版本号 ≤ 255，补丁号 ≤ 65535。
 
 ## Git
 
