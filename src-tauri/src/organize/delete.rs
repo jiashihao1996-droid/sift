@@ -1,41 +1,44 @@
 // ============================================================
 // Sift - Delete
-// Moves JPG + RAW (+ XMP) to the system trash (recycle bin)
+// Moves one pair's JPG + RAW (+ XMP) to the system trash (recycle bin)
 // RAW-only pairs: trashes the RAW and removes the cached preview,
 // which must sit inside the preview cache
+// A file that is already gone counts as deleted, so deleting again after a
+// failure picks up where it stopped. `delete_batch` runs many pairs.
 // ============================================================
 
-use crate::models::organize::{OrganizeError, OrganizeErrorKind};
+use crate::models::organize::OrganizeError;
+use crate::models::photo::PhotoSource;
 use crate::paths;
 use std::path::{Path, PathBuf};
 
 /// A user file to send to the trash, with a label for error messages.
 #[derive(Debug, PartialEq)]
-struct TrashItem {
-    label: &'static str,
-    path: PathBuf,
+pub(super) struct TrashItem {
+    pub(super) label: &'static str,
+    pub(super) path: PathBuf,
 }
 
-/// Everything `delete_pair` will touch, decided before any IO happens.
+/// Everything deleting a pair will touch, decided before any IO happens.
 #[derive(Debug, PartialEq)]
 pub struct DeletePlan {
     /// User files, trashed in order. Recoverable.
-    trash: Vec<TrashItem>,
+    pub(super) trash: Vec<TrashItem>,
     /// Temporary RAW preview, removed permanently. Never a user file.
-    preview: Option<PathBuf>,
+    pub(super) preview: Option<PathBuf>,
 }
 
 /// Build the delete plan from frontend-supplied paths. Files that no longer
-/// exist are skipped, except a normal pair's JPG, which must exist. A RAW-only
-/// pair's preview must sit inside `preview_cache_dir`, or the plan is refused.
+/// exist are skipped: they are already gone. A RAW-only pair's preview must
+/// sit inside `preview_cache_dir`, or the plan is refused.
 pub fn plan_delete(
     jpg_path: &str,
     raw_path: Option<&str>,
-    source: Option<&str>,
+    source: &PhotoSource,
     xmp_paths: &[String],
     preview_cache_dir: &Path,
 ) -> Result<DeletePlan, OrganizeError> {
-    let is_raw_preview = source == Some("rawPreview");
+    let is_raw_preview = *source == PhotoSource::RawPreview;
     let jpg = Path::new(jpg_path);
     let mut trash = Vec::new();
     let mut preview = None;
@@ -53,14 +56,7 @@ pub fn plan_delete(
             }
             preview = Some(jpg.to_path_buf());
         }
-    } else {
-        if !jpg.exists() {
-            return Err(OrganizeError::new(
-                OrganizeErrorKind::NotFound,
-                Some(jpg),
-                format!("JPG file not found: {}", jpg_path),
-            ));
-        }
+    } else if jpg.exists() {
         trash.push(TrashItem {
             label: "JPG",
             path: jpg.to_path_buf(),
@@ -82,29 +78,49 @@ pub fn plan_delete(
     Ok(DeletePlan { trash, preview })
 }
 
-/// Carry out a plan. `trash_file` is injected so tests can run without the
-/// system trash; production passes `trash::delete`. On failure the error
-/// counts the files of this pair already trashed.
+/// Carry out a plan file by file, stopping at the first file that fails so
+/// the rest of the pair stays together. A file that is gone, before or after
+/// a failed attempt, counts as trashed. `trash_file` is injected so tests can
+/// run without the system trash. On failure the error counts the files of
+/// this pair already gone.
 pub fn execute_delete(
     plan: &DeletePlan,
     mut trash_file: impl FnMut(&Path) -> Result<(), OrganizeError>,
 ) -> Result<(), OrganizeError> {
     for (trashed, item) in plan.trash.iter().enumerate() {
-        trash_file(&item.path).map_err(|e| {
-            e.context(format_args!("{}", item.label))
-                .with_completed(trashed)
-        })?;
+        if !item.path.exists() {
+            continue;
+        }
+        if let Err(e) = trash_file(&item.path) {
+            if item.path.exists() {
+                return Err(e
+                    .context(format_args!("{}", item.label))
+                    .with_completed(trashed));
+            }
+        }
     }
-    if let Some(preview) = &plan.preview {
-        std::fs::remove_file(preview)
-            .map_err(|e| OrganizeError::io(&e, preview, "Failed to clean preview file"))?;
-    }
+    remove_preview(plan);
     Ok(())
+}
+
+/// Remove a deleted RAW-only pair's cached preview. Best effort: the pair is
+/// deleted either way, and the cache is wiped on exit.
+pub(super) fn remove_preview(plan: &DeletePlan) {
+    if let Some(preview) = &plan.preview {
+        if let Err(e) = std::fs::remove_file(preview) {
+            eprintln!(
+                "[Sift] Failed to remove cached preview {}: {}",
+                preview.display(),
+                e
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::organize::OrganizeErrorKind;
     use std::fs;
     use tempfile::TempDir;
 
@@ -131,7 +147,11 @@ mod tests {
         source: Option<&str>,
         xmps: &[String],
     ) -> Result<DeletePlan, OrganizeError> {
-        plan_delete(jpg, raw, source, xmps, &tmp.path().join("cache"))
+        let source = match source {
+            Some("rawPreview") => PhotoSource::RawPreview,
+            _ => PhotoSource::Jpg,
+        };
+        plan_delete(jpg, raw, &source, xmps, &tmp.path().join("cache"))
     }
 
     fn labels(plan: &DeletePlan) -> Vec<&str> {
@@ -152,14 +172,28 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_normal_pair_whose_jpg_is_missing() {
+    fn a_pair_whose_files_are_already_gone_has_nothing_left_to_trash() {
         let tmp = TempDir::new().unwrap();
         let jpg = tmp.path().join("gone.jpg");
+        let raw = touch(&tmp.path().join("RAW/gone.ARW"));
 
-        let err = plan_in(&tmp, &jpg.to_string_lossy(), None, None, &[]).unwrap_err();
+        let plan = plan_in(&tmp, &jpg.to_string_lossy(), Some(&raw), None, &[]).unwrap();
 
-        assert_eq!(err.kind, OrganizeErrorKind::NotFound);
-        assert!(err.detail.contains("JPG file not found"), "{:?}", err);
+        assert_eq!(labels(&plan), ["RAW"], "deleting again finishes the pair");
+    }
+
+    #[test]
+    fn a_file_that_is_gone_after_a_failed_attempt_counts_as_trashed() {
+        let tmp = TempDir::new().unwrap();
+        let jpg = touch(&tmp.path().join("IMG_1.jpg"));
+        let plan = plan_in(&tmp, &jpg, None, None, &[]).unwrap();
+
+        // The trash reported an error, yet the file did move
+        execute_delete(&plan, |path| {
+            fs::remove_file(path).unwrap();
+            Err(OrganizeError::other("osascript timed out"))
+        })
+        .unwrap();
     }
 
     #[test]

@@ -1,31 +1,27 @@
 // ============================================================
 // Sift - Delete Command
-// IPC wrapper for organize::delete; injects the system trash
+// IPC wrapper for organize::delete_batch; injects the system trash and
+// forwards progress as events
 // ============================================================
 
 use crate::media::cache_dirs;
-use crate::models::organize::OrganizeError;
-use crate::organize::delete::{execute_delete, plan_delete};
+use crate::models::organize::{DeletePairInput, DeleteResult, OrganizeError};
+use crate::organize::delete_batch::{delete_pairs as delete_batch, SystemTrash};
+use tauri::{AppHandle, Emitter};
 
+/// Trash every pair, carrying on past failures; the result lists each pair
+/// as trashed or failed.
 #[tauri::command]
-pub async fn delete_pair(
-    jpg_path: String,
-    raw_path: Option<String>,
-    source: Option<String>,
-    xmp_paths: Option<Vec<String>>,
-) -> Result<(), OrganizeError> {
+pub async fn delete_pairs(
+    app: AppHandle,
+    pairs: Vec<DeletePairInput>,
+) -> Result<DeleteResult, OrganizeError> {
     tokio::task::spawn_blocking(move || {
-        let plan = plan_delete(
-            &jpg_path,
-            raw_path.as_deref(),
-            source.as_deref(),
-            xmp_paths.as_deref().unwrap_or_default(),
-            &cache_dirs::path(cache_dirs::RAW_PREVIEWS),
-        )?;
-        execute_delete(&plan, |path| {
-            trash::delete(path).map_err(|e| OrganizeError::trash(&e, path))
+        let preview_cache = cache_dirs::path(cache_dirs::RAW_PREVIEWS);
+        delete_batch(&pairs, &preview_cache, &mut SystemTrash, &mut |progress| {
+            let _ = app.emit("delete-progress", progress);
         })
     })
     .await
-    .map_err(|e| OrganizeError::other(format!("Task join error: {}", e)))?
+    .map_err(|e| OrganizeError::other(format!("Task join error: {}", e)))
 }
