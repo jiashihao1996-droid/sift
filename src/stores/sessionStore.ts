@@ -31,6 +31,7 @@ import {
   type MarkType,
 } from '@/core/review'
 import { nearestFirst } from '@/core/preload'
+import { fileNameRanks, sortPairs } from '@/core/sorting'
 import { withoutPairs } from '@/core/archiveFlow'
 import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
@@ -79,6 +80,10 @@ export const useSessionStore = defineStore('session', () => {
    */
   const isArchived = ref(false)
 
+  /** Each pair's place in file-name order, from the scan; not reactive */
+  let fileRanks = new Map<string, number>()
+  const view = useViewStore()
+
   const progressWriter = createLatestWriter(writeProgress, (e) =>
     console.warn('[Sift] Failed to save progress:', e),
   )
@@ -120,7 +125,9 @@ export const useSessionStore = defineStore('session', () => {
     isArchived.value = false
     try {
       const result = await scanFolder(path)
-      const restored = restoreProgress(result.pairs, await loadProgressOrNone(path))
+      fileRanks = fileNameRanks(result.pairs)
+      const sorted = sortPairs(result.pairs, view.sortOrder, fileRanks)
+      const restored = restoreProgress(sorted, await loadProgressOrNone(path))
       scanResult.value = result
       pairs.value = restored.pairs
       currentIndex.value = restored.currentIndex
@@ -187,7 +194,7 @@ export const useSessionStore = defineStore('session', () => {
 
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
-    const { stayAfterMark } = useViewStore()
+    const { stayAfterMark } = view
     undoStack.value.push({ type, pairId: pair.id, previousStatus: pair.status })
     pairs.value[idx] = { ...pair, status }
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
@@ -224,6 +231,18 @@ export const useSessionStore = defineStore('session', () => {
     const index = pairs.value.findIndex((p) => p.id === id)
     return index === -1 ? null : index
   }
+
+  /** Re-sort when the order changes, staying on the same photo and compare base */
+  watch(
+    () => view.sortOrder,
+    (order) => {
+      const currentId = currentPair.value?.id
+      const compareId = view.compareIndex !== null ? pairs.value[view.compareIndex]?.id : undefined
+      pairs.value = sortPairs(pairs.value, order, fileRanks)
+      currentIndex.value = currentId === undefined ? 0 : (indexOfPair(currentId) ?? 0)
+      if (compareId) view.compareIndex = indexOfPair(compareId)
+    },
+  )
 
   /** Save marks and position whenever either changes, so quitting midway loses nothing */
   watch(

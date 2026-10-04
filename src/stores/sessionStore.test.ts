@@ -247,6 +247,87 @@ describe('undo', () => {
   })
 })
 
+describe('sort order', () => {
+  const SECOND = 1000
+
+  /** Scan result in file-name order whose capture times run the other way */
+  function rolledOverScan(): ScanResult {
+    const result = scanResultOf(3)
+    result.pairs.forEach((p, i) => {
+      p.captureTime = { localMs: (3 - i) * SECOND, offsetMinutes: null }
+    })
+    return result
+  }
+
+  const ids = (store: ReturnType<typeof useSessionStore>) => store.pairs.map((p) => p.id)
+
+  it('shows a scanned folder by capture time', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(rolledOverScan())
+    const store = useSessionStore()
+
+    await store.startScan('/photos')
+
+    expect(ids(store)).toEqual(['p2', 'p1', 'p0'])
+    expect(store.currentIndex).toBe(0)
+  })
+
+  it('shows a scanned folder by file name when that is the chosen order', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(rolledOverScan())
+    useViewStore().sortOrder = 'fileName'
+    const store = useSessionStore()
+
+    await store.startScan('/photos')
+
+    expect(ids(store)).toEqual(['p0', 'p1', 'p2'])
+  })
+
+  it('resumes at the saved photo wherever the order puts it', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(rolledOverScan())
+    vi.mocked(loadProgress).mockResolvedValue({
+      folder: '/photos',
+      currentKey: '/photos/IMG_0.jpg',
+      marks: {},
+    })
+    const store = useSessionStore()
+
+    await store.startScan('/photos')
+
+    expect(store.currentPair?.id).toBe('p0')
+    expect(store.currentIndex).toBe(2)
+  })
+
+  it('stays on the same photo and compare base when the order changes', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(rolledOverScan())
+    const view = useViewStore()
+    const store = useSessionStore()
+    await store.startScan('/photos')
+    store.goTo(1) // p1
+    view.toggleCompare(0) // base p2
+
+    view.setSortOrder('fileName')
+    await nextTick()
+
+    expect(ids(store)).toEqual(['p0', 'p1', 'p2'])
+    expect(store.currentPair?.id).toBe('p1')
+    expect(view.compareIndex).toBe(2)
+  })
+
+  it('undoes a mark made before the order changed on the right photo', async () => {
+    vi.mocked(scanFolder).mockResolvedValue(rolledOverScan())
+    const view = useViewStore()
+    const store = useSessionStore()
+    await store.startScan('/photos')
+    store.markStar() // p2, first by capture time
+
+    view.setSortOrder('fileName')
+    await nextTick()
+    store.undo()
+
+    expect(store.currentPair?.id).toBe('p2')
+    expect(statuses(store)).toEqual([U, U, U])
+  })
+})
+
 describe('navigation', () => {
   it('moves forward and back within bounds', () => {
     const store = storeWith([U, U])
