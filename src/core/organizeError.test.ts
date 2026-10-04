@@ -29,12 +29,14 @@ describe('toOrganizeError', () => {
 })
 
 describe('describeFailure', () => {
-  const archive = (step: 'delete' | 'move', deletedGroups = 0) =>
-    ({ operation: 'archive', step, deletedGroups }) as const
+  const moving = (deletedGroups = 0) =>
+    ({ operation: 'archive', step: 'move', deletedGroups }) as const
+  const deleting = (deletedGroups: number, failedGroups: number) =>
+    ({ operation: 'archive', step: 'delete', deletedGroups, failedGroups }) as const
 
   it('explains the category in Chinese and names the file it got stuck on', () => {
     const report = describeFailure(
-      archive('move'),
+      moving(),
       error({ kind: 'readOnly', path: 'D:\\DCIM\\IMG_1.ARW', detail: 'Read-only file system' }),
     )
 
@@ -46,32 +48,27 @@ describe('describeFailure', () => {
   })
 
   it('lists what was already deleted and archived, and sends the user back home', () => {
-    const report = describeFailure(archive('move', 3), error({ kind: 'diskFull', completed: 12 }))
+    const report = describeFailure(moving(3), error({ kind: 'diskFull', completed: 12 }))
 
     expect(report.done).toEqual(['已把 3 组照片移到回收站', '已归档 12 张照片'])
     expect(report.canRetry).toBe(false)
     expect(report.advice).toContain('重新打开文件夹')
   })
 
-  it('says archiving had not started when a delete failed', () => {
-    const report = describeFailure(archive('delete', 2), error({ kind: 'automationDenied' }))
+  it('offers a retry when deleting failed: the session already dropped what was trashed', () => {
+    const report = describeFailure(deleting(2, 1), error({ kind: 'automationDenied' }))
 
-    expect(report.done).toEqual(['已把 2 组照片移到回收站', '还没有开始归档'])
+    expect(report.done).toEqual([
+      '已把 2 组照片移到回收站',
+      '1 组没有删完，仍标记为删除',
+      '还没有开始归档',
+    ])
+    expect(report.canRetry).toBe(true)
     expect(report.advice).toContain('自动化')
   })
 
-  it('counts a pair that was only partly trashed as a change', () => {
-    const report = describeFailure(
-      archive('delete'),
-      error({ kind: 'permissionDenied', completed: 1 }),
-    )
-
-    expect(report.done).toEqual(['出错的这组已有 1 个文件移到回收站', '还没有开始归档'])
-    expect(report.canRetry).toBe(false)
-  })
-
-  it('offers a retry when nothing changed on disk', () => {
-    const report = describeFailure(archive('delete'), error({ kind: 'permissionDenied' }))
+  it('offers a retry when no photo had moved yet', () => {
+    const report = describeFailure(moving(), error({ kind: 'permissionDenied' }))
 
     expect(report.done).toEqual(['还没有改动任何文件'])
     expect(report.canRetry).toBe(true)

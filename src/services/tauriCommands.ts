@@ -5,6 +5,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type {
+  ArchivePairInput,
+  DeletePairInput,
+  DeleteResult,
   ScanResult,
   ExifData,
   ThumbnailResult,
@@ -20,26 +23,26 @@ export async function scanFolder(folderPath: string): Promise<ScanResult> {
   return invoke<ScanResult>('scan_folder', { folderPath })
 }
 
-/** Delete a photo pair (move to system trash). Rejects with an `OrganizeError`. */
-export async function deletePair(
-  jpgPath: string,
-  rawPath: string | null,
-  source?: PhotoSource,
-  xmpPaths?: string[],
-): Promise<void> {
-  return invoke<void>('delete_pair', { jpgPath, rawPath, source, xmpPaths })
+/**
+ * Move pairs to the system trash in batches, carrying on past failures; the
+ * result lists each pair as trashed or failed. Files already gone count as
+ * trashed.
+ */
+export async function deletePairs(pairs: DeletePairInput[]): Promise<DeleteResult> {
+  return invoke<DeleteResult>('delete_pairs', { pairs })
+}
+
+/** Listen for delete progress events (pairs handled so far) */
+export function onDeleteProgress(callback: (progress: ArchiveProgress) => void) {
+  return listen<ArchiveProgress>('delete-progress', (event) => {
+    callback(event.payload)
+  })
 }
 
 /** Archive picks into 精选/ and unmarked RAWs into RAW/. Rejects with an `OrganizeError`. */
 export async function archivePhotos(
   folderPath: string,
-  pairs: {
-    jpgPath: string
-    rawPath: string | null
-    status: string
-    source: PhotoSource
-    xmpPaths: string[]
-  }[],
+  pairs: ArchivePairInput[],
 ): Promise<ArchiveResult> {
   return invoke<ArchiveResult>('archive_photos', { folderPath, pairs })
 }

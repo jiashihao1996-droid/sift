@@ -5,19 +5,22 @@
 
 import { ref, computed } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
+import type { UnlistenFn } from '@tauri-apps/api/event'
 import { CheckCircle, Download, Archive } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
-import { archivePhotos, exportPicks, deletePair, onArchiveProgress } from '@/services/tauriCommands'
+import {
+  archivePhotos,
+  exportPicks,
+  deletePairs,
+  onArchiveProgress,
+  onDeleteProgress,
+} from '@/services/tauriCommands'
 import { PhotoStatus, type ArchiveProgress } from '@/types'
+import { runArchive } from '@/core/archiveFlow'
 import RollingNumber from '@/components/status/RollingNumber.vue'
 import ArchiveFailure from './ArchiveFailure.vue'
-import {
-  describeFailure,
-  toOrganizeError,
-  type FailureReport,
-  type OrganizeStage,
-} from '@/core/organizeError'
+import { describeFailure, toOrganizeError, type FailureReport } from '@/core/organizeError'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -62,53 +65,40 @@ const destinations = computed(() => [
   },
 ])
 
+function showProgress(progress: ArchiveProgress) {
+  archiveProgress.value = progress.current
+  archiveTotal.value = progress.total
+  currentFile.value = progress.currentFile
+}
+
 async function handleArchive() {
   isArchiving.value = true
   archiveProgress.value = 0
-  const stage: OrganizeStage = { operation: 'archive', step: 'delete', deletedGroups: 0 }
+  archiveTotal.value = 0
+  currentFile.value = ''
+  let unlisten: UnlistenFn[] = []
 
   try {
-    // Step 1: Delete pairs marked as Deleted
-    const toDelete = deletedPairs.value
-    for (const pair of toDelete) {
-      currentFile.value =
-        pair.source === 'rawPreview' && pair.rawPath
-          ? pair.rawPath.split('/').pop() || pair.rawPath
-          : pair.jpgPath.split('/').pop() || pair.jpgPath
-      await deletePair(pair.jpgPath, pair.rawPath, pair.source, pair.xmpPaths)
-      stage.deletedGroups++
-    }
-
-    // Step 2: Picks into 精选/, unmarked RAWs into RAW/
-    stage.step = 'move'
-    const unlisten = await onArchiveProgress((progress: ArchiveProgress) => {
-      archiveProgress.value = progress.current
-      archiveTotal.value = progress.total
-      currentFile.value = progress.currentFile
+    unlisten = await Promise.all([onDeleteProgress(showProgress), onArchiveProgress(showProgress)])
+    const outcome = await runArchive(session.folderPath, session.pairs, {
+      deletePairs,
+      archivePhotos,
+      dropPairs: session.dropPairs,
     })
-
-    try {
-      const pairsData = session.pairs
-        .filter((p) => p.status !== PhotoStatus.Deleted)
-        .map((p) => ({
-          jpgPath: p.jpgPath,
-          rawPath: p.rawPath,
-          status: p.status,
-          source: p.source,
-          xmpPaths: p.xmpPaths,
-        }))
-
-      const result = await archivePhotos(session.folderPath, pairsData)
-      resultMessage.value = `已删除 ${toDelete.length} 组，归档 ${result.movedCount} 个文件`
-      // Files have moved into 精选/ and RAW/; the saved marks no longer apply
-      session.forgetProgress()
-      isComplete.value = true
-    } finally {
-      unlisten()
+    if (!outcome.ok) {
+      failure.value = outcome.report
+      return
     }
+    resultMessage.value = `已删除 ${outcome.deletedGroups} 组，归档 ${outcome.movedCount} 个文件`
+    // Files have moved into 精选/ and RAW/; the saved marks no longer apply
+    session.forgetProgress()
+    isComplete.value = true
   } catch (e) {
+    // runArchive reports its own failures; this is listening for progress failing
+    const stage = { operation: 'archive', step: 'move', deletedGroups: 0 } as const
     failure.value = describeFailure(stage, toOrganizeError(e))
   } finally {
+    unlisten.forEach((stop) => stop())
     isArchiving.value = false
   }
 }

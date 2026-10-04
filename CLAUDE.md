@@ -21,15 +21,15 @@ Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端
 
 Rust（`src-tauri/src/`）：
 
-| 模块        | 职责                                                                                                                                         | 依赖 Tauri |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                                                         | 是         |
-| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                                                           | 否         |
-| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`                                                                | 否         |
-| `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`）、`delete`（进回收站）、`export`（复制精选）、`transfer`（整组移动，失败回滚） | 否         |
-| `os/`       | 交给系统：`reveal`（在文件管理器中显示）、`clipboard`（复制图片）；路径只经参数/环境变量传入，不拼进脚本                                     | 否         |
-| `models/`   | 与前端共享的 serde 结构体                                                                                                                    | 否         |
-| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                                                               | 否         |
+| 模块        | 职责                                                                                                                                                                    | 依赖 Tauri |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                                                                                    | 是         |
+| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                                                                                      | 否         |
+| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`                                                                                           | 否         |
+| `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`）、`delete` / `delete_batch`（进回收站，分块批量）、`export`（复制精选）、`transfer`（整组移动，失败回滚） | 否         |
+| `os/`       | 交给系统：`reveal`（在文件管理器中显示）、`clipboard`（复制图片）；路径只经参数/环境变量传入，不拼进脚本                                                                | 否         |
+| `models/`   | 与前端共享的 serde 结构体                                                                                                                                               | 否         |
+| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                                                                                          | 否         |
 
 - 新逻辑写进 `catalog/`、`media/`、`organize/` 或 `os/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
 - 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名和路径只在 `media/cache_dirs.rs` 定义（`cache_dirs::path` / `ensure`）。
@@ -40,10 +40,10 @@ Rust（`src-tauri/src/`）：
 - `src/core/` 放纯 TS 规则（如 `review.ts`：标记切换、下一张、计数、分批），不引入 Vue/Pinia/Tauri；store 只管响应式状态并调用它。
 - `src/services/tauriCommands.ts` 是前端**唯一**调用 `invoke()` 的地方。
 - 与 Rust 共享的类型由 ts-rs 从 `src-tauri/src/models/` 生成到 `src/types/generated/`（不要手改，也不受 Prettier/ESLint 管）；改了 Rust 模型后运行 `npm run gen:types` 并一起提交，CI 会检查。`src/types/index.ts` 只负责转出，以及 `PhotoStatus` 常量（有编译期检查保证与 Rust 枚举一致）。
-- Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。例外：整理类命令（`archive_photos`、`export_picks`、`delete_pair`）reject `OrganizeError`（`models/organize.rs`：错误类别、卡住的文件、英文原文、失败前已处理的照片数），前端用 `src/core/organizeError.ts` 的 `toOrganizeError()` 收窄、`describeFailure()` 转成中文说明和建议，在归档对话框的失败页（`ArchiveFailure.vue`）显示。错误类别在 `organize/error.rs` 按 `io::ErrorKind` 和 trash 错误判定，新的错误来源要走这里而不是拼字符串。
+- Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。例外：整理类命令（`archive_photos`、`export_picks`）reject `OrganizeError`（`models/organize.rs`：错误类别、卡住的文件、英文原文、失败前已处理的照片数），前端用 `src/core/organizeError.ts` 的 `toOrganizeError()` 收窄、`describeFailure()` 转成中文说明和建议，在归档对话框的失败页（`ArchiveFailure.vue`）显示。`delete_pairs` 不因单组失败而 reject，而是返回逐组结果 `DeleteResult { trashed, failed[] }`，每个失败带自己的 `OrganizeError`。错误类别在 `organize/error.rs` 按 `io::ErrorKind` 和 trash 错误判定，新的错误来源要走这里而不是拼字符串。
 - 照片只有三种状态：精选、删除、未标记（`PhotoStatus`）。`F`/`X` 切换标记，标记后前进一张、取消标记停在原地，每次改动都进撤销栈；`←`/`→`/`Space` 只导航、不改标记（规则在 `src/core/review.ts`）。
 - 归档布局（`organize/archive.rs`）：精选的 JPG + RAW + XMP 移入 `精选/`（纯 RAW 另存同名 JPG 预览）；未标记的 JPG 留在原位，RAW 和 XMP 移入 `RAW/`；只在有文件要移入时才建文件夹。扫描总会读取 `RAW/`（与原位 JPG 配对）和旧布局的 `JPG/`（与 `RAW/` 配对），其他子文件夹不读。
-- 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档对话框（`ArchiveDialog.vue` → `delete_pair`）。
+- 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档时。顺序由 `src/core/archiveFlow.ts::runArchive` 编排：先用 `delete_pairs` 一次删掉所有标记删除的组（Rust 端按 50 组一块调用 `trash::delete_all`，某块失败再逐组逐文件重试，遇错继续），已删掉的组立即从会话移除（`sessionStore.dropPairs`），有失败就停在归档之前；文件已经不在算删除成功，所以失败后可以直接重试。
 - 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存已标记的照片和当前位置（停在第一张不算），key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，既没有标记又停在第一张时删除文件；归档成功后清除。旧版本写入的已不存在的状态（如 `skipped`）在 `catalog/progress.rs` 读取时丢弃，其余标记照常恢复。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
 - asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。

@@ -70,7 +70,8 @@ export function toOrganizeError(error: unknown): OrganizeError {
 
 /** Where an archive or export was when it stopped */
 export type OrganizeStage =
-  | { operation: 'archive'; step: 'delete' | 'move'; deletedGroups: number }
+  | { operation: 'archive'; step: 'delete'; deletedGroups: number; failedGroups: number }
+  | { operation: 'archive'; step: 'move'; deletedGroups: number }
   | { operation: 'export'; folder: string }
 
 export interface FailureReport {
@@ -84,7 +85,10 @@ export interface FailureReport {
   advice: string
   /** The original message, for the details view */
   detail: string
-  /** True when nothing changed on disk, so trying again from the start is safe */
+  /**
+   * True when the session still matches the files on disk, so trying again
+   * is safe; false once photos have moved, which only a rescan picks up
+   */
   canRetry: boolean
 }
 
@@ -95,34 +99,37 @@ function doneLines(stage: OrganizeStage, completed: number): string[] {
       '原文件夹里的照片没有任何改动',
     ]
   }
-  // While deleting, `completed` counts files of the failing pair already trashed
-  if (stage.deletedGroups === 0 && completed === 0) return ['还没有改动任何文件']
   const lines: string[] = []
   if (stage.deletedGroups > 0) lines.push(`已把 ${stage.deletedGroups} 组照片移到回收站`)
   if (stage.step === 'delete') {
-    if (completed > 0) lines.push(`出错的这组已有 ${completed} 个文件移到回收站`)
-    lines.push('还没有开始归档')
+    lines.push(`${stage.failedGroups} 组没有删完，仍标记为删除`, '还没有开始归档')
   } else if (completed > 0) {
     lines.push(`已归档 ${completed} 张照片`)
+  } else if (stage.deletedGroups === 0) {
+    lines.push('还没有改动任何文件')
   }
   return lines
 }
 
+function canRetry(stage: OrganizeStage, completed: number): boolean {
+  if (stage.operation === 'export' || stage.step === 'delete') return true
+  return completed === 0
+}
+
 export function describeFailure(stage: OrganizeStage, error: OrganizeError): FailureReport {
   const { reason, advice } = KIND_TEXT[error.kind]
-  const isArchive = stage.operation === 'archive'
-  const isUntouched = !isArchive || (stage.deletedGroups === 0 && error.completed === 0)
+  const isRetryable = canRetry(stage, error.completed)
   return {
-    title: isArchive ? '归档没有完成' : '导出没有完成',
+    title: stage.operation === 'archive' ? '归档没有完成' : '导出没有完成',
     reason,
     done: doneLines(stage, error.completed),
     stuckFile: error.path ? extractFileName(error.path) : null,
     stuckPath: error.path,
     advice:
-      isUntouched || error.kind === 'notFound'
+      isRetryable || error.kind === 'notFound'
         ? advice
         : `${advice}已完成的部分不会撤销，返回首页重新打开文件夹，可以接着整理剩下的照片。`,
     detail: error.detail,
-    canRetry: isUntouched,
+    canRetry: isRetryable,
   }
 }
