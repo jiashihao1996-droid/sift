@@ -46,7 +46,8 @@ void _allStatusesListed
 /** Undo action record */
 export interface UndoAction {
   type: 'star' | 'delete'
-  index: number
+  /** The photo's id: its index changes when the session is re-sorted */
+  pairId: string
   previousStatus: PhotoStatus
 }
 

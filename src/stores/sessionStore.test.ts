@@ -98,7 +98,7 @@ describe('marking', () => {
     expect(store[action]()).toBe(outcome)
 
     expect(statuses(store)).toEqual([status, U, U])
-    expect(store.undoStack).toEqual([{ type, index: 0, previousStatus: U }])
+    expect(store.undoStack).toEqual([{ type, pairId: 'p0', previousStatus: U }])
     expect(store.currentIndex).toBe(1)
   })
 
@@ -113,7 +113,7 @@ describe('marking', () => {
       expect(store[action]()).toBe(outcome)
 
       expect(statuses(store)).toEqual([U, U, U])
-      expect(store.undoStack).toEqual([{ type, index: 1, previousStatus: status }])
+      expect(store.undoStack).toEqual([{ type, pairId: 'p1', previousStatus: status }])
       expect(store.currentIndex).toBe(1)
     },
   )
@@ -122,7 +122,7 @@ describe('marking', () => {
     const store = storeWith([S, U])
     store.markDelete()
 
-    expect(store.undoStack[0]).toEqual({ type: 'delete', index: 0, previousStatus: S })
+    expect(store.undoStack[0]).toEqual({ type: 'delete', pairId: 'p0', previousStatus: S })
     expect(store.currentIndex).toBe(1)
   })
 
@@ -296,7 +296,7 @@ describe('scanning', () => {
   it('loads pairs and resets position and undo history', async () => {
     vi.mocked(scanFolder).mockResolvedValue(scanResultOf(3))
     const store = storeWith([S, S], 1)
-    store.undoStack = [{ type: 'star', index: 0, previousStatus: U }]
+    store.undoStack = [{ type: 'star', pairId: 'p0', previousStatus: U }]
 
     await store.startScan('/photos')
 

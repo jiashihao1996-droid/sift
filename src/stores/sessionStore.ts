@@ -188,7 +188,7 @@ export const useSessionStore = defineStore('session', () => {
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
     const { stayAfterMark } = useViewStore()
-    undoStack.value.push({ type, index: idx, previousStatus: pair.status })
+    undoStack.value.push({ type, pairId: pair.id, previousStatus: pair.status })
     pairs.value[idx] = { ...pair, status }
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
     if (movesOnAfterMark(status, stayAfterMark) && isLastPhoto.value) endReachedCount.value++
@@ -212,12 +212,17 @@ export const useSessionStore = defineStore('session', () => {
     const action = undoStack.value.pop()
     if (!action) return false
 
-    const pair = pairs.value[action.index]
-    if (pair) {
-      pairs.value[action.index] = { ...pair, status: action.previousStatus }
-      currentIndex.value = action.index
+    const index = indexOfPair(action.pairId)
+    if (index !== null) {
+      pairs.value[index] = { ...pairs.value[index], status: action.previousStatus }
+      currentIndex.value = index
     }
     return true
+  }
+
+  function indexOfPair(id: string): number | null {
+    const index = pairs.value.findIndex((p) => p.id === id)
+    return index === -1 ? null : index
   }
 
   /** Save marks and position whenever either changes, so quitting midway loses nothing */
@@ -243,7 +248,7 @@ export const useSessionStore = defineStore('session', () => {
 
   /**
    * Remove pairs whose files are gone, e.g. trashed by an archive that then
-   * stopped. Undo steps point at indexes, so they are dropped too.
+   * stopped. Undo is dropped too: the photos it would restore may be gone.
    */
   function dropPairs(ids: readonly string[]) {
     if (ids.length === 0) return
