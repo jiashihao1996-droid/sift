@@ -3,7 +3,7 @@
 // ArchiveDialog - Modal for archiving and exporting photos
 // ============================================================
 
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { CheckCircle, Download, Archive } from 'lucide-vue-next'
@@ -13,16 +13,19 @@ import {
   archivePhotos,
   exportPicks,
   deletePairs,
+  folderNoTrashReason,
   onArchiveProgress,
   onCloseBlocked,
   onDeleteProgress,
   onExportProgress,
   showInFolder,
 } from '@/services/tauriCommands'
-import { PhotoStatus, type ArchiveProgress } from '@/types'
+import { PhotoStatus, type ArchiveProgress, type NoTrashReason } from '@/types'
 import { runArchive } from '@/core/archiveFlow'
+import { needsPermanentConfirm } from '@/core/noTrash'
 import RollingNumber from '@/components/status/RollingNumber.vue'
 import ArchiveFailure from './ArchiveFailure.vue'
+import DeleteNotice from './DeleteNotice.vue'
 import { describeFailure, toOrganizeError, type FailureReport } from '@/core/organizeError'
 
 const session = useSessionStore()
@@ -39,6 +42,10 @@ const resultMessage = ref('')
 const failure = ref<FailureReport | null>(null)
 /** The last export, shown on the options page so archiving can follow */
 const exportNotice = ref<{ fileCount: number; folder: string } | null>(null)
+/** Why deleting in this folder would be permanent; null when it has a trash */
+const noTrash = ref<NoTrashReason | null>(null)
+/** Asked anew for every archive, never remembered */
+const isPermanentConfirmed = ref(false)
 /** The user tried to close or quit Sift while organizing */
 const isCloseBlocked = ref(false)
 
@@ -65,6 +72,25 @@ const starredPairs = computed(() => session.pairs.filter((p) => p.status === Pho
 
 const deletedPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Deleted))
 
+const mustConfirmPermanent = computed(() =>
+  needsPermanentConfirm(noTrash.value, deletedPairs.value.length),
+)
+
+// Check the folder each time the dialog opens; a failed check means "has a
+// trash", and Rust re-checks every file before deleting anything for good
+watch(
+  () => view.showArchiveDialog,
+  async (isOpen) => {
+    if (!isOpen) return
+    isPermanentConfirmed.value = false
+    noTrash.value = await folderNoTrashReason(session.folderPath).catch((e) => {
+      console.warn('[Sift] Trash check failed:', e)
+      return null
+    })
+  },
+  { immediate: true },
+)
+
 /** Starred RAW-only photos get their preview saved as a JPG next to the RAW */
 const starredRawOnlyCount = computed(
   () => starredPairs.value.filter((p) => p.source === 'rawPreview').length,
@@ -81,7 +107,7 @@ const destinations = computed(() => [
     label: '删除',
     count: deletedPairs.value.length,
     border: 'border-sift-delete',
-    to: '→ 回收站',
+    to: noTrash.value ? '→ 永久删除' : '→ 回收站',
   },
   {
     label: '未标记',
@@ -100,6 +126,10 @@ function showProgress(progress: ArchiveProgress) {
 async function handleArchive() {
   // Captured now: the progress to forget is this folder's, whatever happens next
   const folder = session.folderPath
+  if (mustConfirmPermanent.value && !isPermanentConfirmed.value) return
+  const isPermanent = mustConfirmPermanent.value
+  // Confirmed for this attempt only: a retry asks again
+  isPermanentConfirmed.value = false
   isArchiving.value = true
   archiveProgress.value = 0
   archiveTotal.value = 0
@@ -110,7 +140,7 @@ async function handleArchive() {
     unlisten = await Promise.all([onDeleteProgress(showProgress), onArchiveProgress(showProgress)])
     const outcome = await organizing(() =>
       runArchive(folder, session.pairs, {
-        deletePairs,
+        deletePairs: (pairs) => deletePairs(pairs, isPermanent),
         archivePhotos,
         dropPairs: session.dropPairs,
       }),
@@ -326,10 +356,17 @@ const progressPercent = computed(() => {
             <p class="text-[10px] text-sift-muted mt-0.5">重名时整组加 _1、_2 后缀，不会覆盖文件</p>
           </div>
 
+          <DeleteNotice
+            v-model:confirmed="isPermanentConfirmed"
+            :no-trash="noTrash"
+            :deleted-count="deletedPairs.length"
+          />
+
           <!-- Actions -->
           <div class="space-y-3">
             <button
-              class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20"
+              class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20 disabled:opacity-40 disabled:pointer-events-none"
+              :disabled="mustConfirmPermanent && !isPermanentConfirmed"
               @click="handleArchive"
             >
               <Archive :size="16" />
