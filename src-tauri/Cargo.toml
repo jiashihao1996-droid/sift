@@ -29,7 +29,8 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 once_cell = "1"
 base64 = "0.22"
 ts-rs = "12.0.1"
-# ~2.4: 2.5 requires tauri 2.12, ahead of the 2.10 used here and by @tauri-apps/api
+# ~2.5: its minors raise the minimum tauri (2.5 needs 2.12), so a looser range
+# could pull tauri past the minor @tauri-apps/api is on in package.json
 tauri-plugin-single-instance = "~2.5"
 
 [dev-dependencies]
