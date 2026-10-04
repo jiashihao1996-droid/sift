@@ -18,3 +18,20 @@ export function preloadOrder(index: number, total: number, step: 1 | -1): number
   const behind = Array.from({ length: BEHIND }, (_, i) => index - step * (i + 1))
   return [...ahead, ...behind].filter((i) => i >= 0 && i < total)
 }
+
+/**
+ * `items` reordered by distance from `index`, the photo on screen first and
+ * then alternating ahead and behind, so thumbnails appear where the user is
+ * looking instead of from the start of the folder
+ */
+export function nearestFirst<T>(items: readonly T[], index: number): T[] {
+  const start = Math.min(Math.max(index, 0), items.length - 1)
+  const order: T[] = []
+  for (let distance = 0; order.length < items.length; distance++) {
+    const ahead = start + distance
+    const behind = start - distance
+    if (ahead < items.length) order.push(items[ahead])
+    if (distance > 0 && behind >= 0) order.push(items[behind])
+  }
+  return order
+}

@@ -5,7 +5,8 @@
 // JPGs left in the folder), and the older JPG/ + RAW/ archive layout, even
 // with new photos copied into the root next to it
 // RAW-only files get their embedded JPEG preview extracted; any whose
-// preview can't be extracted are reported in `skipped`, never dropped.
+// preview can't be extracted are reported in `skipped`, never dropped, and
+// so is anything that can't be read (a folder or one of its entries).
 // Empty (0-byte) photo files are reported in `skipped` too, rather than
 // paired: they are leftovers of an interrupted copy or move, and pairing one
 // would push the real photo with the same name out of its pair.
@@ -19,7 +20,7 @@ use crate::organize::archive::RAW_DIR;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::path::Path;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 /// RAW files are 25-60MB each; unbounded parallel preview extraction can exhaust memory
 const PREVIEW_EXTRACTION_THREADS: usize = 2;
@@ -33,22 +34,24 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     }
 
     let mut index = FileIndex::default();
-    let mut empty = Vec::new();
-    index_dir(folder, &mut index, &mut empty);
+    let mut skipped = index_dir(folder, &mut index);
 
     // RAW/ holds the RAWs of JPGs in the root (archive) or in JPG/ (older
     // archives). Reading only one side would turn every RAW of the other into
     // a RAW-only entry, so both are always read when present.
     for dir in [folder.join(RAW_DIR), folder.join(LEGACY_JPG_DIR)] {
         if dir.is_dir() {
-            index_dir(&dir, &mut index, &mut empty);
+            skipped.extend(index_dir(&dir, &mut index));
         }
     }
 
     let pairing = pairing::pair(&index);
-    let (raw_only_pairs, mut skipped) = extract_previews(pairing.raw_only, preview_cache_dir)?;
-    let empty_count = empty.len();
-    skipped.extend(empty);
+    let empty_count = skipped
+        .iter()
+        .filter(|f| f.reason == SkipReason::Empty)
+        .count();
+    let (raw_only_pairs, no_preview) = extract_previews(pairing.raw_only, preview_cache_dir)?;
+    skipped.extend(no_preview);
 
     let raw_only_count = raw_only_pairs.len();
     let mut pairs = pairing.pairs;
@@ -65,33 +68,49 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     })
 }
 
-/// Add the files directly inside `dir` (non-recursive) to the index; empty
-/// photo files go to `empty` instead
-fn index_dir(dir: &Path, index: &mut FileIndex, empty: &mut Vec<SkippedFile>) {
-    let files = WalkDir::new(dir)
-        .max_depth(1)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file());
-    for entry in files {
-        let path = entry.path();
-        if is_empty_photo(path) {
-            empty.push(SkippedFile {
-                path: path.to_string_lossy().into_owned(),
+/// Add the files directly inside `dir` (non-recursive) to the index.
+/// Whatever can't be read (the folder itself or one of its entries) is
+/// returned as skipped: it may hold photos the user would otherwise lose
+/// track of. So are empty photo files, which are never indexed.
+fn index_dir(dir: &Path, index: &mut FileIndex) -> Vec<SkippedFile> {
+    let mut skipped = Vec::new();
+    for entry in WalkDir::new(dir).max_depth(1) {
+        match entry {
+            Ok(e) if is_file(&e) && is_empty_photo(e.path()) => skipped.push(SkippedFile {
+                path: e.path().to_string_lossy().into_owned(),
                 reason: SkipReason::Empty,
-            });
-        } else {
-            index.add(path);
+            }),
+            Ok(e) if is_file(&e) => index.add(e.path()),
+            Ok(_) => {}
+            Err(e) => skipped.push(unreadable_entry(dir, &e)),
         }
     }
+    skipped
 }
 
+/// The entry's type comes from the directory listing, so plain files cost no
+/// extra `stat`; only symlinks are resolved, keeping links to files indexed.
+fn is_file(entry: &DirEntry) -> bool {
+    let file_type = entry.file_type();
+    file_type.is_file() || (file_type.is_symlink() && entry.path().is_file())
+}
+
+/// A JPG or RAW of zero bytes. Only photo files pay for the size check.
 fn is_empty_photo(path: &Path) -> bool {
     let is_photo = path
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|ext| is_jpg(ext) || is_raw(ext));
     is_photo && std::fs::metadata(path).is_ok_and(|m| m.len() == 0)
+}
+
+fn unreadable_entry(dir: &Path, error: &walkdir::Error) -> SkippedFile {
+    let path = error.path().unwrap_or(dir);
+    eprintln!("[Sift] Failed to read {}: {}", path.display(), error);
+    SkippedFile {
+        path: path.to_string_lossy().to_string(),
+        reason: SkipReason::Unreadable,
+    }
 }
 
 /// Extract embedded previews for RAW-only files. RAWs whose preview can't be
@@ -146,7 +165,9 @@ fn raw_preview_pair(raw: RawOnly, cache_dir: &Path) -> Result<PhotoPair, Skipped
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{noise_jpeg, tiff_raw_with_preview, write};
+    use crate::test_support::{
+        noise_jpeg, tiff_raw_declaring_preview_len, tiff_raw_with_preview, write,
+    };
     use tempfile::{tempdir, TempDir};
 
     fn scan(dir: &Path) -> ScanResult {
@@ -227,6 +248,19 @@ mod tests {
         assert_eq!(result.raw_only_count, 0);
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(file_name(&result.skipped[0].path), "DSC_1.ARW");
+        assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
+    }
+
+    #[test]
+    fn reports_a_raw_whose_exif_declares_a_huge_preview() {
+        let dir = tempdir().unwrap();
+        let raw = tiff_raw_declaring_preview_len(&noise_jpeg(16, 16), u32::MAX);
+        write(dir.path(), "DSC_1.NEF", &raw);
+
+        let result = scan(dir.path());
+
+        assert!(result.pairs.is_empty());
+        assert_eq!(result.skipped.len(), 1);
         assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
     }
 
@@ -332,6 +366,47 @@ mod tests {
     fn ignores_other_subfolders() {
         let dir = folder(&["IMG_1.JPG", "精选/IMG_3.JPG", "other/IMG_4.JPG"]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follows_symlinks_to_photo_files_but_not_to_folders() {
+        use std::os::unix::fs::symlink;
+
+        let dir = folder(&["IMG_1.JPG"]);
+        let elsewhere = folder(&["IMG_2.JPG", "IMG_3.JPG/IMG_4.JPG"]);
+        symlink(
+            elsewhere.path().join("IMG_2.JPG"),
+            dir.path().join("IMG_2.JPG"),
+        )
+        .unwrap();
+        symlink(
+            elsewhere.path().join("IMG_3.JPG"),
+            dir.path().join("IMG_3.JPG"),
+        )
+        .unwrap();
+        symlink(dir.path().join("missing.JPG"), dir.path().join("IMG_5.JPG")).unwrap();
+
+        assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG", "IMG_2.JPG"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_a_subfolder_that_cannot_be_read() {
+        use std::fs::{set_permissions, Permissions};
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = folder(&["IMG_1.JPG", "RAW/IMG_1.CR3"]);
+        let raw_dir = dir.path().join(RAW_DIR);
+        set_permissions(&raw_dir, Permissions::from_mode(0o000)).unwrap();
+
+        let result = scan(dir.path());
+        set_permissions(&raw_dir, Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(names(&result), ["IMG_1.JPG"]);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].reason, SkipReason::Unreadable);
+        assert_eq!(Path::new(&result.skipped[0].path), raw_dir);
     }
 
     #[test]

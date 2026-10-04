@@ -14,16 +14,23 @@ mod paths;
 mod test_support;
 
 use commands::{archive, cache, delete, exif, export, file_actions, progress, scan, thumbnail};
+use tauri::{AppHandle, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Clean up any leftover cache from previous sessions
-    cache::cleanup_cache_sync();
-
     tauri::Builder::default()
+        // Must come first: a second instance exits inside this plugin's setup,
+        // before anything below runs. The cache dirs have fixed names, so a
+        // second instance would otherwise wipe the first one's RAW previews.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            focus_main_window(app)
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // Clean up any leftover cache from previous sessions; only the
+            // single running instance gets here
+            cache::cleanup_cache_sync();
             cache::allow_cache_dirs(app)?;
             scan::restore_folder_grants(app);
             Ok(())
@@ -49,4 +56,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Bring the running instance's window forward when the user launches Sift again
+fn focus_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let shown = window
+        .unminimize()
+        .and_then(|_| window.show())
+        .and_then(|_| window.set_focus());
+    if let Err(e) = shown {
+        eprintln!("[Sift] Failed to focus the existing window: {}", e);
+    }
 }

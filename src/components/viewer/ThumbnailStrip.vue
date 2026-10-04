@@ -169,9 +169,11 @@ onMounted(async () => {
           <!-- Dominant color placeholder -->
           <div class="absolute inset-0" :style="{ backgroundColor: getDominantColor(pair) }" />
 
-          <!-- Thumbnail image: prefer thumbnail, fallback to jpgPath with lazy loading -->
+          <!-- Thumbnail once generated; until then the colour above stands in, since
+               loading the full-size photo for a 64px tile costs a 24MP decode -->
           <img
-            :src="convertFileSrc(pair.thumbnailPath || pair.jpgPath)"
+            v-if="pair.thumbnailPath"
+            :src="convertFileSrc(pair.thumbnailPath)"
             :alt="`Photo ${index + 1}`"
             loading="lazy"
             decoding="async"

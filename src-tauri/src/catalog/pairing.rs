@@ -51,9 +51,13 @@ pub struct Pairing {
 }
 
 impl FileIndex {
-    /// Classify one file by extension. Unknown extensions are ignored.
+    /// Classify one file by extension. Unknown extensions and hidden files
+    /// are ignored (see `is_hidden`).
     /// Neither stems nor extensions are case-sensitive (see `fold_case`).
     pub fn add(&mut self, path: &Path) {
+        if is_hidden(path) {
+            return;
+        }
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
             return;
         };
@@ -92,6 +96,14 @@ impl FileIndex {
     pub fn photo_count(&self) -> usize {
         self.photos.values().map(Vec::len).sum()
     }
+}
+
+/// Dot files are never photos. The common case is AppleDouble: on exFAT and
+/// SMB volumes macOS writes a ~4KB "._DSC_1.JPG" metadata file next to every
+/// photo, which would otherwise double the session with undecodable entries.
+fn is_hidden(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.as_encoded_bytes().starts_with(b"."))
 }
 
 /// Grouping key for a stem, so `img_1.jpg` pairs with `IMG_1.CR3`: cameras
@@ -374,6 +386,24 @@ mod tests {
             "README",
         ]);
         assert_eq!(idx.photo_count(), 2);
+    }
+
+    #[test]
+    fn ignores_apple_double_and_other_hidden_files() {
+        // macOS writes "._<name>" metadata files next to every photo on
+        // exFAT and SMB volumes; they are not images.
+        let pairing = pair(&index(&[
+            "DSC_1.JPG",
+            "._DSC_1.JPG",
+            "._DSC_1.ARW",
+            "._DSC_1.xmp",
+            ".DSC_2.JPG",
+        ]));
+
+        assert_eq!(pairing.pairs.len(), 1);
+        assert_eq!(file_name(&pairing.pairs[0].jpg_path), "DSC_1.JPG");
+        assert!(pairing.pairs[0].xmp_paths.is_empty());
+        assert!(pairing.raw_only.is_empty());
     }
 
     #[test]

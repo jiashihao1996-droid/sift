@@ -14,6 +14,14 @@ describe('describeSkipped', () => {
     ])
   })
 
+  it('explains entries that could not be read, including whole folders', () => {
+    const lines = describeSkipped([{ path: '/photos/RAW', reason: 'unreadable' }])
+
+    expect(lines).toEqual([
+      { name: 'RAW', path: '/photos/RAW', reason: '无法读取（没有访问权限或磁盘出错）' },
+    ])
+  })
+
   it('explains empty files', () => {
     const [line] = describeSkipped([{ path: '/photos/RAW/DSC_1.ARW', reason: 'empty' }])
 
