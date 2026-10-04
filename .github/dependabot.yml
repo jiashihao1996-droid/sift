@@ -1,6 +1,7 @@
-# Weekly version updates, one grouped PR per ecosystem (majors in a separate
-# group so a breaking upgrade does not hold back the rest). Each PR runs CI,
-# so keep the count low.
+# Weekly version updates: minor and patch updates share one PR per ecosystem;
+# each major update gets its own PR (one breaking upgrade, such as Tailwind 4,
+# must not hold back the others), except packages that must move together.
+# Each PR runs CI, so keep the count low.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -11,7 +12,7 @@ updates:
     # Skip releases younger than a week (yanked or compromised versions)
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 3
     commit-message:
       prefix: chore
       include: scope
@@ -19,9 +20,6 @@ updates:
       cargo:
         patterns: ['*']
         update-types: [minor, patch]
-      cargo-major:
-        patterns: ['*']
-        update-types: [major]
 
   - package-ecosystem: npm
     directory: /
@@ -30,16 +28,22 @@ updates:
       day: monday
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 4
     commit-message:
       prefix: chore
       include: scope
+    # @types/node follows the Node major that CI runs (node-version in the
+    # workflows), not the latest Node
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       npm:
         patterns: ['*']
         update-types: [minor, patch]
-      npm-major:
-        patterns: ['*']
+      # @vitejs/plugin-vue and vitest declare peer ranges on vite majors
+      vite-major:
+        patterns: ['vite', '@vitejs/*', 'vitest', '@vitest/*']
         update-types: [major]
 
   # Third-party actions are pinned to commit SHAs with the version in a comment;
