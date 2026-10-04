@@ -43,6 +43,16 @@ pub fn solid_jpeg(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
 /// embedded preview JPEG, like NEF/ARW/DNG. `orientation` mirrors the
 /// outer IFD0 Orientation tag that Sony ARW relies on.
 pub fn tiff_raw_with_preview(preview: &[u8], orientation: Option<u16>) -> Vec<u8> {
+    tiff_raw(preview, preview.len() as u32, orientation)
+}
+
+/// Like `tiff_raw_with_preview`, but IFD0 claims the preview is
+/// `declared_len` bytes long, as a corrupt or hostile file might.
+pub fn tiff_raw_declaring_preview_len(preview: &[u8], declared_len: u32) -> Vec<u8> {
+    tiff_raw(preview, declared_len, None)
+}
+
+fn tiff_raw(preview: &[u8], declared_len: u32, orientation: Option<u16>) -> Vec<u8> {
     const SHORT: u16 = 3;
     const LONG: u16 = 4;
     let mut entries: Vec<(u16, u16, u32)> = Vec::new();
@@ -53,7 +63,7 @@ pub fn tiff_raw_with_preview(preview: &[u8], orientation: Option<u16>) -> Vec<u8
     let ifd_len = 2 + entry_count * 12 + 4;
     let preview_offset = (8 + ifd_len) as u32;
     entries.push((0x0201, LONG, preview_offset));
-    entries.push((0x0202, LONG, preview.len() as u32));
+    entries.push((0x0202, LONG, declared_len));
 
     let mut out = Vec::new();
     out.extend_from_slice(b"II\x2A\x00");
