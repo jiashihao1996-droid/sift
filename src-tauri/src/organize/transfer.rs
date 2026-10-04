@@ -69,7 +69,7 @@ fn copy_then_remove(src: &Path, dest: &Path) -> Result<(), OrganizeError> {
 
 /// Empty our placeholder `dest` after a failed copy into it. Skipped when
 /// `src` is gone, since `dest` may then hold the only copy.
-fn discard_copy(src: &Path, dest: &Path) {
+pub(super) fn discard_copy(src: &Path, dest: &Path) {
     if !src.exists() {
         return;
     }
