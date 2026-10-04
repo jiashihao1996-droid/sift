@@ -60,6 +60,16 @@ describe('describeFailure', () => {
     expect(report.advice).toContain('自动化')
   })
 
+  it('counts a pair that was only partly trashed as a change', () => {
+    const report = describeFailure(
+      archive('delete'),
+      error({ kind: 'permissionDenied', completed: 1 }),
+    )
+
+    expect(report.done).toEqual(['出错的这组已有 1 个文件移到回收站', '还没有开始归档'])
+    expect(report.canRetry).toBe(false)
+  })
+
   it('offers a retry when nothing changed on disk', () => {
     const report = describeFailure(archive('delete'), error({ kind: 'permissionDenied' }))
 

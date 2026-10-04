@@ -95,12 +95,16 @@ function doneLines(stage: OrganizeStage, completed: number): string[] {
       '原文件夹里的照片没有任何改动',
     ]
   }
-  const archived = stage.step === 'delete' ? 0 : completed
-  if (stage.deletedGroups === 0 && archived === 0) return ['还没有改动任何文件']
+  // While deleting, `completed` counts files of the failing pair already trashed
+  if (stage.deletedGroups === 0 && completed === 0) return ['还没有改动任何文件']
   const lines: string[] = []
   if (stage.deletedGroups > 0) lines.push(`已把 ${stage.deletedGroups} 组照片移到回收站`)
-  if (stage.step === 'delete') lines.push('还没有开始归档')
-  else if (archived > 0) lines.push(`已归档 ${archived} 张照片`)
+  if (stage.step === 'delete') {
+    if (completed > 0) lines.push(`出错的这组已有 ${completed} 个文件移到回收站`)
+    lines.push('还没有开始归档')
+  } else if (completed > 0) {
+    lines.push(`已归档 ${completed} 张照片`)
+  }
   return lines
 }
 

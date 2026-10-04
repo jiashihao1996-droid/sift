@@ -38,6 +38,7 @@ pub struct OrganizeError {
     pub path: Option<String>,
     /// The original (English) message, for the details view and bug reports
     pub detail: String,
-    /// Photos (JPG/RAW) moved or copied before the failure
+    /// How much was done before the failure: photos (JPG/RAW) moved or copied
+    /// by archive and export; files of the pair already trashed by delete
     pub completed: usize,
 }

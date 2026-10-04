@@ -14,6 +14,7 @@ path: string | null,
  */
 detail: string, 
 /**
- * Photos (JPG/RAW) moved or copied before the failure
+ * How much was done before the failure: photos (JPG/RAW) moved or copied
+ * by archive and export; files of the pair already trashed by delete
  */
 completed: number, };
