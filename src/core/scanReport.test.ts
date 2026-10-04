@@ -14,6 +14,12 @@ describe('describeSkipped', () => {
     ])
   })
 
+  it('explains empty files', () => {
+    const [line] = describeSkipped([{ path: '/photos/RAW/DSC_1.ARW', reason: 'empty' }])
+
+    expect(line.reason).toContain('0 字节')
+  })
+
   it('sorts files naturally by name', () => {
     const lines = describeSkipped([
       { path: 'C:\\raw\\IMG_10.CR3', reason: 'noPreview' },

@@ -3,4 +3,4 @@
 /**
  * Why a photo file was left out of the session
  */
-export type SkipReason = "noPreview";
+export type SkipReason = "noPreview" | "empty";

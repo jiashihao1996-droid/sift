@@ -5,9 +5,13 @@
 // JPGs left in the folder), and the older JPG/ + RAW/ archive layout, even
 // with new photos copied into the root next to it
 // RAW-only files get their embedded JPEG preview extracted; any whose
-// preview can't be extracted are reported in `skipped`, never dropped
+// preview can't be extracted are reported in `skipped`, never dropped.
+// Empty (0-byte) photo files are reported in `skipped` too, rather than
+// paired: they are leftovers of an interrupted copy or move, and pairing one
+// would push the real photo with the same name out of its pair.
 // ============================================================
 
+use crate::catalog::file_types::{is_jpg, is_raw};
 use crate::catalog::pairing::{self, FileIndex, RawOnly};
 use crate::media::raw_preview::extract_raw_preview;
 use crate::models::photo::{PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile};
@@ -29,19 +33,22 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     }
 
     let mut index = FileIndex::default();
-    index_dir(folder, &mut index);
+    let mut empty = Vec::new();
+    index_dir(folder, &mut index, &mut empty);
 
     // RAW/ holds the RAWs of JPGs in the root (archive) or in JPG/ (older
     // archives). Reading only one side would turn every RAW of the other into
     // a RAW-only entry, so both are always read when present.
     for dir in [folder.join(RAW_DIR), folder.join(LEGACY_JPG_DIR)] {
         if dir.is_dir() {
-            index_dir(&dir, &mut index);
+            index_dir(&dir, &mut index, &mut empty);
         }
     }
 
     let pairing = pairing::pair(&index);
-    let (raw_only_pairs, skipped) = extract_previews(pairing.raw_only, preview_cache_dir)?;
+    let (raw_only_pairs, mut skipped) = extract_previews(pairing.raw_only, preview_cache_dir)?;
+    let empty_count = empty.len();
+    skipped.extend(empty);
 
     let raw_only_count = raw_only_pairs.len();
     let mut pairs = pairing.pairs;
@@ -50,7 +57,7 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
 
     Ok(ScanResult {
         pairs,
-        total_files: index.photo_count(),
+        total_files: index.photo_count() + empty_count,
         paired_count: pairing.paired_count,
         jpg_only_count: pairing.jpg_only_count,
         raw_only_count,
@@ -58,14 +65,33 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     })
 }
 
-/// Add the files directly inside `dir` (non-recursive) to the index
-fn index_dir(dir: &Path, index: &mut FileIndex) {
-    WalkDir::new(dir)
+/// Add the files directly inside `dir` (non-recursive) to the index; empty
+/// photo files go to `empty` instead
+fn index_dir(dir: &Path, index: &mut FileIndex, empty: &mut Vec<SkippedFile>) {
+    let files = WalkDir::new(dir)
         .max_depth(1)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .for_each(|e| index.add(e.path()));
+        .filter(|e| e.path().is_file());
+    for entry in files {
+        let path = entry.path();
+        if is_empty_photo(path) {
+            empty.push(SkippedFile {
+                path: path.to_string_lossy().into_owned(),
+                reason: SkipReason::Empty,
+            });
+        } else {
+            index.add(path);
+        }
+    }
+}
+
+fn is_empty_photo(path: &Path) -> bool {
+    let is_photo = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| is_jpg(ext) || is_raw(ext));
+    is_photo && std::fs::metadata(path).is_ok_and(|m| m.len() == 0)
 }
 
 /// Extract embedded previews for RAW-only files. RAWs whose preview can't be
@@ -306,6 +332,36 @@ mod tests {
     fn ignores_other_subfolders() {
         let dir = folder(&["IMG_1.JPG", "精选/IMG_3.JPG", "other/IMG_4.JPG"]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
+    }
+
+    #[test]
+    fn reports_empty_photo_files_as_skipped_instead_of_pairing_them() {
+        let dir = folder(&["IMG_1.JPG", "IMG_1.CR3"]);
+        // An empty RAW/IMG_1.CR3 left by an interrupted move must not take the
+        // real RAW's place next to the JPG
+        write(dir.path(), "RAW/IMG_1.CR3", b"");
+        write(dir.path(), "IMG_2.JPG", b"");
+        write(dir.path(), "notes.txt", b"");
+
+        let result = scan(dir.path());
+
+        assert_eq!(names(&result), ["IMG_1.JPG"]);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.raw_only_count, 0);
+        let mut skipped: Vec<_> = result
+            .skipped
+            .iter()
+            .map(|f| (file_name(&f.path), f.reason))
+            .collect();
+        skipped.sort_by_key(|(name, _)| *name);
+        assert_eq!(
+            skipped,
+            [
+                ("IMG_1.CR3", SkipReason::Empty),
+                ("IMG_2.JPG", SkipReason::Empty)
+            ]
+        );
+        assert_eq!(result.total_files, 4, "empty photos are still counted");
     }
 
     #[test]

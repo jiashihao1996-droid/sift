@@ -66,6 +66,8 @@ pub struct ScanResult {
 pub enum SkipReason {
     /// RAW-only file whose embedded preview could not be extracted
     NoPreview,
+    /// Empty (0-byte) photo file, e.g. left by an interrupted copy
+    Empty,
 }
 
 /// A photo file that was found but not loaded into the session
