@@ -5,6 +5,7 @@
 // message for the details view, and how much was done before it stopped.
 // ============================================================
 
+use super::photo::PhotoSource;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -41,4 +42,39 @@ pub struct OrganizeError {
     /// How much was done before the failure: photos (JPG/RAW) moved or copied
     /// by archive and export; files of the pair already trashed by delete
     pub completed: usize,
+}
+
+/// A pair to delete, as the frontend knows it
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletePairInput {
+    /// The session's pair id, echoed back in the result
+    pub id: String,
+    pub jpg_path: String,
+    pub raw_path: Option<String>,
+    pub source: PhotoSource,
+    #[serde(default)]
+    pub xmp_paths: Vec<String>,
+}
+
+/// A pair that could not be deleted; files of it may already be in the trash
+/// (`error.completed` counts them)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFailure {
+    pub id: String,
+    pub error: OrganizeError,
+}
+
+/// What deleting a batch of pairs did, pair by pair. A pair whose files were
+/// already gone counts as trashed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResult {
+    /// Ids of pairs whose files are all gone now
+    pub trashed: Vec<String>,
+    pub failed: Vec<DeleteFailure>,
 }
