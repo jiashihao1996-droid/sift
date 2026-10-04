@@ -37,7 +37,21 @@ tempfile = "3.27.0"
 
 # `tauri dev` builds unoptimized; at opt-level 0 the `image` crate takes ~2s to
 # decode one 24MP JPEG for its thumbnail (27x slower than release) and pins every
-# core while a folder's thumbnails generate. Optimizing dependencies only keeps
-# Sift's own code quick to rebuild and debuggable.
-[profile.dev.package."*"]
+# core while a folder's thumbnails generate. Optimizing just the image decoding
+# crates gets dev within ~15% of optimizing everything, while clippy and test
+# builds, which share the dev profile, stay as fast as before: `"*"` also built
+# proc-macros at opt-level 3 and nearly doubled cold CI builds.
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.zune-core]
+opt-level = 3
+
+[profile.dev.package.moxcms]
+opt-level = 3
+
+[profile.dev.package.kamadak-exif]
 opt-level = 3
