@@ -84,4 +84,19 @@ describe('describeFailure', () => {
     expect(report.done[0]).toBe('已导出 5 张照片到 /Volumes/Backup')
     expect(report.canRetry).toBe(true)
   })
+
+  it('says a delete-only run left everything else alone, and how the photos were deleted', () => {
+    const report = describeFailure(
+      { operation: 'delete', step: 'delete', deletedGroups: 4, failedGroups: 1, isPermanent: true },
+      error({ kind: 'permissionDenied' }),
+    )
+
+    expect(report.title).toBe('删除没有完成')
+    expect(report.done).toEqual([
+      '已永久删除 4 组照片',
+      '1 组没有删完，仍标记为删除',
+      '其他照片没有任何改动',
+    ])
+    expect(report.canRetry).toBe(true)
+  })
 })

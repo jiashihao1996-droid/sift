@@ -6,7 +6,7 @@ import {
   type PhotoPair,
   type PhotoStatus as Status,
 } from '@/types'
-import { runArchive, withoutPairs, type ArchiveDeps } from './archiveFlow'
+import { runArchive, runDeleteOnly, withoutPairs, type ArchiveDeps } from './archiveFlow'
 
 function photo(id: string, status: Status = PhotoStatus.Unprocessed): PhotoPair {
   return {
@@ -115,6 +115,42 @@ describe('runArchive', () => {
     if (outcome.ok) return
     expect(outcome.report.detail).toBe('Task join error')
     expect(outcome.report.canRetry).toBe(true)
+  })
+})
+
+describe('runDeleteOnly', () => {
+  const pairs = [photo('a', PhotoStatus.Deleted), photo('c', PhotoStatus.Starred), photo('d')]
+
+  it('deletes the marked pairs and never archives', async () => {
+    const d = deps()
+
+    const outcome = await runDeleteOnly(pairs, d)
+
+    expect(outcome).toEqual({ ok: true, deletedGroups: 1 })
+    expect(vi.mocked(d.deletePairs).mock.calls[0][0].map((p) => p.id)).toEqual(['a'])
+    expect(d.dropPairs).toHaveBeenCalledWith(['a'])
+    expect(d.archivePhotos).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed pair as a retryable delete-only failure', async () => {
+    const d = deps({
+      deletePairs: vi.fn(async () => ({ trashed: [], failed: [{ id: 'a', error: denied }] })),
+    })
+
+    const outcome = await runDeleteOnly(pairs, d, { isPermanent: true })
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.report.title).toBe('删除没有完成')
+    expect(outcome.report.done).toContain('其他照片没有任何改动')
+    expect(outcome.report.canRetry).toBe(true)
+  })
+
+  it('does nothing when no pair is marked for deletion', async () => {
+    const d = deps()
+
+    expect(await runDeleteOnly([photo('d')], d)).toEqual({ ok: true, deletedGroups: 0 })
+    expect(d.deletePairs).not.toHaveBeenCalled()
   })
 })
 
