@@ -21,14 +21,14 @@ Rust 的 clippy/test 需要 `dist/` 存在（`generate_context!` 会嵌入前端
 
 Rust（`src-tauri/src/`）：
 
-| 模块        | 职责                                                                                                       | 依赖 Tauri |
-| ----------- | ---------------------------------------------------------------------------------------------------------- | ---------- |
-| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                       | 是         |
-| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                         | 否         |
-| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`                              | 否         |
-| `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`）、`delete`（进回收站）、`export`（复制精选） | 否         |
-| `models/`   | 与前端共享的 serde 结构体                                                                                  | 否         |
-| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                             | 否         |
+| 模块        | 职责                                                                                                                                         | 依赖 Tauri |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                                                         | 是         |
+| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                                                           | 否         |
+| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`cache_dirs`                                                                | 否         |
+| `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`）、`delete`（进回收站）、`export`（复制精选）、`transfer`（整组移动，失败回滚） | 否         |
+| `models/`   | 与前端共享的 serde 结构体                                                                                                                    | 否         |
+| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                                                               | 否         |
 
 - 新逻辑写进 `catalog/`、`media/` 或 `organize/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
 - 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名和路径只在 `media/cache_dirs.rs` 定义（`cache_dirs::path` / `ensure`）。
@@ -50,11 +50,14 @@ Rust（`src-tauri/src/`）：
 
 ## 用户照片安全（最高优先级）
 
-- 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件和应用数据目录里 Sift 自己的进度文件。唯一例外：`organize/archive.rs` 的 `move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。
+- 删除用户文件**只能**用 `trash::delete`。`fs::remove_*` 只允许用于缓存目录里的临时文件和应用数据目录里 Sift 自己的进度文件。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。例外只有以下两条，都在 `organize/transfer.rs`：
+  - `move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。复制失败或源文件删不掉时，只要源文件还在，就把目标（本次占用的占位）清空成 0 字节，不留第二份。
+  - 整组移动结束后（成功或回滚后），删除**本组 `create_new` 创建、且确认仍是 0 字节普通文件**的占位（`remove_empty_placeholders`）：被放弃的后缀、没用上的目标、回滚时重新占用但没移回的原位置。已经放进用户文件的路径（哪怕用户照片本身是 0 字节）一律不碰；符号链接不碰。
 - 移动/复制**永不覆盖**已有文件：目标路径一律经过 `paths::unique_paths_sharing_stem()`（归档用 `_from` 版本）：一组 JPG/RAW/XMP 共用同一个 `_N` 后缀（即使分属不同文件夹；归档时留在原位的 JPG 也同步改名），重新扫描时仍能配对。
+- 归档按组原子化（`organize/transfer.rs::move_group`）：一组里任何文件移动失败，已移走的文件按相反顺序移回原处（移回前先 `create_new` 占用原位置，原位置被别的文件占了就留在目标处并报告），然后停止归档。纯 RAW 的预览复制排在本组所有移动之后，所以永远不需要回滚复制。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
 - 命令接收的路径来自前端，视为不可信输入。
-- 扫描不得静默丢弃照片：每个 JPG/RAW 要么进会话，要么进 `ScanResult.skipped`（界面会提示）。stem 不区分大小写（只折叠 ASCII，文件保留原名）；同 stem 有多个 JPG/RAW 时，按文件名自然序第一个 JPG 与第一个 RAW 配对，其余各自成为独立条目；每个 XMP 只挂在一个条目上，删除或归档一个条目不会带走别的条目的 sidecar（规则见 `catalog/pairing.rs`）。
+- 扫描不得静默丢弃照片：每个 JPG/RAW 要么进会话，要么进 `ScanResult.skipped`（界面会提示）。0 字节的照片文件不参与配对，记为 `SkipReason::Empty`。stem 不区分大小写（只折叠 ASCII，文件保留原名）；同 stem 有多个 JPG/RAW 时，按文件名自然序第一个 JPG 与第一个 RAW 配对，其余各自成为独立条目；每个 XMP 只挂在一个条目上，删除或归档一个条目不会带走别的条目的 sidecar（规则见 `catalog/pairing.rs`）。
 
 ## 代码规范
 
