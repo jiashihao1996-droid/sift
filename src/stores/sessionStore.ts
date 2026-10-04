@@ -73,6 +73,11 @@ export const useSessionStore = defineStore('session', () => {
   const restoredCount = ref(0)
   /** Whether the last visit's marks or position were brought back */
   const isResumed = ref(false)
+  /**
+   * The folder was archived: its photos moved, so the session no longer
+   * matches the disk. Marks, undo and saved progress are frozen.
+   */
+  const isArchived = ref(false)
 
   const progressWriter = createLatestWriter(writeProgress, (e) =>
     console.warn('[Sift] Failed to save progress:', e),
@@ -112,6 +117,7 @@ export const useSessionStore = defineStore('session', () => {
   async function startScan(path: string) {
     isScanning.value = true
     folderPath.value = path
+    isArchived.value = false
     try {
       const result = await scanFolder(path)
       const restored = restoreProgress(result.pairs, await loadProgressOrNone(path))
@@ -177,7 +183,7 @@ export const useSessionStore = defineStore('session', () => {
   function toggleMark(type: MarkType): boolean | null {
     const idx = currentIndex.value
     const pair = pairs.value[idx]
-    if (!pair) return null
+    if (!pair || isArchived.value) return null
 
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
@@ -202,6 +208,7 @@ export const useSessionStore = defineStore('session', () => {
 
   /** Undo the last mark change and return to that photo; false if there was nothing to undo */
   function undo(): boolean {
+    if (isArchived.value) return false
     const action = undoStack.value.pop()
     if (!action) return false
 
@@ -217,13 +224,14 @@ export const useSessionStore = defineStore('session', () => {
   watch(
     () => [currentIndex.value, pairs.value.map((p) => p.status)],
     () => {
-      if (!folderPath.value || pairs.value.length === 0) return
+      if (!folderPath.value || pairs.value.length === 0 || isArchived.value) return
       progressWriter.schedule(snapshotProgress(folderPath.value, pairs.value, currentIndex.value))
     },
   )
 
   /** Drop restored marks and start the folder over (also forgets the saved progress) */
   function restartSession() {
+    if (isArchived.value) return
     pairs.value = pairs.value.map((p) =>
       p.status === PhotoStatus.Unprocessed ? p : { ...p, status: PhotoStatus.Unprocessed },
     )
@@ -245,10 +253,14 @@ export const useSessionStore = defineStore('session', () => {
     undoStack.value = []
   }
 
-  /** Forget the saved progress of the current folder, e.g. once it is archived */
-  function forgetProgress() {
-    if (!folderPath.value) return
-    progressWriter.schedule(emptyProgress(folderPath.value))
+  /**
+   * Freeze the session once `folder` is archived and forget its saved
+   * progress. The folder is the one captured when archiving started, so the
+   * right progress is cleared even if the session changed since.
+   */
+  function markArchived(folder: string) {
+    isArchived.value = true
+    progressWriter.schedule(emptyProgress(folder))
   }
 
   /** Reset session */
@@ -264,6 +276,7 @@ export const useSessionStore = defineStore('session', () => {
     undoStack.value = []
     restoredCount.value = 0
     isResumed.value = false
+    isArchived.value = false
   }
 
   return {
@@ -279,6 +292,7 @@ export const useSessionStore = defineStore('session', () => {
     endReachedCount,
     restoredCount,
     isResumed,
+    isArchived,
     // Getters
     currentPair,
     totalCount,
@@ -296,7 +310,7 @@ export const useSessionStore = defineStore('session', () => {
     markDelete,
     undo,
     restartSession,
-    forgetProgress,
+    markArchived,
     dropPairs,
     resetSession,
     /** Resolves once pending progress writes are done (tests) */

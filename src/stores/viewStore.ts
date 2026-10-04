@@ -8,6 +8,7 @@ import { ref } from 'vue'
 import type { AppView } from '@/types'
 import { PhotoStatus } from '@/types'
 import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
+import { setOrganizing as reportOrganizing } from '@/services/tauriCommands'
 
 const PANE_CENTER: Point = { x: 0, y: 0 }
 const TOAST_DURATION_MS = 3000
@@ -41,6 +42,8 @@ export const useViewStore = defineStore('view', () => {
   const showShortcutHelp = ref(false)
   /** Marking stays on the photo instead of moving on, for comparing a burst in place */
   const stayAfterMark = ref(loadStayAfterMark())
+  /** Archiving, exporting or deleting is running: nothing may close or leave it */
+  const isOrganizing = ref(false)
 
   // Zoom state
   const zoomLevel = ref(1)
@@ -73,6 +76,14 @@ export const useViewStore = defineStore('view', () => {
 
   function toggleExifPanel() {
     showExifPanel.value = !showExifPanel.value
+  }
+
+  /** Also tells Rust, which then refuses to close the window or quit */
+  function setOrganizing(active: boolean) {
+    isOrganizing.value = active
+    reportOrganizing(active).catch((e) =>
+      console.warn('[Sift] Failed to report organizing state:', e),
+    )
   }
 
   function toggleArchiveDialog() {
@@ -176,6 +187,8 @@ export const useViewStore = defineStore('view', () => {
     showSummaryCard,
     showShortcutHelp,
     stayAfterMark,
+    isOrganizing,
+    setOrganizing,
     zoomLevel,
     zoomOffsetX,
     zoomOffsetY,

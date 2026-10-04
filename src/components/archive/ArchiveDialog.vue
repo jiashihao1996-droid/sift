@@ -3,7 +3,7 @@
 // ArchiveDialog - Modal for archiving and exporting photos
 // ============================================================
 
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { CheckCircle, Download, Archive } from 'lucide-vue-next'
@@ -14,6 +14,7 @@ import {
   exportPicks,
   deletePairs,
   onArchiveProgress,
+  onCloseBlocked,
   onDeleteProgress,
 } from '@/services/tauriCommands'
 import { PhotoStatus, type ArchiveProgress } from '@/types'
@@ -34,6 +35,27 @@ const currentFile = ref('')
 const resultMessage = ref('')
 /** Set when archiving or exporting stopped partway */
 const failure = ref<FailureReport | null>(null)
+/** The user tried to close or quit Sift while organizing */
+const isCloseBlocked = ref(false)
+
+let stopListeningForClose: UnlistenFn | undefined
+onMounted(async () => {
+  stopListeningForClose = await onCloseBlocked(() => {
+    isCloseBlocked.value = true
+  })
+})
+onUnmounted(() => stopListeningForClose?.())
+
+/** Nothing may close the dialog, go home or quit until this resolves */
+async function organizing<T>(work: () => Promise<T>): Promise<T> {
+  view.setOrganizing(true)
+  isCloseBlocked.value = false
+  try {
+    return await work()
+  } finally {
+    view.setOrganizing(false)
+  }
+}
 
 const starredPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Starred))
 
@@ -72,6 +94,8 @@ function showProgress(progress: ArchiveProgress) {
 }
 
 async function handleArchive() {
+  // Captured now: the progress to forget is this folder's, whatever happens next
+  const folder = session.folderPath
   isArchiving.value = true
   archiveProgress.value = 0
   archiveTotal.value = 0
@@ -80,18 +104,20 @@ async function handleArchive() {
 
   try {
     unlisten = await Promise.all([onDeleteProgress(showProgress), onArchiveProgress(showProgress)])
-    const outcome = await runArchive(session.folderPath, session.pairs, {
-      deletePairs,
-      archivePhotos,
-      dropPairs: session.dropPairs,
-    })
+    const outcome = await organizing(() =>
+      runArchive(folder, session.pairs, {
+        deletePairs,
+        archivePhotos,
+        dropPairs: session.dropPairs,
+      }),
+    )
     if (!outcome.ok) {
       failure.value = outcome.report
       return
     }
     resultMessage.value = `已删除 ${outcome.deletedGroups} 组，归档 ${outcome.movedCount} 个文件`
-    // Files have moved into 精选/ and RAW/; the saved marks no longer apply
-    session.forgetProgress()
+    // Files have moved into 精选/ and RAW/: the session and its saved marks no longer apply
+    session.markArchived(folder)
     isComplete.value = true
   } catch (e) {
     // runArchive reports its own failures; this is listening for progress failing
@@ -121,7 +147,7 @@ async function handleExport() {
       xmpPaths: p.xmpPaths,
     }))
 
-    const result = await exportPicks(pairsData, selected)
+    const result = await organizing(() => exportPicks(pairsData, selected))
     resultMessage.value = `已导出 ${result.exportedCount} 个标记文件至 ${result.exportFolder}`
     isComplete.value = true
   } catch (e) {
@@ -132,6 +158,9 @@ async function handleExport() {
 }
 
 function close() {
+  if (view.isOrganizing) return
+  // An archived session no longer matches the folder: the only way on is home
+  if (session.isArchived) return
   // After a partial archive the session no longer matches the folder: the
   // only way on is home, so the backdrop does not dismiss that failure
   if (failure.value && !failure.value.canRetry) return
@@ -210,6 +239,13 @@ const progressPercent = computed(() => {
           </div>
           <p class="text-xs text-sift-muted text-center truncate">
             {{ currentFile }}
+          </p>
+          <p
+            class="text-[11px] text-center mt-3"
+            :class="isCloseBlocked ? 'text-sift-star' : 'text-sift-muted'"
+            role="status"
+          >
+            {{ isCloseBlocked ? '正在整理照片，完成后才能关闭 Sift' : '整理完成前请不要关闭 Sift' }}
           </p>
         </div>
 

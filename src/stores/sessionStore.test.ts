@@ -458,15 +458,44 @@ describe('saved progress', () => {
     expect(clearProgress).toHaveBeenCalledWith('/photos')
   })
 
-  it('forgets saved progress on request, e.g. after archiving', async () => {
-    const store = await scannedStore(2)
+  it('archiving forgets the progress and freezes marks, undo and saving', async () => {
+    const store = await scannedStore(3)
     store.markStar()
     await settle(store)
 
-    store.forgetProgress()
+    store.markArchived('/photos')
+    await settle(store)
+    vi.mocked(saveProgress).mockClear()
+    store.markDelete()
+    store.undo()
+    store.restartSession()
     await settle(store)
 
     expect(clearProgress).toHaveBeenLastCalledWith('/photos')
+    expect(statuses(store)).toEqual([S, U, U])
+    expect(store.isArchived).toBe(true)
+    expect(saveProgress).not.toHaveBeenCalled()
+  })
+
+  it('forgets the folder archived even when the session has moved on', async () => {
+    const store = await scannedStore(2)
+    store.markStar()
+    await settle(store)
+    store.resetSession()
+
+    store.markArchived('/photos')
+    await settle(store)
+
+    expect(clearProgress).toHaveBeenLastCalledWith('/photos')
+  })
+
+  it('a new scan unfreezes the session', async () => {
+    const store = await scannedStore(2)
+    store.markArchived('/photos')
+    await store.startScan('/photos')
+
+    expect(store.isArchived).toBe(false)
+    expect(store.markStar()).toBe('starred')
   })
 
   it('dropping trashed pairs keeps the current photo and clears undo', async () => {

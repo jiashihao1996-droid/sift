@@ -95,6 +95,16 @@ export function onExportProgress(callback: (progress: ArchiveProgress) => void) 
   })
 }
 
+/** Tell Rust whether photos are being organized; it refuses to close or quit meanwhile */
+export async function setOrganizing(active: boolean): Promise<void> {
+  return invoke<void>('set_organizing', { active })
+}
+
+/** Listen for close or quit requests refused because photos are being organized */
+export function onCloseBlocked(callback: () => void) {
+  return listen('close-blocked', () => callback())
+}
+
 /** Clean up temporary cache directories (sift-thumbnails, sift-raw-previews) */
 export async function cleanupCache(): Promise<void> {
   return invoke<void>('cleanup_cache')
