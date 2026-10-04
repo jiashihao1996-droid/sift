@@ -16,7 +16,7 @@ use crate::organize::archive::RAW_DIR;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::path::Path;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 /// RAW files are 25-60MB each; unbounded parallel preview extraction can exhaust memory
 const PREVIEW_EXTRACTION_THREADS: usize = 2;
@@ -68,12 +68,19 @@ fn index_dir(dir: &Path, index: &mut FileIndex) -> Vec<SkippedFile> {
     let mut unreadable = Vec::new();
     for entry in WalkDir::new(dir).max_depth(1) {
         match entry {
-            Ok(e) if e.path().is_file() => index.add(e.path()),
+            Ok(e) if is_file(&e) => index.add(e.path()),
             Ok(_) => {}
             Err(e) => unreadable.push(unreadable_entry(dir, &e)),
         }
     }
     unreadable
+}
+
+/// The entry's type comes from the directory listing, so plain files cost no
+/// extra `stat`; only symlinks are resolved, keeping links to files indexed.
+fn is_file(entry: &DirEntry) -> bool {
+    let file_type = entry.file_type();
+    file_type.is_file() || (file_type.is_symlink() && entry.path().is_file())
 }
 
 fn unreadable_entry(dir: &Path, error: &walkdir::Error) -> SkippedFile {
@@ -323,6 +330,28 @@ mod tests {
     fn ignores_other_subfolders() {
         let dir = folder(&["IMG_1.JPG", "精选/IMG_3.JPG", "other/IMG_4.JPG"]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follows_symlinks_to_photo_files_but_not_to_folders() {
+        use std::os::unix::fs::symlink;
+
+        let dir = folder(&["IMG_1.JPG"]);
+        let elsewhere = folder(&["IMG_2.JPG", "IMG_3.JPG/IMG_4.JPG"]);
+        symlink(
+            elsewhere.path().join("IMG_2.JPG"),
+            dir.path().join("IMG_2.JPG"),
+        )
+        .unwrap();
+        symlink(
+            elsewhere.path().join("IMG_3.JPG"),
+            dir.path().join("IMG_3.JPG"),
+        )
+        .unwrap();
+        symlink(dir.path().join("missing.JPG"), dir.path().join("IMG_5.JPG")).unwrap();
+
+        assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG", "IMG_2.JPG"]);
     }
 
     #[cfg(unix)]
