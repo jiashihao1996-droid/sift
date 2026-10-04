@@ -6,7 +6,7 @@
 import { computed, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { open as openUrl } from '@tauri-apps/plugin-shell'
-import { FolderOpen, Camera, Image, Layers, ArrowRight, History } from 'lucide-vue-next'
+import { FolderOpen, Camera, Image, Layers, ArrowRight, History } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getErrorMessage } from '@/utils/error'

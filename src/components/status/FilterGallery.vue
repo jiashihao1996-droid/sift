@@ -8,7 +8,7 @@ import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Star, Trash2, Circle, X } from 'lucide-vue-next'
+import { Star, Trash2, Circle, X } from '@lucide/vue'
 
 const session = useSessionStore()
 const view = useViewStore()

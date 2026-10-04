@@ -4,7 +4,7 @@
 // ============================================================
 
 import { computed } from 'vue'
-import { ArrowLeft, Info, Archive, Keyboard } from 'lucide-vue-next'
+import { ArrowLeft, Info, Archive, Keyboard } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 

@@ -3,7 +3,7 @@
 // ShortcutHelp - Keyboard shortcut reference (toggled with ?)
 // ============================================================
 
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 import { useViewStore } from '@/stores/viewStore'
 import { SHORTCUT_GROUPS } from './shortcuts'
 
