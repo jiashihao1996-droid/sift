@@ -5,7 +5,7 @@
 // confirmed; on macOS the first delete asks for Finder access.
 // ============================================================
 
-import { TriangleAlert } from 'lucide-vue-next'
+import { TriangleAlert } from '@lucide/vue'
 import type { NoTrashReason } from '@/types'
 import { describeNoTrash } from '@/core/noTrash'
 import { IS_MAC } from '@/utils/platform'

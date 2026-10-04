@@ -5,7 +5,7 @@
 
 import { ref, computed, watch } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { CheckCircle, Download, Archive, Trash2 } from 'lucide-vue-next'
+import { CheckCircle, Download, Archive, Trash2 } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import {

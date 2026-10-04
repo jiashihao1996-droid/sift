@@ -4,7 +4,7 @@
 // the options page so archiving can follow
 // ============================================================
 
-import { CheckCircle } from 'lucide-vue-next'
+import { CheckCircle } from '@lucide/vue'
 import { showInFolder } from '@/services/tauriCommands'
 
 defineProps<{ message: string; folder: string | null }>()

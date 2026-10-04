@@ -3,7 +3,7 @@
 // ActionBar - Floating action buttons (Star / Delete)
 // ============================================================
 
-import { Star, Trash2 } from 'lucide-vue-next'
+import { Star, Trash2 } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { ref, computed, watch } from 'vue'
 import { PhotoStatus } from '@/types'

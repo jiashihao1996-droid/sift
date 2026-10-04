@@ -3,7 +3,7 @@
 // StatusBadge - Shows a photo's mark on the viewer; nothing when unmarked
 // ============================================================
 
-import { Star, Trash2 } from 'lucide-vue-next'
+import { Star, Trash2 } from '@lucide/vue'
 import { PhotoStatus } from '@/types'
 
 defineProps<{ status?: PhotoStatus }>()
