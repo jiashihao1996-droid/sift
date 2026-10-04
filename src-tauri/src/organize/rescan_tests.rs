@@ -9,6 +9,7 @@ use super::archive::{archive_pairs, archive_pairs_moving, PICKS_DIR};
 use super::export::export_pairs;
 use super::transfer::move_file;
 use crate::catalog::scan::scan_folder;
+use crate::models::organize::{OrganizeError, OrganizeErrorKind};
 use crate::models::photo::{
     ArchivePairInput, ExportPairInput, PhotoPair, PhotoSource, PhotoStatus,
 };
@@ -72,13 +73,14 @@ fn archive_group(base: &Path, status: PhotoStatus) {
 
 /// Archive the mixed-case group with its RAW failing to move, as on a card
 /// that fills up or is pulled out halfway. Returns the error.
-fn archive_group_failing_raw(base: &Path, status: PhotoStatus) -> String {
+fn archive_group_failing_raw(base: &Path, status: PhotoStatus) -> OrganizeError {
     let cache = tempdir().unwrap();
     let pair = group_input(base, status);
     let raw = pair.raw_path.clone().unwrap();
     let mut move_unless_raw = |src: &Path, dest: &Path| {
         if src == Path::new(&raw) {
-            return Err("No space left on device".to_string());
+            let full = std::io::Error::from(std::io::ErrorKind::StorageFull);
+            return Err(OrganizeError::io(&full, src, "Failed to move"));
         }
         move_file(src, dest)
     };
@@ -220,9 +222,13 @@ fn a_pick_whose_raw_fails_to_move_is_put_back_whole() {
 
     let err = archive_group_failing_raw(base.path(), PhotoStatus::Starred);
 
-    assert!(err.contains("No space left on device"), "{}", err);
+    assert_eq!(err.kind, OrganizeErrorKind::DiskFull);
+    assert_eq!(
+        err.completed, 0,
+        "the JPG went back, so nothing counts as moved"
+    );
     // The JPG had already moved into 精选/ when the RAW failed
-    assert!(err.contains("put 1 moved file(s) back"), "{}", err);
+    assert!(err.detail.contains("put 1 moved file(s) back"), "{:?}", err);
     assert_eq!(scan_view(base.path()), before, "JPG and RAW pair up again");
     let picks: Vec<_> = WalkDir::new(base.path().join(PICKS_DIR))
         .min_depth(1)
@@ -249,4 +255,37 @@ fn a_renamed_group_that_fails_leaves_no_empty_placeholder_behind() {
         "img_1.jpg",
         "the JPG renamed in place got its name back"
     );
+}
+
+#[test]
+fn a_failure_reports_the_photos_archived_before_it() {
+    let base = TempDir::new().unwrap();
+    let cache = tempdir().unwrap();
+    let earlier = ArchivePairInput {
+        jpg_path: write(&base.path().join("DSC_0.JPG"), "jpg"),
+        raw_path: Some(write(&base.path().join("DSC_0.ARW"), "raw")),
+        status: PhotoStatus::Starred,
+        source: PhotoSource::Jpg,
+        xmp_paths: vec![],
+    };
+    let failing = group_input(base.path(), PhotoStatus::Starred);
+    let raw = failing.raw_path.clone().unwrap();
+    let mut move_unless_raw = |src: &Path, dest: &Path| {
+        if src == Path::new(&raw) {
+            return Err(OrganizeError::other("card pulled out"));
+        }
+        move_file(src, dest)
+    };
+
+    let err = archive_pairs_moving(
+        base.path(),
+        &[earlier, failing],
+        cache.path(),
+        &mut |_| {},
+        &mut move_unless_raw,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.completed, 2, "DSC_0's JPG and RAW are in 精选/");
+    assert!(base.path().join(PICKS_DIR).join("DSC_0.ARW").exists());
 }

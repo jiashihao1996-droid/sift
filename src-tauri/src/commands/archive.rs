@@ -1,9 +1,11 @@
 // ============================================================
 // Sift - Archive Command
-// IPC wrapper for organize::archive; forwards progress as events
+// IPC wrapper for organize::archive; forwards progress as events and
+// rejects with an `OrganizeError`
 // ============================================================
 
 use crate::media::cache_dirs;
+use crate::models::organize::OrganizeError;
 use crate::models::photo::{ArchivePairInput, ArchiveResult};
 use crate::organize::archive::archive_pairs;
 use std::path::Path;
@@ -14,7 +16,7 @@ pub async fn archive_photos(
     app: AppHandle,
     folder_path: String,
     pairs: Vec<ArchivePairInput>,
-) -> Result<ArchiveResult, String> {
+) -> Result<ArchiveResult, OrganizeError> {
     tokio::task::spawn_blocking(move || {
         let preview_cache = cache_dirs::path(cache_dirs::RAW_PREVIEWS);
         archive_pairs(
@@ -27,5 +29,5 @@ pub async fn archive_photos(
         )
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| OrganizeError::other(format!("Task join error: {}", e)))?
 }

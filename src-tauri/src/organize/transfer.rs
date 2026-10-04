@@ -7,13 +7,14 @@
 // or an empty file standing in for a real one.
 // ============================================================
 
+use crate::models::organize::OrganizeError;
 use crate::paths;
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 
 /// Moves a file onto an empty placeholder we claimed. Production passes
 /// `move_file`; tests inject failures.
-pub type MoveFn<'a> = dyn FnMut(&Path, &Path) -> Result<(), String> + 'a;
+pub type MoveFn<'a> = dyn FnMut(&Path, &Path) -> Result<(), OrganizeError> + 'a;
 
 /// How a file reaches its destination.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -40,7 +41,7 @@ pub struct Step<'a> {
 /// partial copy nor a full copy whose source could not be removed is left as
 /// a second version of the photo; the caller removes the empty placeholder.
 /// `dest` is only emptied while `src` still exists.
-pub fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
+pub fn move_file(src: &Path, dest: &Path) -> Result<(), OrganizeError> {
     if fs::rename(src, dest).is_ok() {
         return Ok(());
     }
@@ -49,15 +50,11 @@ pub fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
 
 /// `move_file`'s fallback, separate so tests can reach it without having to
 /// make `rename` fail (which differs per platform).
-fn copy_then_remove(src: &Path, dest: &Path) -> Result<(), String> {
+fn copy_then_remove(src: &Path, dest: &Path) -> Result<(), OrganizeError> {
     if let Err(e) = fs::copy(src, dest) {
         discard_copy(src, dest);
-        return Err(format!(
-            "Failed to copy {} -> {}: {}",
-            src.display(),
-            dest.display(),
-            e
-        ));
+        let action = format!("Failed to copy to {}:", dest.display());
+        return Err(OrganizeError::io(&e, src, &action));
     }
     match fs::remove_file(src) {
         Ok(()) => Ok(()),
@@ -65,11 +62,7 @@ fn copy_then_remove(src: &Path, dest: &Path) -> Result<(), String> {
         Err(_) if !src.exists() => Ok(()),
         Err(e) => {
             discard_copy(src, dest);
-            Err(format!(
-                "Failed to remove {} after copying it: {}",
-                src.display(),
-                e
-            ))
+            Err(OrganizeError::io(&e, src, "Failed to remove after copying"))
         }
     }
 }
@@ -99,7 +92,7 @@ pub fn move_group(
     steps: &[Step],
     mut placeholders: Vec<PathBuf>,
     move_file: &mut MoveFn,
-) -> Result<(), String> {
+) -> Result<(), OrganizeError> {
     let moves = steps.iter().filter(|s| s.transfer == Transfer::Move);
     let copies = steps.iter().filter(|s| s.transfer == Transfer::CopyPreview);
     let mut done: Vec<&Step> = Vec::new();
@@ -111,7 +104,7 @@ pub fn move_group(
             }
             let rollback = put_back(&done, &mut placeholders, move_file);
             remove_empty_placeholders(&placeholders, &rollback.occupied);
-            return Err(rollback.describe(&cause));
+            return Err(rollback.describe(cause));
         }
         done.push(step);
     }
@@ -131,12 +124,12 @@ fn went_through_anyway(step: &Step) -> bool {
         && fs::symlink_metadata(step.dest).is_ok_and(|m| m.len() > 0)
 }
 
-fn run_step(step: &Step, move_file: &mut MoveFn) -> Result<(), String> {
+fn run_step(step: &Step, move_file: &mut MoveFn) -> Result<(), OrganizeError> {
     match step.transfer {
         Transfer::Move => move_file(step.src, step.dest),
         Transfer::CopyPreview => fs::copy(step.src, step.dest).map(drop).map_err(|e| {
             discard_copy(step.src, step.dest);
-            format!("Failed to copy preview JPG: {}", e)
+            OrganizeError::io(&e, step.dest, "Failed to save the preview JPG as")
         }),
     }
 }
@@ -152,15 +145,16 @@ struct Rollback<'a> {
 }
 
 impl Rollback<'_> {
-    fn describe(&self, cause: &str) -> String {
-        let mut message = cause.to_string();
+    /// The cause keeps its category and path; the detail says what the
+    /// rollback did.
+    fn describe(&self, mut cause: OrganizeError) -> OrganizeError {
         if self.put_back > 0 {
-            message += &format!("; put {} moved file(s) back", self.put_back);
+            cause.detail += &format!("; put {} moved file(s) back", self.put_back);
         }
         if !self.stuck.is_empty() {
-            message += &format!("; could not put back {}", self.stuck.join(", "));
+            cause.detail += &format!("; could not put back {}", self.stuck.join(", "));
         }
-        message
+        cause
     }
 }
 
@@ -185,7 +179,7 @@ fn put_back<'a>(
                     "{} (belongs at {}): {}",
                     step.dest.display(),
                     step.src.display(),
-                    e
+                    e.detail
                 ));
             }
         }
@@ -197,9 +191,9 @@ fn put_back_one(
     step: &Step,
     placeholders: &mut Vec<PathBuf>,
     move_file: &mut MoveFn,
-) -> Result<(), String> {
+) -> Result<(), OrganizeError> {
     paths::claim_one(step.src)
-        .map_err(|e| format!("cannot reclaim the original location: {}", e))?;
+        .map_err(|e| OrganizeError::io(&e, step.src, "Cannot reclaim the original location"))?;
     placeholders.push(step.src.to_path_buf());
     move_file(step.dest, step.src)
 }
@@ -233,6 +227,7 @@ fn is_empty_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::organize::OrganizeErrorKind;
     use tempfile::TempDir;
 
     fn write(path: &Path, contents: &str) -> PathBuf {
@@ -263,13 +258,18 @@ mod tests {
     }
 
     /// The real move, except that moving `failing` fails.
-    fn failing_on(failing: &Path) -> impl FnMut(&Path, &Path) -> Result<(), String> + '_ {
+    fn failing_on(failing: &Path) -> impl FnMut(&Path, &Path) -> Result<(), OrganizeError> + '_ {
         move |src, dest| {
             if src == failing {
-                return Err("disk full".into());
+                return Err(disk_full(src));
             }
             move_file(src, dest)
         }
+    }
+
+    fn disk_full(path: &Path) -> OrganizeError {
+        let error = std::io::Error::from(std::io::ErrorKind::StorageFull);
+        OrganizeError::io(&error, path, "Failed to move")
     }
 
     #[test]
@@ -295,7 +295,8 @@ mod tests {
 
         let err = copy_then_remove(&src, &dest).unwrap_err();
 
-        assert!(err.contains("Failed to copy"), "{}", err);
+        assert!(err.detail.contains("Failed to copy"), "{:?}", err);
+        assert_eq!(err.path.as_deref(), Some(src.to_string_lossy().as_ref()));
         assert!(src.is_dir());
         assert_eq!(read(&dest), "");
     }
@@ -315,7 +316,9 @@ mod tests {
         let result = move_file(&src, &dest);
 
         fs::set_permissions(&card, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(result.unwrap_err().contains("Failed to remove"));
+        let err = result.unwrap_err();
+        assert!(err.detail.contains("Failed to remove"), "{:?}", err);
+        assert_eq!(err.kind, OrganizeErrorKind::PermissionDenied);
         assert_eq!(read(&src), "data");
         assert_eq!(read(&dest), "", "no second version of the photo");
     }
@@ -362,8 +365,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.contains("disk full"), "{}", err);
-        assert!(err.contains("put 1 moved file(s) back"), "{}", err);
+        assert_eq!(err.kind, OrganizeErrorKind::DiskFull);
+        assert_eq!(err.path.as_deref(), Some(raw.to_string_lossy().as_ref()));
+        assert!(err.detail.contains("put 1 moved file(s) back"), "{:?}", err);
         assert_eq!(read(&jpg), "jpg");
         assert_eq!(read(&raw), "raw");
         assert!(!jpg_dest.exists() && !raw_dest.exists());
@@ -409,14 +413,14 @@ mod tests {
                 if src == raw {
                     // A sync client drops a new IMG_1.jpg where ours used to be
                     fs::write(&jpg_path, "other process").unwrap();
-                    return Err("disk full".into());
+                    return Err(disk_full(src));
                 }
                 move_file(src, dest)
             },
         )
         .unwrap_err();
 
-        assert!(err.contains("could not put back"), "{}", err);
+        assert!(err.detail.contains("could not put back"), "{:?}", err);
         assert_eq!(read(&jpg), "other process");
         assert_eq!(read(&jpg_dest), "jpg", "ours stays where it was moved");
         assert!(!raw_dest.exists());
@@ -438,14 +442,14 @@ mod tests {
             placeholders,
             &mut |src, dest| {
                 if src == raw || src == jpg_dest {
-                    return Err("volume went away".into());
+                    return Err(OrganizeError::other("volume went away"));
                 }
                 move_file(src, dest)
             },
         )
         .unwrap_err();
 
-        assert!(err.contains("could not put back"), "{}", err);
+        assert!(err.detail.contains("could not put back"), "{:?}", err);
         assert_eq!(read(&jpg_dest), "jpg");
         assert!(
             !jpg.exists(),

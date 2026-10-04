@@ -7,6 +7,7 @@
 // ============================================================
 
 use super::file_name;
+use crate::models::organize::OrganizeError;
 use crate::models::photo::{ArchiveProgress, ExportPairInput, PhotoSource};
 use crate::paths::claim_paths_sharing_stem;
 use std::fs;
@@ -24,13 +25,15 @@ impl ExportFile<'_> {
     }
 }
 
-/// Copy every pair into `target` and return how many photos (JPG/RAW) were copied.
+/// Copy every pair into `target` and return how many photos (JPG/RAW) were
+/// copied. On failure the error counts the photos copied before it.
 pub fn export_pairs(
     pairs: &[ExportPairInput],
     target: &Path,
     mut on_progress: impl FnMut(ArchiveProgress),
-) -> Result<usize, String> {
-    fs::create_dir_all(target).map_err(|e| format!("Failed to create export dir: {}", e))?;
+) -> Result<usize, OrganizeError> {
+    fs::create_dir_all(target)
+        .map_err(|e| OrganizeError::io(&e, target, "Failed to create export folder"))?;
 
     let total = pairs.len();
     let mut exported_count: usize = 0;
@@ -47,7 +50,8 @@ pub fn export_pairs(
             current_file: file_name(first.src),
         });
 
-        exported_count += copy_group(&files, target, &pair_stem(pair))?;
+        exported_count += copy_group(&files, target, &pair_stem(pair))
+            .map_err(|e| e.with_completed(exported_count))?;
     }
 
     Ok(exported_count)
@@ -90,18 +94,22 @@ fn pair_stem(pair: &ExportPairInput) -> String {
 }
 
 /// Copy a pair's files under one shared, non-colliding suffix; returns the photo count.
-fn copy_group(files: &[ExportFile], target: &Path, stem: &str) -> Result<usize, String> {
+fn copy_group(files: &[ExportFile], target: &Path, stem: &str) -> Result<usize, OrganizeError> {
     let candidates: Vec<_> = files
         .iter()
         .map(|f| target.join(file_name(f.src)))
         .collect();
-    let dests = claim_paths_sharing_stem(&candidates, stem)
-        .map_err(|e| format!("Failed to reserve export file names for {}: {}", stem, e))?;
+    let dests = claim_paths_sharing_stem(&candidates, stem).map_err(|e| {
+        OrganizeError::io(&e, files[0].src, "Failed to reserve export file names for")
+    })?;
 
     // Every dest is now an empty placeholder this call created, so fs::copy
     // only ever replaces our own file. A failed copy leaves the placeholder.
     for (file, dest) in files.iter().zip(&dests) {
-        fs::copy(file.src, dest).map_err(|e| format!("Failed to copy {}: {}", file.kind, e))?;
+        fs::copy(file.src, dest).map_err(|e| {
+            let action = format!("Failed to copy {} to {}:", file.kind, dest.display());
+            OrganizeError::io(&e, file.src, &action)
+        })?;
     }
     Ok(files.iter().filter(|f| f.is_photo()).count())
 }

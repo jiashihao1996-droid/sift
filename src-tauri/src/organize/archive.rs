@@ -13,6 +13,7 @@
 
 use super::file_name;
 use super::transfer::{self, MoveFn, Step, Transfer};
+use crate::models::organize::OrganizeError;
 use crate::models::photo::{
     ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource, PhotoStatus,
 };
@@ -44,17 +45,20 @@ fn archive_dirs(base: &Path, preview_cache: &Path) -> ArchiveDirs {
 /// A RAW-only pair's `jpg_path` comes from the frontend and is removed after
 /// being copied, so it must be one of our cached previews. Anything else may
 /// be a user photo: refuse the whole archive rather than guess.
-fn ensure_previews_are_cached(pairs: &[ArchivePairInput], cache: &Path) -> Result<(), String> {
+fn ensure_previews_are_cached(
+    pairs: &[ArchivePairInput],
+    cache: &Path,
+) -> Result<(), OrganizeError> {
     let stray = pairs
         .iter()
         .filter(|p| p.status != PhotoStatus::Deleted && p.source == PhotoSource::RawPreview)
         .map(|p| Path::new(&p.jpg_path))
         .find(|jpg| jpg.exists() && !paths::is_inside_dir(jpg, cache));
     match stray {
-        Some(jpg) => Err(format!(
+        Some(jpg) => Err(OrganizeError::other(format!(
             "Refusing to archive {}: not a cached RAW preview",
             jpg.display()
-        )),
+        ))),
         None => Ok(()),
     }
 }
@@ -62,13 +66,14 @@ fn ensure_previews_are_cached(pairs: &[ArchivePairInput], cache: &Path) -> Resul
 /// Sort every non-deleted pair under `base` into `精选/` and `RAW/`; folders
 /// are only created when something moves into them. `on_progress` is called
 /// once per pair whose primary file exists. Stops at the first pair that
-/// fails, after putting that pair back.
+/// fails, after putting that pair back; the error counts the photos moved
+/// before it.
 pub fn archive_pairs(
     base: &Path,
     pairs: &[ArchivePairInput],
     preview_cache: &Path,
     on_progress: &mut OnProgress,
-) -> Result<ArchiveResult, String> {
+) -> Result<ArchiveResult, OrganizeError> {
     archive_pairs_moving(
         base,
         pairs,
@@ -85,7 +90,7 @@ pub(super) fn archive_pairs_moving(
     preview_cache: &Path,
     on_progress: &mut OnProgress,
     move_file: &mut MoveFn,
-) -> Result<ArchiveResult, String> {
+) -> Result<ArchiveResult, OrganizeError> {
     // Validate before creating folders or moving anything, so a bad request
     // leaves the user's folder exactly as it was.
     ensure_previews_are_cached(pairs, preview_cache)?;
@@ -106,7 +111,8 @@ pub(super) fn archive_pairs_moving(
             &dirs,
             paths::unique_paths_sharing_stem_from,
             move_file,
-        )?;
+        )
+        .map_err(|e| e.with_completed(moved_count))?;
     }
 
     Ok(ArchiveResult {
@@ -260,15 +266,14 @@ fn archive_pair_choosing(
     dirs: &ArchiveDirs,
     mut choose: impl FnMut(&[&Path], &[PathBuf], &str) -> Vec<PathBuf>,
     move_file: &mut MoveFn,
-) -> Result<usize, String> {
+) -> Result<usize, OrganizeError> {
     let files = plan_pair(pair, dirs);
     if files.is_empty() {
         return Ok(0);
     }
     for file in files.iter().filter(|f| !f.stays(&f.dest)) {
         let dir = file.dest.parent().unwrap_or(&file.dest);
-        fs::create_dir_all(dir)
-            .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
+        fs::create_dir_all(dir).map_err(|e| OrganizeError::io(&e, dir, "Failed to create"))?;
     }
 
     let sources: Vec<&Path> = files.iter().map(|f| f.src).collect();
@@ -291,9 +296,11 @@ fn archive_pair_choosing(
     );
     if let Err(e) = claimed {
         transfer::remove_empty_placeholders(&placeholders, &[]);
-        return Err(format!(
-            "Failed to reserve archive file names for {}: {}",
-            stem, e
+        let photo = primary_file(pair).unwrap_or(files[0].src);
+        return Err(OrganizeError::io(
+            &e,
+            photo,
+            "Failed to reserve archive file names for",
         ));
     }
 
@@ -313,7 +320,7 @@ fn archive_pair_choosing(
         })
         .collect();
     transfer::move_group(&steps, placeholders, move_file)
-        .map_err(|e| format!("Failed to archive {}: {}", stem, e))?;
+        .map_err(|e| e.context(format_args!("Failed to archive {}", stem)))?;
 
     for (file, _) in moving
         .iter()
@@ -391,7 +398,7 @@ mod tests {
         base: &Path,
         cache: &Path,
         pairs: &[ArchivePairInput],
-    ) -> Result<ArchiveResult, String> {
+    ) -> Result<ArchiveResult, OrganizeError> {
         archive_pairs(base, pairs, cache, &mut |_| {})
     }
 
@@ -707,7 +714,7 @@ mod tests {
 
         let err = try_archive(&base, &cache, &pairs).unwrap_err();
 
-        assert!(err.contains("not a cached RAW preview"), "{}", err);
+        assert!(err.detail.contains("not a cached RAW preview"), "{:?}", err);
         assert_eq!(read(Path::new(&user_jpg)), "user jpg");
         assert!(Path::new(&raw).exists());
         assert!(
