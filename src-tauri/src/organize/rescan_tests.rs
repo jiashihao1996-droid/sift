@@ -1,11 +1,13 @@
 // ============================================================
 // Sift - Organize → Rescan Round Trips
 // Archive and export must leave files that a rescan pairs up again, even
-// when a pair's JPG, RAW and XMPs spell their stem in different cases.
+// when a pair's JPG, RAW and XMPs spell their stem in different cases, and
+// an archive that fails halfway must leave the folder rescanning as before.
 // ============================================================
 
-use super::archive::{archive_pairs, PICKS_DIR};
+use super::archive::{archive_pairs, archive_pairs_moving, PICKS_DIR};
 use super::export::export_pairs;
+use super::transfer::move_file;
 use crate::catalog::scan::scan_folder;
 use crate::models::photo::{
     ArchivePairInput, ExportPairInput, PhotoPair, PhotoSource, PhotoStatus,
@@ -13,6 +15,7 @@ use crate::models::photo::{
 use std::fs;
 use std::path::Path;
 use tempfile::{tempdir, TempDir};
+use walkdir::WalkDir;
 
 /// A JPG, RAW and both XMP styles whose stems differ only in case.
 const MIXED_CASE_GROUP: [&str; 4] = ["img_1.jpg", "IMG_1.CR3", "Img_1.xmp", "img_1.cr3.xmp"];
@@ -50,17 +53,72 @@ fn assert_rescanned_as_one_pair(pairs: &[PhotoPair], jpg: &str, raw: &str, xmps:
     assert_eq!(names, xmps);
 }
 
-fn archive_group(base: &Path, status: PhotoStatus) {
-    let cache = tempdir().unwrap();
+fn group_input(base: &Path, status: PhotoStatus) -> ArchivePairInput {
     let [jpg, raw, xmp, raw_xmp] = <[String; 4]>::try_from(sources(base)).unwrap();
-    let pair = ArchivePairInput {
+    ArchivePairInput {
         jpg_path: jpg,
         raw_path: Some(raw),
         status,
         source: PhotoSource::Jpg,
         xmp_paths: vec![xmp, raw_xmp],
-    };
+    }
+}
+
+fn archive_group(base: &Path, status: PhotoStatus) {
+    let cache = tempdir().unwrap();
+    let pair = group_input(base, status);
     archive_pairs(base, &[pair], cache.path(), &mut |_| {}).unwrap();
+}
+
+/// Archive the mixed-case group with its RAW failing to move, as on a card
+/// that fills up or is pulled out halfway. Returns the error.
+fn archive_group_failing_raw(base: &Path, status: PhotoStatus) -> String {
+    let cache = tempdir().unwrap();
+    let pair = group_input(base, status);
+    let raw = pair.raw_path.clone().unwrap();
+    let mut move_unless_raw = |src: &Path, dest: &Path| {
+        if src == Path::new(&raw) {
+            return Err("No space left on device".to_string());
+        }
+        move_file(src, dest)
+    };
+    archive_pairs_moving(
+        base,
+        &[pair],
+        cache.path(),
+        &mut |_| {},
+        &mut move_unless_raw,
+    )
+    .unwrap_err()
+}
+
+/// What a rescan of `dir` shows: each entry's files, then the skipped files.
+fn scan_view(dir: &Path) -> (Vec<Vec<String>>, Vec<String>) {
+    let cache = tempdir().unwrap();
+    let result = scan_folder(dir, cache.path()).unwrap();
+    let mut entries: Vec<Vec<String>> = result
+        .pairs
+        .iter()
+        .map(|p| {
+            let mut files = vec![p.jpg_path.clone()];
+            files.extend(p.raw_path.clone());
+            files.extend(p.xmp_paths.iter().cloned());
+            files.sort();
+            files
+        })
+        .collect();
+    entries.sort();
+    let skipped = result.skipped.into_iter().map(|f| f.path).collect();
+    (entries, skipped)
+}
+
+fn empty_files(dir: &Path) -> Vec<String> {
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file() && e.metadata().unwrap().len() == 0)
+        .map(|e| e.path().display().to_string())
+        .collect()
 }
 
 fn assert_contents(dir: &Path, moved: [(&str, &str); 4]) {
@@ -151,5 +209,44 @@ fn exported_mixed_case_pair_keeps_each_stem_and_one_suffix_and_pairs_on_rescan()
         "img_1_1.jpg",
         "IMG_1_1.CR3",
         ["Img_1_1.xmp", "img_1_1.cr3.xmp"],
+    );
+}
+
+#[test]
+fn a_pick_whose_raw_fails_to_move_is_put_back_whole() {
+    let base = TempDir::new().unwrap();
+    sources(base.path());
+    let before = scan_view(base.path());
+
+    let err = archive_group_failing_raw(base.path(), PhotoStatus::Starred);
+
+    assert!(err.contains("No space left on device"), "{}", err);
+    // The JPG had already moved into 精选/ when the RAW failed
+    assert!(err.contains("put 1 moved file(s) back"), "{}", err);
+    assert_eq!(scan_view(base.path()), before, "JPG and RAW pair up again");
+    let picks: Vec<_> = WalkDir::new(base.path().join(PICKS_DIR))
+        .min_depth(1)
+        .into_iter()
+        .collect();
+    assert!(picks.is_empty(), "nothing left in 精选/: {:?}", picks);
+}
+
+#[test]
+fn a_renamed_group_that_fails_leaves_no_empty_placeholder_behind() {
+    let base = TempDir::new().unwrap();
+    // RAW/ already holds another card's IMG_1, so the group moves on to _1:
+    // the JPG is renamed in place and the RAW claims RAW/IMG_1_1.CR3
+    write(&base.path().join("RAW/IMG_1.CR3"), "earlier raw");
+    sources(base.path());
+    let before = scan_view(base.path());
+
+    archive_group_failing_raw(base.path(), PhotoStatus::Unprocessed);
+
+    assert_eq!(scan_view(base.path()), before);
+    assert_eq!(empty_files(base.path()), Vec::<String>::new());
+    assert_eq!(
+        fs::read_to_string(base.path().join("img_1.jpg")).unwrap(),
+        "img_1.jpg",
+        "the JPG renamed in place got its name back"
     );
 }

@@ -71,27 +71,43 @@ const MAX_CLAIM_ATTEMPTS: usize = 100;
 ///
 /// When a name turns out to be taken, the whole group moves on to the next
 /// free suffix so it keeps sharing one stem. Placeholders already created for
-/// the abandoned suffix stay behind as empty files: removing them could delete
-/// a file that replaced them in the meantime.
+/// the abandoned suffix stay behind as empty files.
 pub fn claim_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> io::Result<Vec<PathBuf>> {
-    claim_first_free(|| unique_paths_sharing_stem(candidates, stem))
+    claim_first_free(
+        || unique_paths_sharing_stem(candidates, stem),
+        &mut Vec::new(),
+    )
 }
 
 /// Claim the paths returned by `choose`, asking again whenever one is taken.
+/// Every placeholder this call creates is pushed onto `created`, including
+/// those of an abandoned suffix and those created before an error, so the
+/// caller can clean up after itself (`organize::transfer`).
 /// Exposed so callers' tests can inject a file between the choice and the claim.
 pub(crate) fn claim_first_free(
     mut choose: impl FnMut() -> Vec<PathBuf>,
+    created: &mut Vec<PathBuf>,
 ) -> io::Result<Vec<PathBuf>> {
     let mut last_err = None;
     for _ in 0..MAX_CLAIM_ATTEMPTS {
         let paths = choose();
-        match paths.iter().try_for_each(|p| create_new(p)) {
+        let claimed = paths.iter().try_for_each(|p| -> io::Result<()> {
+            create_new(p)?;
+            created.push(p.clone());
+            Ok(())
+        });
+        match claimed {
             Ok(()) => return Ok(paths),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last_err = Some(e),
             Err(e) => return Err(e),
         }
     }
     Err(last_err.expect("MAX_CLAIM_ATTEMPTS is not zero"))
+}
+
+/// Claim `path` alone with `create_new`, as `claim_first_free` does for a group.
+pub(crate) fn claim_one(path: &Path) -> io::Result<()> {
+    create_new(path)
 }
 
 fn create_new(path: &Path) -> io::Result<()> {
@@ -349,13 +365,17 @@ mod tests {
 
         // Another process creates DSC_0001.xmp between the existence check
         // and the claim: exactly the window `create_new` has to close.
-        let got = claim_first_free(|| {
-            let chosen = unique_paths_sharing_stem(&group, "DSC_0001");
-            if std::mem::take(&mut is_first_try) {
-                fs::write(&chosen[1], "other process").unwrap();
-            }
-            chosen
-        })
+        let mut created = Vec::new();
+        let got = claim_first_free(
+            || {
+                let chosen = unique_paths_sharing_stem(&group, "DSC_0001");
+                if std::mem::take(&mut is_first_try) {
+                    fs::write(&chosen[1], "other process").unwrap();
+                }
+                chosen
+            },
+            &mut created,
+        )
         .unwrap();
 
         assert_eq!(
@@ -368,7 +388,15 @@ mod tests {
         );
         assert!(
             is_empty_file(&dir.path().join("DSC_0001.ARW")),
-            "the abandoned placeholder is left, never removed"
+            "the abandoned placeholder is left for the caller"
+        );
+        assert_eq!(
+            created,
+            in_dir(
+                dir.path(),
+                &["DSC_0001.ARW", "DSC_0001_1.ARW", "DSC_0001_1.xmp"]
+            ),
+            "every placeholder created is reported, abandoned ones included"
         );
     }
 
@@ -377,14 +405,30 @@ mod tests {
         let dir = tempdir().unwrap();
         let group = in_dir(dir.path(), &["DSC_0001.JPG"]);
 
-        let err = claim_first_free(|| {
-            let chosen = unique_paths_sharing_stem(&group, "DSC_0001");
-            fs::write(&chosen[0], "someone else").unwrap();
-            chosen
-        })
+        let err = claim_first_free(
+            || {
+                let chosen = unique_paths_sharing_stem(&group, "DSC_0001");
+                fs::write(&chosen[0], "someone else").unwrap();
+                chosen
+            },
+            &mut Vec::new(),
+        )
         .unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+    }
+
+    #[test]
+    fn claim_reports_placeholders_created_before_an_error() {
+        let dir = tempdir().unwrap();
+        let mut group = in_dir(dir.path(), &["DSC_0001.JPG"]);
+        group.extend(in_dir(&dir.path().join("missing"), &["DSC_0001.ARW"]));
+        let mut created = Vec::new();
+
+        let err = claim_first_free(|| group.clone(), &mut created).unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(created, group[..1]);
     }
 
     #[test]

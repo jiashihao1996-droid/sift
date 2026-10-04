@@ -9,6 +9,7 @@ import { extractFileName } from '@/utils/path'
 const SKIP_REASON_LABELS: Record<SkipReason, string> = {
   noPreview: '无法提取内嵌预览',
   unreadable: '无法读取（没有访问权限或磁盘出错）',
+  empty: '空文件（0 字节），可能是复制或整理中断留下的',
 }
 
 export interface SkippedLine {

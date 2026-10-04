@@ -7,9 +7,12 @@
 // Never overwrites: a pair that collides anywhere gets one shared `_N`
 // suffix on every file, including a JPG left in place, so a rescan still
 // pairs it. Each destination is claimed with `create_new` before moving.
+// Each pair moves as a unit (`transfer`): if one of its files fails, the
+// rest go back and the archive stops, so a pair is never split.
 // ============================================================
 
 use super::file_name;
+use super::transfer::{self, MoveFn, Step, Transfer};
 use crate::models::photo::{
     ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource, PhotoStatus,
 };
@@ -21,31 +24,6 @@ use std::path::{Path, PathBuf};
 pub const PICKS_DIR: &str = "精选";
 /// Folder for the RAWs of unmarked pairs; scan pairs it with the JPGs left in place
 pub const RAW_DIR: &str = "RAW";
-
-/// Move a file to the destination, falling back to copy+remove if rename fails
-/// (e.g. cross-volume moves on Windows).
-///
-/// The fallback removes `src` only after `fs::copy` has returned Ok, so a
-/// failed copy never loses the original. If the remove then fails, both copies
-/// exist and an error is returned: duplicated, never lost. `dest` must be an
-/// empty placeholder claimed by `paths::claim_paths_sharing_stem`: `rename`
-/// and `fs::copy` both replace an existing destination.
-fn move_file(src: &Path, dest: &Path) -> Result<(), String> {
-    let src_str = src.to_string_lossy();
-    let dest_str = dest.to_string_lossy();
-
-    match fs::rename(src, dest) {
-        Ok(()) => Ok(()),
-        Err(_) => {
-            // Fallback: copy then remove (handles cross-volume moves on Windows)
-            fs::copy(src, dest)
-                .map_err(|e| format!("Failed to copy {} -> {}: {}", src_str, dest_str, e))?;
-            fs::remove_file(src)
-                .map_err(|e| format!("Failed to remove source after copy {}: {}", src_str, e))?;
-            Ok(())
-        }
-    }
-}
 
 pub type OnProgress<'a> = dyn FnMut(ArchiveProgress) + 'a;
 
@@ -83,12 +61,30 @@ fn ensure_previews_are_cached(pairs: &[ArchivePairInput], cache: &Path) -> Resul
 
 /// Sort every non-deleted pair under `base` into `精选/` and `RAW/`; folders
 /// are only created when something moves into them. `on_progress` is called
-/// once per pair whose primary file exists.
+/// once per pair whose primary file exists. Stops at the first pair that
+/// fails, after putting that pair back.
 pub fn archive_pairs(
     base: &Path,
     pairs: &[ArchivePairInput],
     preview_cache: &Path,
     on_progress: &mut OnProgress,
+) -> Result<ArchiveResult, String> {
+    archive_pairs_moving(
+        base,
+        pairs,
+        preview_cache,
+        on_progress,
+        &mut transfer::move_file,
+    )
+}
+
+/// `archive_pairs` with the file move injectable, so tests can fail it.
+pub(super) fn archive_pairs_moving(
+    base: &Path,
+    pairs: &[ArchivePairInput],
+    preview_cache: &Path,
+    on_progress: &mut OnProgress,
+    move_file: &mut MoveFn,
 ) -> Result<ArchiveResult, String> {
     // Validate before creating folders or moving anything, so a bad request
     // leaves the user's folder exactly as it was.
@@ -105,7 +101,12 @@ pub fn archive_pairs(
         if let Some(primary) = primary_file(pair) {
             on_progress(progress(i + 1, total, primary));
         }
-        moved_count += archive_pair(pair, &dirs)?;
+        moved_count += archive_pair_choosing(
+            pair,
+            &dirs,
+            paths::unique_paths_sharing_stem_from,
+            move_file,
+        )?;
     }
 
     Ok(ArchiveResult {
@@ -156,15 +157,6 @@ fn preview_dest_name(pair: &ArchivePairInput) -> String {
             .to_string_lossy()
             .to_string(),
     }
-}
-
-/// How a file reaches its destination.
-#[derive(Clone, Copy, PartialEq)]
-enum Transfer {
-    /// A user file: moved (or renamed in place).
-    Move,
-    /// Our cached RAW preview: copied, then removed from the cache.
-    CopyPreview,
 }
 
 /// One file of a pair and where it should end up. `dest == src` means it
@@ -261,16 +253,13 @@ fn pair_stem(pair: &ArchivePairInput) -> String {
 /// Archive one pair. If any of its names is taken, the whole pair gets the
 /// same `_N` suffix in every folder, a JPG left in place included, so a rescan
 /// still pairs it. Returns how many photos (JPG/RAW, not XMP) were moved.
-fn archive_pair(pair: &ArchivePairInput, dirs: &ArchiveDirs) -> Result<usize, String> {
-    archive_pair_choosing(pair, dirs, paths::unique_paths_sharing_stem_from)
-}
-
-/// `archive_pair` with the destination choice injectable, so tests can create
-/// a file between the choice and the claim.
+/// `choose` picks the destinations; tests inject it to create a file between
+/// the choice and the claim.
 fn archive_pair_choosing(
     pair: &ArchivePairInput,
     dirs: &ArchiveDirs,
     mut choose: impl FnMut(&[&Path], &[PathBuf], &str) -> Vec<PathBuf>,
+    move_file: &mut MoveFn,
 ) -> Result<usize, String> {
     let files = plan_pair(pair, dirs);
     if files.is_empty() {
@@ -286,37 +275,53 @@ fn archive_pair_choosing(
     let candidates: Vec<PathBuf> = files.iter().map(|f| f.dest.clone()).collect();
     let stem = pair_stem(pair);
     let mut dests = Vec::new();
+    let mut placeholders = Vec::new();
     // Only files that change path are claimed; one that stays is its own dest
-    paths::claim_first_free(|| {
-        dests = choose(&sources, &candidates, &stem);
-        files
-            .iter()
-            .zip(&dests)
-            .filter(|(file, dest)| !file.stays(dest))
-            .map(|(_, dest)| dest.clone())
-            .collect()
-    })
-    .map_err(|e| format!("Failed to reserve archive file names for {}: {}", stem, e))?;
+    let claimed = paths::claim_first_free(
+        || {
+            dests = choose(&sources, &candidates, &stem);
+            files
+                .iter()
+                .zip(&dests)
+                .filter(|(file, dest)| !file.stays(dest))
+                .map(|(_, dest)| dest.clone())
+                .collect()
+        },
+        &mut placeholders,
+    );
+    if let Err(e) = claimed {
+        transfer::remove_empty_placeholders(&placeholders, &[]);
+        return Err(format!(
+            "Failed to reserve archive file names for {}: {}",
+            stem, e
+        ));
+    }
 
     // Every changed dest is now an empty placeholder this call created, so
-    // rename and fs::copy only ever replace our own file. A failed move leaves
-    // it behind.
-    let mut moved = 0;
-    for (file, dest) in files.iter().zip(&dests) {
-        if file.stays(dest) {
-            continue;
-        }
-        match file.transfer {
-            Transfer::Move => move_file(file.src, dest)?,
-            Transfer::CopyPreview => {
-                fs::copy(file.src, dest)
-                    .map_err(|e| format!("Failed to copy preview JPG: {}", e))?;
-                remove_cached_preview(file.src, &dirs.preview_cache);
-            }
-        }
-        moved += usize::from(file.is_photo);
+    // rename and fs::copy only ever replace our own file.
+    let moving: Vec<(&PlannedFile, &PathBuf)> = files
+        .iter()
+        .zip(&dests)
+        .filter(|(file, dest)| !file.stays(dest))
+        .collect();
+    let steps: Vec<Step> = moving
+        .iter()
+        .map(|(file, dest)| Step {
+            src: file.src,
+            dest,
+            transfer: file.transfer,
+        })
+        .collect();
+    transfer::move_group(&steps, placeholders, move_file)
+        .map_err(|e| format!("Failed to archive {}: {}", stem, e))?;
+
+    for (file, _) in moving
+        .iter()
+        .filter(|(f, _)| f.transfer == Transfer::CopyPreview)
+    {
+        remove_cached_preview(file.src, &dirs.preview_cache);
     }
-    Ok(moved)
+    Ok(moving.iter().filter(|(file, _)| file.is_photo).count())
 }
 
 /// Check if a file is already located inside the target directory
@@ -673,6 +678,7 @@ mod tests {
                 }
                 chosen
             },
+            &mut transfer::move_file,
         )
         .unwrap();
 
@@ -682,25 +688,10 @@ mod tests {
         assert_eq!(read(&picks(&base).join("IMG_1_1.ARW")), raw);
         assert_eq!(read(&picks(&base).join("IMG_1_1.xmp")), xmp);
         assert!(!Path::new(&jpg).exists() && !Path::new(&raw).exists());
-        assert_eq!(
-            read(&picks(&base).join("IMG_1.jpg")),
-            "",
-            "the abandoned placeholder is left, never removed"
+        assert!(
+            !picks(&base).join("IMG_1.jpg").exists(),
+            "the abandoned empty placeholder is removed"
         );
-    }
-
-    #[test]
-    fn move_file_moves_contents_and_removes_the_source() {
-        let tmp = TempDir::new().unwrap();
-        let src = tmp.path().join("a.jpg");
-        touch_with(&src, "data");
-        let dest = tmp.path().join("sub/a.jpg");
-        fs::create_dir_all(dest.parent().unwrap()).unwrap();
-
-        move_file(&src, &dest).unwrap();
-
-        assert!(!src.exists());
-        assert_eq!(read(&dest), "data");
     }
 
     #[test]

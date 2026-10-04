@@ -6,9 +6,13 @@
 // with new photos copied into the root next to it
 // RAW-only files get their embedded JPEG preview extracted; any whose
 // preview can't be extracted are reported in `skipped`, never dropped, and
-// so is anything that can't be read (a folder or one of its entries)
+// so is anything that can't be read (a folder or one of its entries).
+// Empty (0-byte) photo files are reported in `skipped` too, rather than
+// paired: they are leftovers of an interrupted copy or move, and pairing one
+// would push the real photo with the same name out of its pair.
 // ============================================================
 
+use crate::catalog::file_types::{is_jpg, is_raw};
 use crate::catalog::pairing::{self, FileIndex, RawOnly};
 use crate::media::raw_preview::extract_raw_preview;
 use crate::models::photo::{PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile};
@@ -42,6 +46,10 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     }
 
     let pairing = pairing::pair(&index);
+    let empty_count = skipped
+        .iter()
+        .filter(|f| f.reason == SkipReason::Empty)
+        .count();
     let (raw_only_pairs, no_preview) = extract_previews(pairing.raw_only, preview_cache_dir)?;
     skipped.extend(no_preview);
 
@@ -52,7 +60,7 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
 
     Ok(ScanResult {
         pairs,
-        total_files: index.photo_count(),
+        total_files: index.photo_count() + empty_count,
         paired_count: pairing.paired_count,
         jpg_only_count: pairing.jpg_only_count,
         raw_only_count,
@@ -63,17 +71,21 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
 /// Add the files directly inside `dir` (non-recursive) to the index.
 /// Whatever can't be read (the folder itself or one of its entries) is
 /// returned as skipped: it may hold photos the user would otherwise lose
-/// track of.
+/// track of. So are empty photo files, which are never indexed.
 fn index_dir(dir: &Path, index: &mut FileIndex) -> Vec<SkippedFile> {
-    let mut unreadable = Vec::new();
+    let mut skipped = Vec::new();
     for entry in WalkDir::new(dir).max_depth(1) {
         match entry {
+            Ok(e) if is_file(&e) && is_empty_photo(e.path()) => skipped.push(SkippedFile {
+                path: e.path().to_string_lossy().into_owned(),
+                reason: SkipReason::Empty,
+            }),
             Ok(e) if is_file(&e) => index.add(e.path()),
             Ok(_) => {}
-            Err(e) => unreadable.push(unreadable_entry(dir, &e)),
+            Err(e) => skipped.push(unreadable_entry(dir, &e)),
         }
     }
-    unreadable
+    skipped
 }
 
 /// The entry's type comes from the directory listing, so plain files cost no
@@ -81,6 +93,15 @@ fn index_dir(dir: &Path, index: &mut FileIndex) -> Vec<SkippedFile> {
 fn is_file(entry: &DirEntry) -> bool {
     let file_type = entry.file_type();
     file_type.is_file() || (file_type.is_symlink() && entry.path().is_file())
+}
+
+/// A JPG or RAW of zero bytes. Only photo files pay for the size check.
+fn is_empty_photo(path: &Path) -> bool {
+    let is_photo = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| is_jpg(ext) || is_raw(ext));
+    is_photo && std::fs::metadata(path).is_ok_and(|m| m.len() == 0)
 }
 
 fn unreadable_entry(dir: &Path, error: &walkdir::Error) -> SkippedFile {
@@ -386,6 +407,36 @@ mod tests {
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(result.skipped[0].reason, SkipReason::Unreadable);
         assert_eq!(Path::new(&result.skipped[0].path), raw_dir);
+    }
+
+    #[test]
+    fn reports_empty_photo_files_as_skipped_instead_of_pairing_them() {
+        let dir = folder(&["IMG_1.JPG", "IMG_1.CR3"]);
+        // An empty RAW/IMG_1.CR3 left by an interrupted move must not take the
+        // real RAW's place next to the JPG
+        write(dir.path(), "RAW/IMG_1.CR3", b"");
+        write(dir.path(), "IMG_2.JPG", b"");
+        write(dir.path(), "notes.txt", b"");
+
+        let result = scan(dir.path());
+
+        assert_eq!(names(&result), ["IMG_1.JPG"]);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.raw_only_count, 0);
+        let mut skipped: Vec<_> = result
+            .skipped
+            .iter()
+            .map(|f| (file_name(&f.path), f.reason))
+            .collect();
+        skipped.sort_by_key(|(name, _)| *name);
+        assert_eq!(
+            skipped,
+            [
+                ("IMG_1.CR3", SkipReason::Empty),
+                ("IMG_2.JPG", SkipReason::Empty)
+            ]
+        );
+        assert_eq!(result.total_files, 4, "empty photos are still counted");
     }
 
     #[test]

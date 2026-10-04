@@ -69,6 +69,8 @@ pub enum SkipReason {
     /// A folder or folder entry that could not be read (permissions, I/O
     /// error); `path` may be a folder whose photos are all unaccounted for
     Unreadable,
+    /// Empty (0-byte) photo file, e.g. left by an interrupted copy
+    Empty,
 }
 
 /// A photo file that was found but not loaded into the session
