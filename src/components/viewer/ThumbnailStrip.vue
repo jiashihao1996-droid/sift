@@ -4,7 +4,7 @@
 // Navigation via gradient edge hotzone buttons
 // ============================================================
 
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
@@ -12,10 +12,14 @@ import { PhotoStatus, type PhotoPair } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { useContextMenu } from '@/composables/useContextMenu'
+import { burstEdges } from '@/core/grouping'
 
 const session = useSessionStore()
 const view = useViewStore()
 const contextMenu = useContextMenu()
+
+/** Group bounds change only when the order or gap does, not on each mark */
+const edges = computed(() => burstEdges(session.groups))
 
 const scrollContainer = ref<HTMLElement | null>(null)
 const thumbnailRefs = ref<HTMLElement[]>([])
@@ -155,47 +159,61 @@ onMounted(async () => {
           v-for="(pair, index) in session.pairs"
           :key="pair.id"
           :ref="(el) => setThumbnailRef(el as HTMLElement, index)"
-          class="relative shrink-0 h-11 w-16 rounded-md overflow-hidden cursor-pointer transition-[opacity,transform,ring-color] duration-200 ease-out group"
-          :class="[
-            index === session.currentIndex
-              ? 'ring-2 ring-sift-accent ring-offset-1 ring-offset-[#121212] opacity-100 scale-105'
-              : view.compareMode && index === view.compareIndex
-                ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-[#121212] opacity-90 scale-[1.03]'
-                : 'opacity-50 hover:opacity-80',
-          ]"
-          @click="handleClick(index)"
-          @contextmenu.prevent="contextMenu.show($event, pair)"
+          class="relative shrink-0"
+          :class="{ 'ml-2.5': edges[index]?.isSpacedBefore }"
         >
-          <!-- Dominant color placeholder -->
-          <div class="absolute inset-0" :style="{ backgroundColor: getDominantColor(pair) }" />
-
-          <!-- Thumbnail once generated; until then the colour above stands in, since
-               loading the full-size photo for a 64px tile costs a 24MP decode -->
-          <img
-            v-if="pair.thumbnailPath"
-            :src="convertFileSrc(pair.thumbnailPath)"
-            :alt="`Photo ${index + 1}`"
-            loading="lazy"
-            decoding="async"
-            class="absolute inset-0 w-full h-full object-cover"
-            @error="($event.target as HTMLImageElement).style.display = 'none'"
-          />
-
-          <!-- Status color bar -->
+          <!-- Burst bar: joins the members of a burst under their thumbnails -->
           <div
-            v-if="pair.status !== PhotoStatus.Unprocessed"
-            class="absolute bottom-0 left-0 right-0 h-1 rounded-b-md"
-            :class="getStatusColor(pair.status)"
+            v-if="edges[index]?.isInBurst"
+            class="absolute -bottom-1.5 left-0 h-0.5 bg-sift-burst/70"
+            :class="[
+              edges[index].isFirst ? 'rounded-l-full' : '',
+              edges[index].isLast ? 'right-0 rounded-r-full' : '-right-1.5',
+            ]"
           />
-
-          <!-- Compare base badge -->
           <div
-            v-if="view.compareMode && index === view.compareIndex"
-            class="absolute top-0 left-0 right-0 flex justify-center z-10"
+            class="relative h-11 w-16 rounded-md overflow-hidden cursor-pointer transition-[opacity,transform,ring-color] duration-200 ease-out group"
+            :class="[
+              index === session.currentIndex
+                ? 'ring-2 ring-sift-accent ring-offset-1 ring-offset-[#121212] opacity-100 scale-105'
+                : view.compareMode && index === view.compareIndex
+                  ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-[#121212] opacity-90 scale-[1.03]'
+                  : 'opacity-50 hover:opacity-80',
+            ]"
+            @click="handleClick(index)"
+            @contextmenu.prevent="contextMenu.show($event, pair)"
           >
-            <span class="text-[8px] bg-blue-500/80 text-white px-1 rounded-b leading-tight"
-              >基准</span
+            <!-- Dominant color placeholder -->
+            <div class="absolute inset-0" :style="{ backgroundColor: getDominantColor(pair) }" />
+
+            <!-- Thumbnail once generated; until then the colour above stands in, since
+               loading the full-size photo for a 64px tile costs a 24MP decode -->
+            <img
+              v-if="pair.thumbnailPath"
+              :src="convertFileSrc(pair.thumbnailPath)"
+              :alt="`Photo ${index + 1}`"
+              loading="lazy"
+              decoding="async"
+              class="absolute inset-0 w-full h-full object-cover"
+              @error="($event.target as HTMLImageElement).style.display = 'none'"
+            />
+
+            <!-- Status color bar -->
+            <div
+              v-if="pair.status !== PhotoStatus.Unprocessed"
+              class="absolute bottom-0 left-0 right-0 h-1 rounded-b-md"
+              :class="getStatusColor(pair.status)"
+            />
+
+            <!-- Compare base badge -->
+            <div
+              v-if="view.compareMode && index === view.compareIndex"
+              class="absolute top-0 left-0 right-0 flex justify-center z-10"
             >
+              <span class="text-[8px] bg-blue-500/80 text-white px-1 rounded-b leading-tight"
+                >基准</span
+              >
+            </div>
           </div>
         </div>
       </div>

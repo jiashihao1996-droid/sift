@@ -9,12 +9,14 @@ import type { AppView } from '@/types'
 import { PhotoStatus } from '@/types'
 import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
 import { SortOrder, isSortOrder } from '@/core/sorting'
+import { DEFAULT_BURST_GAP_SECONDS, isBurstGapSeconds } from '@/core/grouping'
 import { setOrganizing as reportOrganizing } from '@/services/tauriCommands'
 
 const PANE_CENTER: Point = { x: 0, y: 0 }
 const TOAST_DURATION_MS = 3000
 const STAY_AFTER_MARK_KEY = 'sift.stayAfterMark'
 const SORT_ORDER_KEY = 'sift.sortOrder'
+const BURST_GAP_KEY = 'sift.burstGapSeconds'
 
 /** Viewer preferences, not session progress: unreadable storage means the default */
 function loadPreference(key: string): string | null {
@@ -39,6 +41,11 @@ function loadSortOrder(): SortOrder {
   return isSortOrder(saved) ? saved : SortOrder.CaptureTime
 }
 
+function loadBurstGapSeconds(): number {
+  const saved = Number(loadPreference(BURST_GAP_KEY) ?? NaN)
+  return isBurstGapSeconds(saved) ? saved : DEFAULT_BURST_GAP_SECONDS
+}
+
 export type ToastType = 'star' | 'delete' | 'undo' | 'info'
 
 export const useViewStore = defineStore('view', () => {
@@ -51,6 +58,8 @@ export const useViewStore = defineStore('view', () => {
   const stayAfterMark = ref(loadPreference(STAY_AFTER_MARK_KEY) === 'true')
   /** Order photos are shown in; the session re-sorts when it changes */
   const sortOrder = ref<SortOrder>(loadSortOrder())
+  /** Neighbours taken at most this far apart form a burst; 0 turns grouping off */
+  const burstGapSeconds = ref(loadBurstGapSeconds())
   /** Archiving, exporting or deleting is running: nothing may close or leave it */
   const isOrganizing = ref(false)
 
@@ -165,6 +174,11 @@ export const useViewStore = defineStore('view', () => {
     savePreference(SORT_ORDER_KEY, order)
   }
 
+  function setBurstGapSeconds(seconds: number) {
+    burstGapSeconds.value = seconds
+    savePreference(BURST_GAP_KEY, String(seconds))
+  }
+
   function toggleCompare(currentIdx: number) {
     if (compareMode.value) {
       exitCompare()
@@ -202,6 +216,7 @@ export const useViewStore = defineStore('view', () => {
     showShortcutHelp,
     stayAfterMark,
     sortOrder,
+    burstGapSeconds,
     isOrganizing,
     setOrganizing,
     zoomLevel,
@@ -229,6 +244,7 @@ export const useViewStore = defineStore('view', () => {
     showToast,
     toggleStayAfterMark,
     setSortOrder,
+    setBurstGapSeconds,
     toggleCompare,
     exitCompare,
     swapCompare,

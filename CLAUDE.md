@@ -46,7 +46,7 @@ Rust（`src-tauri/src/`）：
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档时。顺序由 `src/core/archiveFlow.ts::runArchive` 编排：先用 `delete_pairs` 一次删掉所有标记删除的组（Rust 端按 50 组一块调用 `trash::delete_all`，某块失败再逐组逐文件重试，遇错继续），已删掉的组立即从会话移除（`sessionStore.dropPairs`），有失败就停在归档之前；文件已经不在算删除成功，所以失败后可以直接重试。归档对话框另有「只删除，不整理」（`runDeleteOnly`）：只走删除这一步，其他文件不动，会话不冻结，删完可以接着筛。
 - 整理期间（归档、导出、删除）`viewStore.isOrganizing` 为真：对话框关不掉，「返回首页」无效；它同步给 Rust（`commands/organizing.rs`），Rust 拒绝关窗口（`CloseRequested`）和退出（`ExitRequested`，含 macOS 的 Cmd+Q），并发 `close-blocked` 事件让对话框提示。新增的整理操作都要包在 `ArchiveDialog.vue` 的 `organizing()` 里。归档成功后 `sessionStore.markArchived(folder)` 冻结会话（标记、撤销、重新开始、保存进度都不生效），文件夹路径在归档开始时就记下，清除的一定是这个文件夹的进度。
 - 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存已标记的照片和当前位置（停在第一张不算），key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，既没有标记又停在第一张时删除文件；归档成功后由 `markArchived` 清除并冻结会话。旧版本写入的已不存在的状态（如 `skipped`）在 `catalog/progress.rs` 读取时丢弃，其余标记照常恢复。
-- 排序：默认按拍摄时间（`src/core/sorting.ts`，无拍摄时间的排末尾），可切换为按文件名；排序方式是 viewer 偏好（localStorage），不进进度。撤销栈按 pair id 记录，重排不影响撤销。设计见 `docs/design/capture-time-and-bursts.md`。
+- 排序：默认按拍摄时间（`src/core/sorting.ts`，无拍摄时间的排末尾），可切换为按文件名；排序方式是 viewer 偏好（localStorage），不进进度。撤销条目是「回到哪张 + 改了哪些照片」（按 pair id），一次可改多张，重排不影响撤销。连拍分组（`src/core/grouping.ts`）只是视图：store 在照片数组换新或间隔变化时重算，不进进度、不影响归档。设计见 `docs/design/capture-time-and-bursts.md`。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
 - asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。
 - 缓存目录在启动和窗口销毁时同步清理（`commands/cache.rs`，目录名见 `media/cache_dirs.rs`）。

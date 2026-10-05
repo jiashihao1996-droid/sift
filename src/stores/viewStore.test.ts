@@ -133,6 +133,32 @@ describe('sortOrder', () => {
   })
 })
 
+describe('burstGapSeconds', () => {
+  const GAP_KEY = 'sift.burstGapSeconds'
+
+  it('groups photos taken within 2 seconds by default', () => {
+    expect(useViewStore().burstGapSeconds).toBe(2)
+  })
+
+  it('restores a saved gap and ignores one that is not offered', () => {
+    stubStorage({ [GAP_KEY]: '10' })
+    expect(useViewStore().burstGapSeconds).toBe(10)
+
+    setActivePinia(createPinia())
+    stubStorage({ [GAP_KEY]: '7' })
+    expect(useViewStore().burstGapSeconds).toBe(2)
+  })
+
+  it('saves the chosen gap', () => {
+    const data = stubStorage()
+    const view = useViewStore()
+
+    view.setBurstGapSeconds(0)
+
+    expect([view.burstGapSeconds, data.get(GAP_KEY)]).toEqual([0, '0'])
+  })
+})
+
 describe('organizing', () => {
   it('tells Rust while organizing so closing the window is refused', () => {
     const view = useViewStore()

@@ -10,6 +10,7 @@ import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus } from '@/types'
 import { SortOrder, countWithoutCaptureTime } from '@/core/sorting'
 import RollingNumber from './RollingNumber.vue'
+import BurstGapControl from './BurstGapControl.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -45,6 +46,13 @@ function handleStatusClick(status: PhotoStatus) {
       <span class="text-sm font-mono text-sift-muted">
         {{ session.totalCount }}
       </span>
+      <span
+        v-if="session.currentGroupPosition"
+        class="ml-2 h-5 flex items-center rounded px-1.5 text-[11px] font-mono text-sift-burst bg-sift-burst/10 whitespace-nowrap"
+        title="当前照片在连拍组中的位置（[ / ] 跳到上一组 / 下一组）"
+      >
+        组 {{ session.currentGroupPosition.index }}/{{ session.currentGroupPosition.size }}
+      </span>
       <button
         class="ml-3 h-6 flex items-center gap-1 rounded px-2 text-xs text-sift-muted hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
         :title="
@@ -57,6 +65,7 @@ function handleStatusClick(status: PhotoStatus) {
         <ArrowDownUp :size="12" />
         {{ isByCaptureTime ? '拍摄时间' : '文件名' }}
       </button>
+      <BurstGapControl />
       <span
         v-if="untimedCount > 0"
         class="text-xs text-sift-muted/70 whitespace-nowrap"
