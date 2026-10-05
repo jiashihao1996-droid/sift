@@ -32,9 +32,11 @@ import {
 } from '@/core/review'
 import { nearestFirst } from '@/core/preload'
 import { fileNameRanks, sortPairs } from '@/core/sorting'
+import { stepWithinGroup } from '@/core/survey'
 import {
   groupPairs,
   groupPosition,
+  groupRange,
   nextGroupStart,
   planGroupMark,
   prevGroupTarget,
@@ -186,18 +188,25 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** Navigate to next photo; on the last one, report reaching the end instead */
+  /**
+   * Navigate to next photo; on the last one, report reaching the end instead.
+   * A survey keeps the focus within its burst.
+   */
   function goNext() {
-    if (currentIndex.value < pairs.value.length - 1) {
+    if (view.surveyMode) {
+      currentIndex.value = stepWithinGroup(groups.value, currentIndex.value, 1)
+    } else if (currentIndex.value < pairs.value.length - 1) {
       currentIndex.value++
     } else if (pairs.value.length > 0) {
       endReachedCount.value++
     }
   }
 
-  /** Navigate to previous photo */
+  /** Navigate to previous photo; a survey keeps the focus within its burst */
   function goPrev() {
-    if (currentIndex.value > 0) {
+    if (view.surveyMode) {
+      currentIndex.value = stepWithinGroup(groups.value, currentIndex.value, -1)
+    } else if (currentIndex.value > 0) {
       currentIndex.value--
     }
   }
@@ -221,15 +230,19 @@ export const useSessionStore = defineStore('session', () => {
 
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
-    const { stayAfterMark } = view
+    const { stayAfterMark, surveyMode } = view
+    // A survey moves the focus within its burst and stops at the burst's end
+    const end = surveyMode ? groupRange(groups.value, idx).end : pairs.value.length
     undoStack.value.push({
       pairId: pair.id,
       changes: [{ pairId: pair.id, previousStatus: pair.status }],
     })
     pairs.value[idx] = { ...pair, status }
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
-    if (movesOnAfterMark(status, stayAfterMark) && isLastPhoto.value) endReachedCount.value++
-    currentIndex.value = indexAfterMark(status, idx, pairs.value.length, stayAfterMark)
+    if (movesOnAfterMark(status, stayAfterMark) && isLastPhoto.value && !surveyMode) {
+      endReachedCount.value++
+    }
+    currentIndex.value = indexAfterMark(status, idx, end, stayAfterMark)
     return isMarked
   }
 

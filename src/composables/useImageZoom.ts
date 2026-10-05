@@ -20,6 +20,7 @@ import {
   type Point,
   type ZoomCarry,
 } from '@/core/zoom'
+import { surveyCount, surveyGrid } from '@/core/survey'
 
 const ZOOM_TRANSITION = '260ms cubic-bezier(0.22, 1, 0.36, 1)'
 
@@ -74,8 +75,11 @@ export function useImageZoom(
 
   const dpr = useDevicePixelRatio().pixelRatio
 
-  /** Panes the viewer is split into: compare is 2×1 */
-  const grid = computed(() => (view.compareMode ? { cols: 2, rows: 1 } : SINGLE_PANE))
+  /** Panes the viewer is split into: compare is 2×1, a survey depends on the burst */
+  const grid = computed(() => {
+    if (view.surveyMode) return surveyGrid(surveyCount(session.groups, session.currentIndex))
+    return view.compareMode ? { cols: 2, rows: 1 } : SINGLE_PANE
+  })
 
   /** Fit width of the <img> at zoom=1 in its pane (rotation-aware) */
   const fitWidth = computed(() =>

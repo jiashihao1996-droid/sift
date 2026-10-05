@@ -8,6 +8,7 @@ import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { IS_MAC } from '@/utils/platform'
 import { groupMarkToast, type GroupMarkMode } from '@/core/grouping'
+import { useSurveyToggle } from './useSurveyToggle'
 
 const KEY_ZOOM_STEP = 1.25
 
@@ -25,6 +26,7 @@ function bracketKey(e: KeyboardEvent): '[' | ']' | null {
 export function useKeyboard() {
   const session = useSessionStore()
   const view = useViewStore()
+  const { toggleSurvey } = useSurveyToggle()
 
   function markGroup(mode: GroupMarkMode) {
     const plan = session.markGroup(mode)
@@ -61,8 +63,13 @@ export function useKeyboard() {
       return
     }
 
-    // ESC: compare mode > filter gallery
+    // ESC: survey > compare mode > filter gallery
     if (e.key === 'Escape') {
+      if (view.surveyMode) {
+        e.preventDefault()
+        view.exitSurvey()
+        return
+      }
       if (view.compareMode) {
         e.preventDefault()
         view.exitCompare()
@@ -174,6 +181,14 @@ export function useKeyboard() {
         if (!isCtrlOrCmd) {
           e.preventDefault()
           view.toggleExifPanel()
+        }
+        break
+
+      case 'n':
+      case 'N':
+        if (!isCtrlOrCmd) {
+          e.preventDefault()
+          if (!e.repeat) toggleSurvey()
         }
         break
 

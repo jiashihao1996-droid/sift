@@ -46,7 +46,7 @@ export function groupPairs(pairs: readonly PhotoPair[], gapMs: number): BurstGro
 }
 
 /** First index and one past the last index of the group holding `index` */
-function groupRange(groups: BurstGroups, index: number): { start: number; end: number } {
+export function groupRange(groups: BurstGroups, index: number): { start: number; end: number } {
   const group = groups.groupOf[index]
   return { start: groups.starts[group], end: groups.starts[group + 1] ?? groups.groupOf.length }
 }

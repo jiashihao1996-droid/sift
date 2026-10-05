@@ -35,13 +35,14 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: [['[']], label: '本组第一张 / 上一组' },
       { keys: [['Shift', 'F']], label: '精选这张，组内其余未标记的标删除' },
       { keys: [['Shift', 'X']], label: '组内未标记的全部标删除' },
+      { keys: [['N']], label: '组内并排对比 / 退出' },
     ],
   },
   {
     title: '其他',
     items: [
       { keys: [[MOD_KEY, 'Enter']], label: '打开归档' },
-      { keys: [['Esc']], label: '退出对比 / 关闭面板' },
+      { keys: [['Esc']], label: '退出对比 / 组内对比 / 关闭面板' },
       { keys: [['?']], label: '显示本帮助' },
     ],
   },
