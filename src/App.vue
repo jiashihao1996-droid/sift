@@ -67,7 +67,7 @@ watch(
           <NavigationBar />
 
           <!-- Image Viewer (with padding for nav/thumbnail/status bars) -->
-          <div class="absolute inset-0 pt-12 pb-[104px]">
+          <div class="absolute inset-0 pt-nav pb-bottom-chrome">
             <ImageViewer />
           </div>
 

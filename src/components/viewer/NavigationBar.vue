@@ -39,7 +39,7 @@ function openArchive() {
 
 <template>
   <div
-    class="fixed top-0 left-0 right-0 h-12 z-50 bg-[#121212]/90 backdrop-blur-md flex items-center justify-between px-4 border-b border-white/5"
+    class="fixed top-0 left-0 right-0 h-nav z-50 bg-[#121212]/90 backdrop-blur-md flex items-center justify-between px-4 border-b border-white/5"
   >
     <!-- Left: Back + Folder name -->
     <div class="flex items-center gap-3">
