@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // ============================================================
-// NavigationBar - Top bar with folder name, RAW badge, EXIF toggle
+// NavigationBar - Top bar: folder, current file, mark buttons and viewer tools
 // ============================================================
 
 import { computed } from 'vue'
 import { ArrowLeft, Info, Archive, Keyboard } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
+import ActionBar from '@/components/actions/ActionBar.vue'
+import ViewerTools from './ViewerTools.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -42,20 +44,20 @@ function openArchive() {
     class="fixed top-0 left-0 right-0 h-nav z-50 bg-[#121212]/90 backdrop-blur-md flex items-center justify-between px-4 border-b border-white/5"
   >
     <!-- Left: Back + Folder name -->
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-3 shrink-0">
       <button
         class="p-1.5 rounded-lg hover:bg-white/10 transition-colors btn-spring"
         @click="goBack"
       >
         <ArrowLeft :size="16" class="text-sift-muted" />
       </button>
-      <span class="text-sm text-sift-muted truncate max-w-[200px]">
+      <span class="text-sm text-sift-muted truncate max-w-[200px] max-lg:max-w-[120px]">
         {{ folderName }}
       </span>
     </div>
 
-    <!-- Center: file name + RAW badge -->
-    <div v-if="displayPair" class="flex items-center gap-2">
+    <!-- Center: file name + RAW badge (gives way first when the window is narrow) -->
+    <div v-if="displayPair" class="flex-1 min-w-0 flex items-center justify-center gap-2 px-3">
       <span class="text-sm text-white/90 font-medium truncate max-w-[300px]">
         {{
           displayPair.source === 'rawPreview' && displayPair.rawPath
@@ -83,8 +85,12 @@ function openArchive() {
       </span>
     </div>
 
-    <!-- Right: Archive + shortcuts + EXIF toggle -->
-    <div class="flex items-center gap-2">
+    <!-- Right: Marks | viewer tools | Archive + shortcuts + EXIF toggle -->
+    <div class="flex items-center gap-2 shrink-0">
+      <ActionBar />
+      <div class="w-px h-4 bg-white/10" />
+      <ViewerTools />
+      <div class="w-px h-4 bg-white/10" />
       <button
         v-if="processedCount > 0"
         class="relative p-1.5 rounded-lg transition-colors btn-spring hover:bg-white/10 text-sift-muted hover:text-sift-accent"

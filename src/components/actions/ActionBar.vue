@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// ActionBar - Floating action buttons (Star / Delete)
+// ActionBar - Star / Delete buttons, docked in the top bar so they never cover the photo
 // ============================================================
 
 import { Star, Trash2 } from '@lucide/vue'
@@ -32,12 +32,11 @@ watch(
 </script>
 
 <template>
-  <div
-    class="absolute bottom-[120px] left-1/2 -translate-x-1/2 z-40 px-2 py-1.5 rounded-xl bg-black/50 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] border border-white/10 flex items-center gap-1"
-  >
+  <div class="flex items-center gap-1">
     <!-- Star Button -->
     <button
-      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg group btn-spring transition-colors"
+      :title="isStarred ? '取消精选 (F)' : '精选 (F)'"
+      class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg group btn-spring transition-colors"
       :class="isStarred ? 'bg-sift-star/15 hover:bg-sift-star/25' : 'hover:bg-sift-star/15'"
       @click="session.markStar()"
     >
@@ -50,7 +49,7 @@ watch(
         ]"
       />
       <span
-        class="text-[11px] group-hover:text-white transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+        class="text-[11px] group-hover:text-white transition-colors max-lg:hidden"
         :class="isStarred ? 'text-sift-star' : 'text-white/60'"
         >{{ isStarred ? '取消精选' : '精选' }}</span
       >
@@ -61,7 +60,8 @@ watch(
 
     <!-- Delete Button -->
     <button
-      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg group btn-spring transition-colors"
+      :title="isDeleted ? '取消删除 (X)' : '删除 (X)'"
+      class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg group btn-spring transition-colors"
       :class="isDeleted ? 'bg-sift-delete/15 hover:bg-sift-delete/25' : 'hover:bg-sift-delete/15'"
       @click="session.markDelete()"
     >
@@ -71,7 +71,7 @@ watch(
         :class="pulsing === 'delete' ? 'scale-125' : ''"
       />
       <span
-        class="text-[11px] group-hover:text-white transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+        class="text-[11px] group-hover:text-white transition-colors max-lg:hidden"
         :class="isDeleted ? 'text-sift-delete' : 'text-white/60'"
         >{{ isDeleted ? '取消删除' : '删除' }}</span
       >
