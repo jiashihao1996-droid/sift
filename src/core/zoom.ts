@@ -129,3 +129,81 @@ export function applyZoomCarry(carry: ZoomCarry, actual: number | null, fit: Siz
   if (zoom <= 1) return { ...FIT, zoom }
   return { zoom, offsetX: carry.shareX * fit.width, offsetY: carry.shareY * fit.height }
 }
+
+/**
+ * How far past a detent a gesture has to push, in natural-log zoom, before it
+ * moves on: about 10%, so a pinch or wheel settles on fit and 100% on its way.
+ */
+export const DETENT_HOLD = Math.log(1.1)
+
+/** A gesture held at a detent and how far it has pushed past it (log zoom, signed) */
+export interface DetentHold {
+  stop: number
+  push: number
+}
+
+export interface DetentResult {
+  zoom: number
+  hold: DetentHold | null
+}
+
+/** First stop a step from `current` to `next` crosses (or lands on), if any */
+function firstCrossed(current: number, next: number, stops: readonly number[]): number | undefined {
+  const isZoomingIn = next > current
+  return stops
+    .filter((s) => (isZoomingIn ? s > current && s <= next : s < current && s >= next))
+    .sort((a, b) => (isZoomingIn ? a - b : b - a))[0]
+}
+
+/** At `stop`, pushed `push` past it: hold there, or move on and look for the next stop */
+function passStop(stop: number, push: number, stops: readonly number[]): DetentResult {
+  if (Math.abs(push) <= DETENT_HOLD) return { zoom: stop, hold: { stop, push } }
+  const rest = stops.filter((s) => s !== stop)
+  return settleOnDetents(stop, stop * Math.exp(push - Math.sign(push) * DETENT_HOLD), rest, null)
+}
+
+/**
+ * Zoom for one step of a continuous gesture from `current` toward `next`,
+ * stopping at each of `stops` (fit, 100%) it crosses until it pushes
+ * DETENT_HOLD further. `hold` carries over between steps of one gesture;
+ * pass null when a new gesture starts.
+ */
+export function settleOnDetents(
+  current: number,
+  next: number,
+  stops: readonly number[],
+  hold: DetentHold | null,
+): DetentResult {
+  if (hold) return passStop(hold.stop, hold.push + Math.log(next / current), stops)
+  const stop = firstCrossed(current, next, stops)
+  if (stop === undefined) return { zoom: next, hold: null }
+  return passStop(stop, Math.log(next / stop), stops)
+}
+
+/** Farthest offset that keeps the image covering the pane, per axis (fit-scale px) */
+function panLimit(box: number, pane: number, zoom: number): number {
+  return Math.max(0, (box * zoom - pane) / 2) / zoom
+}
+
+function panAxis(offset: number, move: number, limit: number): number {
+  const next = offset + move
+  if (Math.abs(next) <= limit) return next
+  // Already outside on this side (dragged there): don't push further out, but don't snap back
+  const bound = Math.sign(next) === Math.sign(offset) ? Math.max(limit, Math.abs(offset)) : limit
+  return Math.sign(next) * Math.min(Math.abs(next), bound)
+}
+
+/**
+ * Pan by a scroll of (dx, dy) screen px: the image moves against the scroll,
+ * like a page, and stops where its edge meets the pane's. `box` is the fitted
+ * image's on-screen box (rotation applied). Nothing to pan at or below fit.
+ */
+export function panByScroll(state: ZoomState, scroll: Point, box: Size, pane: Size): ZoomState {
+  const { zoom } = state
+  if (zoom <= 1) return state
+  return {
+    zoom,
+    offsetX: panAxis(state.offsetX, -scroll.x / zoom, panLimit(box.width, pane.width, zoom)),
+    offsetY: panAxis(state.offsetY, -scroll.y / zoom, panLimit(box.height, pane.height, zoom)),
+  }
+}

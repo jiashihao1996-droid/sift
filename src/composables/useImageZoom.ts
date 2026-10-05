@@ -13,16 +13,23 @@ import {
   applyZoomCarry,
   carryZoom,
   fitWidth as computeFitWidth,
+  panByScroll,
   paneAnchor,
   paneSize,
   SINGLE_PANE,
+  settleOnDetents,
   zoomPercent as computeZoomPercent,
+  type DetentHold,
   type Point,
   type ZoomCarry,
 } from '@/core/zoom'
 import { surveyCount, surveyGrid } from '@/core/survey'
+import { wheelIntent, wheelZoomFactor, type WheelInput } from '@/core/wheel'
+import { IS_MAC } from '@/utils/platform'
 
 const ZOOM_TRANSITION = '260ms cubic-bezier(0.22, 1, 0.36, 1)'
+/** Wheel events closer than this belong to one gesture (they arrive every ~8–33 ms) */
+const GESTURE_GAP_MS = 200
 
 export function useImageZoom(
   containerRef: Ref<HTMLElement | null>,
@@ -33,6 +40,8 @@ export function useImageZoom(
   const session = useSessionStore()
 
   const isDragging = ref(false)
+  /** A pinch, wheel or scroll is under way: it follows the fingers, so no transition */
+  const isGesturing = ref(false)
   const dragStart = ref({ x: 0, y: 0 })
   const offsetStart = ref({ x: 0, y: 0 })
 
@@ -60,6 +69,7 @@ export function useImageZoom(
   })
 
   onUnmounted(() => {
+    clearTimeout(gestureTimer)
     resizeObserver?.disconnect()
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', handleMouseUp)
@@ -104,7 +114,10 @@ export function useImageZoom(
   const imageStyle = computed(() => {
     const fw = fitWidth.value
     const rot = view.rotation
-    const tr = isDragging.value ? 'none' : `transform ${ZOOM_TRANSITION}, width ${ZOOM_TRANSITION}`
+    const tr =
+      isDragging.value || isGesturing.value
+        ? 'none'
+        : `transform ${ZOOM_TRANSITION}, width ${ZOOM_TRANSITION}`
 
     if (!fw) {
       return {
@@ -158,10 +171,53 @@ export function useImageZoom(
     flush: 'post',
   })
 
+  /** Pane each image sits in, and the fitted image's on-screen box (rotation applied) */
+  function panBounds() {
+    const pane = paneSize(
+      { width: containerWidth.value, height: containerHeight.value },
+      grid.value,
+    )
+    const { width, height } = fitSize.value
+    const isSwapped = view.rotation % 180 !== 0
+    return { box: isSwapped ? { width: height, height: width } : { width, height }, pane }
+  }
+
+  let detentHold: DetentHold | null = null
+  let gestureTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** Marks a gesture under way; a pause ends it and a new one starts free of any detent */
+  function continueGesture() {
+    isGesturing.value = true
+    clearTimeout(gestureTimer)
+    gestureTimer = setTimeout(() => {
+      isGesturing.value = false
+      detentHold = null
+    }, GESTURE_GAP_MS)
+  }
+
+  function panBy(e: WheelEvent) {
+    const { box, pane } = panBounds()
+    const state = { zoom: view.zoomLevel, offsetX: view.zoomOffsetX, offsetY: view.zoomOffsetY }
+    const next = panByScroll(state, { x: e.deltaX, y: e.deltaY }, box, pane)
+    view.zoomOffsetX = next.offsetX
+    view.zoomOffsetY = next.offsetY
+  }
+
+  /** Pinch and mouse wheel zoom at the cursor, settling on fit and 100%; a trackpad scroll pans */
   function handleWheel(e: WheelEvent) {
     e.preventDefault()
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    view.setZoom(view.zoomLevel * delta, anchorFromEvent(e) ?? undefined)
+    continueGesture()
+    const input: WheelInput = e
+    if (wheelIntent(input, IS_MAC) === 'scroll') {
+      panBy(e)
+      return
+    }
+    const current = view.zoomLevel
+    const stops = view.actualZoom === null ? [1] : [1, view.actualZoom]
+    const next = current * wheelZoomFactor(input, IS_MAC)
+    const settled = settleOnDetents(current, next, stops, detentHold)
+    detentHold = settled.hold
+    view.setZoom(settled.zoom, anchorFromEvent(e) ?? undefined)
   }
 
   function handleDoubleClick(e: MouseEvent) {
