@@ -12,7 +12,6 @@ import SkippedFilesNotice from '@/components/status/SkippedFilesNotice.vue'
 const ImageViewer = defineAsyncComponent(() => import('@/components/viewer/ImageViewer.vue'))
 const NavigationBar = defineAsyncComponent(() => import('@/components/viewer/NavigationBar.vue'))
 const ThumbnailStrip = defineAsyncComponent(() => import('@/components/viewer/ThumbnailStrip.vue'))
-const ActionBar = defineAsyncComponent(() => import('@/components/actions/ActionBar.vue'))
 const ToastNotification = defineAsyncComponent(
   () => import('@/components/actions/ToastNotification.vue'),
 )
@@ -70,9 +69,6 @@ watch(
           <div class="absolute inset-0 pt-nav pb-bottom-chrome">
             <ImageViewer />
           </div>
-
-          <!-- Action Bar -->
-          <ActionBar />
 
           <!-- Thumbnail Strip -->
           <ThumbnailStrip />
