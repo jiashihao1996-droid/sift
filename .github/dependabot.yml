@@ -32,8 +32,8 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    # @types/node follows the Node major that CI runs (node-version in the
-    # workflows), not the latest Node
+    # @types/node follows the Node major in .node-version (what CI and local
+    # shells run), not the latest Node
     ignore:
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
