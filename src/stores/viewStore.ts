@@ -8,28 +8,35 @@ import { ref } from 'vue'
 import type { AppView } from '@/types'
 import { PhotoStatus } from '@/types'
 import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
+import { SortOrder, isSortOrder } from '@/core/sorting'
 import { setOrganizing as reportOrganizing } from '@/services/tauriCommands'
 
 const PANE_CENTER: Point = { x: 0, y: 0 }
 const TOAST_DURATION_MS = 3000
 const STAY_AFTER_MARK_KEY = 'sift.stayAfterMark'
+const SORT_ORDER_KEY = 'sift.sortOrder'
 
-/** A viewer preference, not session progress: unreadable storage means the default */
-function loadStayAfterMark(): boolean {
+/** Viewer preferences, not session progress: unreadable storage means the default */
+function loadPreference(key: string): string | null {
   try {
-    return localStorage.getItem(STAY_AFTER_MARK_KEY) === 'true'
+    return localStorage.getItem(key)
   } catch (e) {
-    console.warn('[Sift] Failed to read stay-after-mark preference', e)
-    return false
+    console.warn(`[Sift] Failed to read preference ${key}`, e)
+    return null
   }
 }
 
-function saveStayAfterMark(value: boolean): void {
+function savePreference(key: string, value: string): void {
   try {
-    localStorage.setItem(STAY_AFTER_MARK_KEY, String(value))
+    localStorage.setItem(key, value)
   } catch (e) {
-    console.warn('[Sift] Failed to save stay-after-mark preference', e)
+    console.warn(`[Sift] Failed to save preference ${key}`, e)
   }
+}
+
+function loadSortOrder(): SortOrder {
+  const saved = loadPreference(SORT_ORDER_KEY)
+  return isSortOrder(saved) ? saved : SortOrder.CaptureTime
 }
 
 export type ToastType = 'star' | 'delete' | 'undo' | 'info'
@@ -41,7 +48,9 @@ export const useViewStore = defineStore('view', () => {
   const showSummaryCard = ref(false)
   const showShortcutHelp = ref(false)
   /** Marking stays on the photo instead of moving on, for comparing a burst in place */
-  const stayAfterMark = ref(loadStayAfterMark())
+  const stayAfterMark = ref(loadPreference(STAY_AFTER_MARK_KEY) === 'true')
+  /** Order photos are shown in; the session re-sorts when it changes */
+  const sortOrder = ref<SortOrder>(loadSortOrder())
   /** Archiving, exporting or deleting is running: nothing may close or leave it */
   const isOrganizing = ref(false)
 
@@ -147,8 +156,13 @@ export const useViewStore = defineStore('view', () => {
 
   function toggleStayAfterMark() {
     stayAfterMark.value = !stayAfterMark.value
-    saveStayAfterMark(stayAfterMark.value)
+    savePreference(STAY_AFTER_MARK_KEY, String(stayAfterMark.value))
     showToast(stayAfterMark.value ? '标记后停在当前照片' : '标记后自动前进')
+  }
+
+  function setSortOrder(order: SortOrder) {
+    sortOrder.value = order
+    savePreference(SORT_ORDER_KEY, order)
   }
 
   function toggleCompare(currentIdx: number) {
@@ -187,6 +201,7 @@ export const useViewStore = defineStore('view', () => {
     showSummaryCard,
     showShortcutHelp,
     stayAfterMark,
+    sortOrder,
     isOrganizing,
     setOrganizing,
     zoomLevel,
@@ -213,6 +228,7 @@ export const useViewStore = defineStore('view', () => {
     rotateBy,
     showToast,
     toggleStayAfterMark,
+    setSortOrder,
     toggleCompare,
     exitCompare,
     swapCompare,

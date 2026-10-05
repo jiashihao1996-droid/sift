@@ -19,6 +19,7 @@ function photo(id: string, status: Status = PhotoStatus.Unprocessed): PhotoPair 
     dominantColor: null,
     source: 'jpg',
     xmpPaths: [],
+    captureTime: null,
   }
 }
 

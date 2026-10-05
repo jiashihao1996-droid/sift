@@ -274,6 +274,7 @@ pub fn new_pair(
         dominant_color: None,
         source,
         xmp_paths,
+        capture_time: None,
     }
 }
 

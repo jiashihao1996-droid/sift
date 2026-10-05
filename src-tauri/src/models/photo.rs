@@ -43,6 +43,22 @@ pub struct PhotoPair {
     pub source: PhotoSource,
     #[serde(default)]
     pub xmp_paths: Vec<String>,
+    /// When the photo was taken, from EXIF; None when the file doesn't say
+    #[serde(default)]
+    pub capture_time: Option<CaptureTime>,
+}
+
+/// When a photo was taken, as the camera recorded it in EXIF
+/// (DateTimeOriginal, SubSecTimeOriginal, OffsetTimeOriginal)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTime {
+    /// The camera clock's reading in milliseconds since 1970-01-01 00:00,
+    /// with no time zone applied
+    pub local_ms: i64,
+    /// Minutes east of UTC, when the camera recorded its time zone
+    pub offset_minutes: Option<i16>,
 }
 
 /// Result of scanning a folder

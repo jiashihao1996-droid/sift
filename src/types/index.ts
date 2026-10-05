@@ -9,6 +9,7 @@ import type { PhotoStatus as GeneratedPhotoStatus } from './generated/PhotoStatu
 export type { ArchivePairInput } from './generated/ArchivePairInput'
 export type { ArchiveProgress } from './generated/ArchiveProgress'
 export type { ArchiveResult } from './generated/ArchiveResult'
+export type { CaptureTime } from './generated/CaptureTime'
 export type { DeleteFailure } from './generated/DeleteFailure'
 export type { DeletePairInput } from './generated/DeletePairInput'
 export type { DeleteResult } from './generated/DeleteResult'
@@ -46,7 +47,8 @@ void _allStatusesListed
 /** Undo action record */
 export interface UndoAction {
   type: 'star' | 'delete'
-  index: number
+  /** The photo's id: its index changes when the session is re-sorted */
+  pairId: string
   previousStatus: PhotoStatus
 }
 

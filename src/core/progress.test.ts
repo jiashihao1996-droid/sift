@@ -21,6 +21,7 @@ function jpg(name: string, status: PhotoStatus = U): PhotoPair {
     dominantColor: null,
     source: 'jpg',
     xmpPaths: [],
+    captureTime: null,
   }
 }
 

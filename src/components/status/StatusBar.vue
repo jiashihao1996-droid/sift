@@ -4,15 +4,28 @@
 // ============================================================
 
 import { computed } from 'vue'
+import { ArrowDownUp } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus } from '@/types'
+import { SortOrder, countWithoutCaptureTime } from '@/core/sorting'
 import RollingNumber from './RollingNumber.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
 
 const progressWidth = computed(() => `${session.progress}%`)
+
+const isByCaptureTime = computed(() => view.sortOrder === SortOrder.CaptureTime)
+
+/** Only worth mentioning when sorting by capture time, which puts them last */
+const untimedCount = computed(() =>
+  isByCaptureTime.value ? countWithoutCaptureTime(session.pairs) : 0,
+)
+
+function toggleSortOrder() {
+  view.setSortOrder(isByCaptureTime.value ? SortOrder.FileName : SortOrder.CaptureTime)
+}
 
 function handleStatusClick(status: PhotoStatus) {
   view.openFilterGallery(status)
@@ -31,6 +44,25 @@ function handleStatusClick(status: PhotoStatus) {
       <span class="text-sm text-sift-muted">/</span>
       <span class="text-sm font-mono text-sift-muted">
         {{ session.totalCount }}
+      </span>
+      <button
+        class="ml-3 h-6 flex items-center gap-1 rounded px-2 text-xs text-sift-muted hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+        :title="
+          isByCaptureTime
+            ? '按拍摄时间排序（点击改为按文件名）'
+            : '按文件名排序（点击改为按拍摄时间）'
+        "
+        @click="toggleSortOrder"
+      >
+        <ArrowDownUp :size="12" />
+        {{ isByCaptureTime ? '拍摄时间' : '文件名' }}
+      </button>
+      <span
+        v-if="untimedCount > 0"
+        class="text-xs text-sift-muted/70 whitespace-nowrap"
+        title="这些照片没有记录拍摄时间（EXIF），按文件名排在末尾"
+      >
+        {{ untimedCount }} 张无拍摄时间，排在末尾
       </span>
     </div>
 

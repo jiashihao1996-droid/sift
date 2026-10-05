@@ -107,6 +107,32 @@ describe('stayAfterMark', () => {
   })
 })
 
+describe('sortOrder', () => {
+  const SORT_KEY = 'sift.sortOrder'
+
+  it('sorts by capture time by default', () => {
+    expect(useViewStore().sortOrder).toBe('captureTime')
+  })
+
+  it('restores a saved order and ignores an unknown one', () => {
+    stubStorage({ [SORT_KEY]: 'fileName' })
+    expect(useViewStore().sortOrder).toBe('fileName')
+
+    setActivePinia(createPinia())
+    stubStorage({ [SORT_KEY]: 'shuffle' })
+    expect(useViewStore().sortOrder).toBe('captureTime')
+  })
+
+  it('saves the chosen order', () => {
+    const data = stubStorage()
+    const view = useViewStore()
+
+    view.setSortOrder('fileName')
+
+    expect([view.sortOrder, data.get(SORT_KEY)]).toEqual(['fileName', 'fileName'])
+  })
+})
+
 describe('organizing', () => {
   it('tells Rust while organizing so closing the window is refused', () => {
     const view = useViewStore()
