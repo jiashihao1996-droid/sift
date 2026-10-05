@@ -8,8 +8,11 @@ import {
   isActualSize,
   MAX_ZOOM,
   MIN_ZOOM,
+  DETENT_HOLD,
+  panByScroll,
   paneAnchor,
   SINGLE_PANE,
+  settleOnDetents,
   zoomAt,
   zoomPercent,
 } from './zoom'
@@ -180,5 +183,104 @@ describe('carryZoom / applyZoomCarry', () => {
     const carry = carryZoom({ zoom: 2, offsetX: -300, offsetY: 0 }, 2, fit)
 
     expect(applyZoomCarry(carry!, null, fit)).toEqual({ zoom: 1, offsetX: 0, offsetY: 0 })
+  })
+})
+
+describe('settleOnDetents', () => {
+  const STOPS = [1, 2]
+
+  it('passes through when no stop lies between the two zooms', () => {
+    expect(settleOnDetents(1.2, 1.5, STOPS, null)).toEqual({ zoom: 1.5, hold: null })
+  })
+
+  it('stops at fit when zooming out across it', () => {
+    const result = settleOnDetents(1.05, 0.98, STOPS, null)
+    expect(result.zoom).toBe(1)
+    expect(result.hold?.stop).toBe(1)
+  })
+
+  it('stops at 100% when zooming in across it', () => {
+    expect(settleOnDetents(1.9, 2.1, STOPS, null).zoom).toBe(2)
+  })
+
+  it('stops at the next stop when one step jumps past the first', () => {
+    // Far past the first stop, but within DETENT_HOLD of the second once released
+    expect(settleOnDetents(0.95, 2.4, STOPS, null).zoom).toBe(2)
+    expect(settleOnDetents(2.2, 0.85, STOPS, null).zoom).toBe(1)
+  })
+
+  it('holds until the gesture pushes DETENT_HOLD past the stop, then moves on smoothly', () => {
+    let step = settleOnDetents(1.9, 2.05, STOPS, null)
+    let zoom = step.zoom
+    const seen: number[] = []
+    for (let i = 0; i < 20; i++) {
+      const next = zoom * 1.02
+      step = settleOnDetents(zoom, next, STOPS, step.hold)
+      zoom = step.zoom
+      seen.push(zoom)
+    }
+    const held = seen.filter((z) => z === 2).length
+    // ~2.5% pushed by the first step, then 2% per step until 10% in all
+    expect(held).toBeGreaterThanOrEqual(3)
+    expect(held).toBeLessThanOrEqual(5)
+    const firstFree = seen.find((z) => z !== 2) ?? 0
+    expect(firstFree).toBeGreaterThan(2)
+    expect(firstFree).toBeLessThan(2 * 1.03)
+  })
+
+  it('lets a held gesture back out the way it came', () => {
+    const held = settleOnDetents(1.9, 2.05, STOPS, null)
+    const back = settleOnDetents(2, 2 / 1.2, STOPS, held.hold)
+    expect(back.hold).toBeNull()
+    expect(back.zoom).toBeLessThan(2)
+  })
+
+  it('jumps a stop when a single step pushes far past it', () => {
+    const result = settleOnDetents(0.9, 1.5, STOPS, null)
+    expect(result.hold).toBeNull()
+    expect(result.zoom).toBeCloseTo(1.5 / Math.exp(DETENT_HOLD), 10)
+  })
+
+  it('moves freely away from a stop it starts on', () => {
+    expect(settleOnDetents(1, 1.05, STOPS, null)).toEqual({ zoom: 1.05, hold: null })
+  })
+})
+
+describe('panByScroll', () => {
+  const BOX = { width: 1000, height: 600 }
+  const PANE = { width: 1000, height: 800 }
+
+  it('moves the image against the scroll, like a page', () => {
+    const next = panByScroll({ zoom: 2, offsetX: 0, offsetY: 0 }, { x: 10, y: 20 }, BOX, PANE)
+    expect(next).toEqual({ zoom: 2, offsetX: -5, offsetY: -10 })
+  })
+
+  it('stops where the image edge meets the pane edge', () => {
+    // At 2x the image is 2000x1200 on screen: 500 px spare each side horizontally, 200 vertically
+    const state = { zoom: 2, offsetX: 0, offsetY: 0 }
+    const next = panByScroll(state, { x: 5000, y: -5000 }, BOX, PANE)
+    expect(next.offsetX).toBe(-250)
+    expect(next.offsetY).toBe(100)
+  })
+
+  it('does not pan an axis where the image is smaller than the pane', () => {
+    const next = panByScroll({ zoom: 1.2, offsetX: 0, offsetY: 0 }, { x: 0, y: 50 }, BOX, PANE)
+    expect(next.offsetY).toBeCloseTo(0, 10)
+  })
+
+  it('leaves an image dragged past the edge where it is instead of snapping it back', () => {
+    const state = { zoom: 2, offsetX: -400, offsetY: 0 }
+    expect(panByScroll(state, { x: 10, y: 0 }, BOX, PANE).offsetX).toBe(-400)
+    expect(panByScroll(state, { x: -10, y: 0 }, BOX, PANE).offsetX).toBe(-395)
+  })
+
+  it('clamps to the far edge when a scroll carries it past the center', () => {
+    const state = { zoom: 2, offsetX: -400, offsetY: 0 }
+    expect(panByScroll(state, { x: -2000, y: 0 }, BOX, PANE).offsetX).toBe(250)
+  })
+
+  it('does nothing at or below fit', () => {
+    const state = { zoom: 1, offsetX: 0, offsetY: 0 }
+    expect(panByScroll(state, { x: 30, y: 30 }, BOX, PANE)).toBe(state)
   })
 })
