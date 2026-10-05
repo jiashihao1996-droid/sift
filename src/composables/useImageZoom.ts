@@ -14,6 +14,8 @@ import {
   carryZoom,
   fitWidth as computeFitWidth,
   paneAnchor,
+  paneSize,
+  SINGLE_PANE,
   zoomPercent as computeZoomPercent,
   type Point,
   type ZoomCarry,
@@ -72,14 +74,14 @@ export function useImageZoom(
 
   const dpr = useDevicePixelRatio().pixelRatio
 
-  /** Fit width of the <img> at zoom=1 (rotation-aware, compare-aware: each pane is half width) */
+  /** Panes the viewer is split into: compare is 2×1 */
+  const grid = computed(() => (view.compareMode ? { cols: 2, rows: 1 } : SINGLE_PANE))
+
+  /** Fit width of the <img> at zoom=1 in its pane (rotation-aware) */
   const fitWidth = computed(() =>
     computeFitWidth(
       { width: naturalWidth.value, height: naturalHeight.value },
-      {
-        width: view.compareMode ? containerWidth.value / 2 : containerWidth.value,
-        height: containerHeight.value,
-      },
+      paneSize({ width: containerWidth.value, height: containerHeight.value }, grid.value),
       view.rotation,
     ),
   )
@@ -136,7 +138,7 @@ export function useImageZoom(
     return paneAnchor(
       { x: client.x - rect.left, y: client.y - rect.top },
       { width: rect.width, height: rect.height },
-      view.compareMode,
+      grid.value,
     )
   }
 
@@ -148,7 +150,7 @@ export function useImageZoom(
     view.zoomAnchor = anchorAt(lastPointer) ?? { x: 0, y: 0 }
   }
 
-  watch([() => view.compareMode, containerWidth, containerHeight], refreshZoomAnchor, {
+  watch([grid, containerWidth, containerHeight], refreshZoomAnchor, {
     flush: 'post',
   })
 

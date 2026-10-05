@@ -56,16 +56,33 @@ export function zoomAt(state: ZoomState, nextZoom: number, anchor: Point): ZoomS
   }
 }
 
+/** How the viewer is split into equal panes: compare is 2×1, a survey up to 2×2 */
+export interface PaneGrid {
+  cols: number
+  rows: number
+}
+
+export const SINGLE_PANE: PaneGrid = { cols: 1, rows: 1 }
+
+/** Size of one pane of the grid */
+export function paneSize(viewer: Size, grid: PaneGrid): Size {
+  return { width: viewer.width / grid.cols, height: viewer.height / grid.rows }
+}
+
 /**
  * Pointer position relative to the center of the pane it is over, or null outside.
- * `pointer` is relative to the viewer's top-left; compare mode splits it into two panes.
+ * `pointer` is relative to the viewer's top-left.
  */
-export function paneAnchor(pointer: Point, viewer: Size, isCompare: boolean): Point | null {
+export function paneAnchor(pointer: Point, viewer: Size, grid: PaneGrid): Point | null {
   const { x, y } = pointer
   if (x < 0 || y < 0 || x > viewer.width || y > viewer.height) return null
-  const paneWidth = isCompare ? viewer.width / 2 : viewer.width
-  const paneLeft = isCompare && x >= paneWidth ? paneWidth : 0
-  return { x: x - paneLeft - paneWidth / 2, y: y - viewer.height / 2 }
+  const pane = paneSize(viewer, grid)
+  const col = Math.min(grid.cols - 1, Math.floor(x / pane.width))
+  const row = Math.min(grid.rows - 1, Math.floor(y / pane.height))
+  return {
+    x: x - col * pane.width - pane.width / 2,
+    y: y - row * pane.height - pane.height / 2,
+  }
 }
 
 export function clampZoom(zoom: number, actual: number | null): number {

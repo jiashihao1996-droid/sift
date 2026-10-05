@@ -9,6 +9,7 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   paneAnchor,
+  SINGLE_PANE,
   zoomAt,
   zoomPercent,
 } from './zoom'
@@ -115,22 +116,30 @@ describe('zoomPercent', () => {
 
 describe('paneAnchor', () => {
   const viewer = { width: 1200, height: 800 }
+  const COMPARE = { cols: 2, rows: 1 }
+
+  it('is relative to the center of the quarter it is over in a 2×2 survey', () => {
+    expect(paneAnchor({ x: 700, y: 500 }, viewer, { cols: 2, rows: 2 })).toEqual({
+      x: -200,
+      y: -100,
+    })
+  })
 
   it('is relative to the viewer center in normal mode', () => {
-    expect(paneAnchor({ x: 900, y: 100 }, viewer, false)).toEqual({ x: 300, y: -300 })
+    expect(paneAnchor({ x: 900, y: 100 }, viewer, SINGLE_PANE)).toEqual({ x: 300, y: -300 })
   })
 
   it('is relative to the left pane center in compare mode', () => {
-    expect(paneAnchor({ x: 100, y: 400 }, viewer, true)).toEqual({ x: -200, y: 0 })
+    expect(paneAnchor({ x: 100, y: 400 }, viewer, COMPARE)).toEqual({ x: -200, y: 0 })
   })
 
   it('is relative to the right pane center in compare mode', () => {
-    expect(paneAnchor({ x: 1000, y: 400 }, viewer, true)).toEqual({ x: 100, y: 0 })
+    expect(paneAnchor({ x: 1000, y: 400 }, viewer, COMPARE)).toEqual({ x: 100, y: 0 })
   })
 
   it('returns null outside the viewer', () => {
-    expect(paneAnchor({ x: -1, y: 400 }, viewer, false)).toBeNull()
-    expect(paneAnchor({ x: 600, y: 801 }, viewer, false)).toBeNull()
+    expect(paneAnchor({ x: -1, y: 400 }, viewer, SINGLE_PANE)).toBeNull()
+    expect(paneAnchor({ x: 600, y: 801 }, viewer, SINGLE_PANE)).toBeNull()
   })
 })
 
