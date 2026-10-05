@@ -18,13 +18,8 @@ const folderName = computed(() => {
   return path.split('/').pop() || path.split('\\').pop() || path
 })
 
-// 对比模式下显示基准图信息，否则显示当前图
-const displayPair = computed(() => {
-  if (view.compareMode && view.compareIndex !== null) {
-    return session.pairs[view.compareIndex] || session.currentPair
-  }
-  return session.currentPair
-})
+// Always the photo F / X act on; in compare mode each pane labels its own file
+const displayPair = computed(() => session.currentPair)
 
 const processedCount = computed(() => session.starredCount + session.deletedCount)
 
