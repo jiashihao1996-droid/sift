@@ -61,7 +61,7 @@ watch(
   <Transition name="exif">
     <div
       v-if="view.showExifPanel"
-      class="fixed top-12 right-0 bottom-10 w-72 z-40 bg-sift-surface/95 backdrop-blur-xl border-l border-sift-border overflow-y-auto"
+      class="fixed top-nav right-0 bottom-status w-72 z-40 bg-sift-surface/95 backdrop-blur-xl border-l border-sift-border overflow-y-auto"
     >
       <!-- Header -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-sift-border">

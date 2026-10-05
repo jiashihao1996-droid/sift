@@ -116,7 +116,7 @@ onMounted(async () => {
 <template>
   <div
     v-if="session.pairs.length > 0"
-    class="fixed bottom-10 left-0 right-0 h-16 z-40 bg-[#121212] border-t border-white/5"
+    class="fixed bottom-status left-0 right-0 h-strip z-40 bg-[#121212] border-t border-white/5"
     @mouseenter="isHovering = true"
     @mouseleave="isHovering = false"
   >

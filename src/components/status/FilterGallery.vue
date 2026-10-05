@@ -85,7 +85,7 @@ function switchCategory(key: PhotoStatus) {
     <Transition name="drawer">
       <div
         v-if="isOpen"
-        class="fixed bottom-10 left-0 right-0 z-[101] max-h-[70vh] flex flex-col bg-[#161616]/95 backdrop-blur-2xl border-t border-white/[0.06] rounded-t-2xl overflow-hidden shadow-[0_-8px_40px_rgba(0,0,0,0.5)]"
+        class="fixed bottom-status left-0 right-0 z-[101] max-h-[70vh] flex flex-col bg-[#161616]/95 backdrop-blur-2xl border-t border-white/[0.06] rounded-t-2xl overflow-hidden shadow-[0_-8px_40px_rgba(0,0,0,0.5)]"
         @click.stop
       >
         <!-- Drag Handle -->

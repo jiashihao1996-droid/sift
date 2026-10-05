@@ -15,6 +15,12 @@
   --sift-success: #10b981;
   --sift-burst: #a78bfa;
   --ambient-color: #3b82f6;
+
+  /* Culling workspace chrome: the photo area sits between the top bar and the bottom two */
+  --nav-bar-h: 3rem;
+  --thumb-strip-h: 4rem;
+  --status-bar-h: 2.5rem;
+  --bottom-chrome-h: calc(var(--thumb-strip-h) + var(--status-bar-h));
 }
 
 /* Global Styles */
@@ -364,7 +370,7 @@ body,
 }
 
 .skel-nav {
-  height: 48px;
+  height: var(--nav-bar-h);
   background: var(--sift-surface);
   border-bottom: 1px solid var(--sift-border);
   flex-shrink: 0;
@@ -385,7 +391,7 @@ body,
 }
 
 .skel-thumbnails {
-  height: 64px;
+  height: var(--thumb-strip-h);
   background: #121212;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
@@ -404,7 +410,7 @@ body,
 }
 
 .skel-status {
-  height: 40px;
+  height: var(--status-bar-h);
   background: var(--sift-surface);
   border-top: 1px solid var(--sift-border);
   flex-shrink: 0;

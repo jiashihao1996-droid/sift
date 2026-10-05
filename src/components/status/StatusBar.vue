@@ -35,7 +35,7 @@ function handleStatusClick(status: PhotoStatus) {
 
 <template>
   <div
-    class="fixed bottom-0 left-0 right-0 h-10 z-50 bg-[#121212] border-t border-white/5 flex items-center px-4"
+    class="fixed bottom-0 left-0 right-0 h-status z-50 bg-[#121212] border-t border-white/5 flex items-center px-4"
   >
     <!-- Left: Progress counter -->
     <div class="flex items-center gap-1.5 min-w-[100px]">

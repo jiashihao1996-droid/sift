@@ -32,6 +32,13 @@ export default {
         ],
         mono: ['SF Mono', 'Fira Code', 'monospace'],
       },
+      /** Workspace chrome sizes, defined once in main.css: h-nav, pt-nav, bottom-status, ... */
+      spacing: {
+        nav: 'var(--nav-bar-h)',
+        strip: 'var(--thumb-strip-h)',
+        status: 'var(--status-bar-h)',
+        'bottom-chrome': 'var(--bottom-chrome-h)',
+      },
       backdropBlur: {
         xs: '2px',
       },
