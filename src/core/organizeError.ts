@@ -69,10 +69,18 @@ export function toOrganizeError(error: unknown): OrganizeError {
   return { kind: 'other', path: null, detail: detail || '未知错误', completed: 0 }
 }
 
-/** Where an archive or export was when it stopped */
+/** Where an archive, a delete-only run or an export was when it stopped */
 export type OrganizeStage =
-  | { operation: 'archive'; step: 'delete'; deletedGroups: number; failedGroups: number }
-  | { operation: 'archive'; step: 'move'; deletedGroups: number }
+  | {
+      /** `delete`: only the photos marked for deletion, nothing else moves */
+      operation: 'archive' | 'delete'
+      step: 'delete'
+      deletedGroups: number
+      failedGroups: number
+      /** Deleted for good, in a folder without a trash */
+      isPermanent?: boolean
+    }
+  | { operation: 'archive'; step: 'move'; deletedGroups: number; isPermanent?: boolean }
   | { operation: 'export'; folder: string }
 
 export interface FailureReport {
@@ -93,6 +101,11 @@ export interface FailureReport {
   canRetry: boolean
 }
 
+/** What happened to the deleted photos, for the done list and success notices */
+export function describeDeleted(groups: number, isPermanent = false): string {
+  return isPermanent ? `已永久删除 ${groups} 组照片` : `已把 ${groups} 组照片移到回收站`
+}
+
 function doneLines(stage: OrganizeStage, completed: number): string[] {
   if (stage.operation === 'export') {
     return [
@@ -101,9 +114,10 @@ function doneLines(stage: OrganizeStage, completed: number): string[] {
     ]
   }
   const lines: string[] = []
-  if (stage.deletedGroups > 0) lines.push(`已把 ${stage.deletedGroups} 组照片移到回收站`)
+  if (stage.deletedGroups > 0) lines.push(describeDeleted(stage.deletedGroups, stage.isPermanent))
   if (stage.step === 'delete') {
-    lines.push(`${stage.failedGroups} 组没有删完，仍标记为删除`, '还没有开始归档')
+    lines.push(`${stage.failedGroups} 组没有删完，仍标记为删除`)
+    lines.push(stage.operation === 'archive' ? '还没有开始归档' : '其他照片没有任何改动')
   } else if (completed > 0) {
     lines.push(`已归档 ${completed} 张照片`)
   } else if (stage.deletedGroups === 0) {
@@ -117,11 +131,17 @@ function canRetry(stage: OrganizeStage, completed: number): boolean {
   return completed === 0
 }
 
+const TITLES: Record<OrganizeStage['operation'], string> = {
+  archive: '归档没有完成',
+  delete: '删除没有完成',
+  export: '导出没有完成',
+}
+
 export function describeFailure(stage: OrganizeStage, error: OrganizeError): FailureReport {
   const { reason, advice } = KIND_TEXT[error.kind]
   const isRetryable = canRetry(stage, error.completed)
   return {
-    title: stage.operation === 'archive' ? '归档没有完成' : '导出没有完成',
+    title: TITLES[stage.operation],
     reason,
     done: doneLines(stage, error.completed),
     stuckFile: error.path ? extractFileName(error.path) : null,

@@ -2,8 +2,9 @@
 // Sift - Archive Flow
 // The order of an archive: trash every pair marked for deletion in one
 // batch, drop the trashed pairs from the session, and only when none failed
-// sort the rest into 精选/ and RAW/. Commands are injected so the flow is
-// tested without Tauri.
+// sort the rest into 精选/ and RAW/. A delete-only run stops after the
+// first step and moves nothing. Commands are injected so the flow is tested
+// without Tauri.
 // ============================================================
 
 import {
@@ -26,6 +27,14 @@ export interface ArchiveDeps {
 export type ArchiveOutcome =
   { ok: true; deletedGroups: number; movedCount: number } | { ok: false; report: FailureReport }
 
+export type DeleteOnlyOutcome =
+  { ok: true; deletedGroups: number } | { ok: false; report: FailureReport }
+
+export interface FlowOptions {
+  /** The user confirmed that deleting is permanent here (a folder without a trash) */
+  isPermanent?: boolean
+}
+
 function toDeleteInput(pair: PhotoPair): DeletePairInput {
   return {
     id: pair.id,
@@ -47,49 +56,65 @@ function toArchiveInput(pair: PhotoPair): ArchivePairInput {
 }
 
 /**
- * Delete, then archive. Trashed pairs leave the session right away, so a
- * failed delete can simply be retried: only the pairs still marked are sent
- * again, and a pair that is partly in the trash finishes.
+ * Delete every pair marked for deletion in one batch. Trashed pairs leave
+ * the session right away, so a failed delete can simply be retried: only
+ * the pairs still marked are sent again, and a partly trashed pair finishes.
  */
+async function deleteMarked(
+  operation: 'archive' | 'delete',
+  pairs: readonly PhotoPair[],
+  deps: Pick<ArchiveDeps, 'deletePairs' | 'dropPairs'>,
+  isPermanent: boolean,
+): Promise<DeleteOnlyOutcome> {
+  const toDelete = pairs.filter((p) => p.status === PhotoStatus.Deleted)
+  if (toDelete.length === 0) return { ok: true, deletedGroups: 0 }
+  const stage = { operation, step: 'delete', isPermanent } as const
+
+  let result: DeleteResult
+  try {
+    result = await deps.deletePairs(toDelete.map(toDeleteInput))
+  } catch (e) {
+    const failed = { ...stage, deletedGroups: 0, failedGroups: toDelete.length }
+    return { ok: false, report: describeFailure(failed, toOrganizeError(e)) }
+  }
+  deps.dropPairs(result.trashed)
+  const deletedGroups = result.trashed.length
+  const [firstFailure] = result.failed
+  if (firstFailure) {
+    const failed = { ...stage, deletedGroups, failedGroups: result.failed.length }
+    return { ok: false, report: describeFailure(failed, firstFailure.error) }
+  }
+  return { ok: true, deletedGroups }
+}
+
+/** Delete, then archive; nothing moves while any marked pair is left */
 export async function runArchive(
   folder: string,
   pairs: readonly PhotoPair[],
   deps: ArchiveDeps,
+  { isPermanent = false }: FlowOptions = {},
 ): Promise<ArchiveOutcome> {
-  const toDelete = pairs.filter((p) => p.status === PhotoStatus.Deleted)
-  let deletedGroups = 0
-
-  if (toDelete.length > 0) {
-    let result: DeleteResult
-    try {
-      result = await deps.deletePairs(toDelete.map(toDeleteInput))
-    } catch (e) {
-      const stage = {
-        operation: 'archive',
-        step: 'delete',
-        deletedGroups,
-        failedGroups: toDelete.length,
-      } as const
-      return { ok: false, report: describeFailure(stage, toOrganizeError(e)) }
-    }
-    deps.dropPairs(result.trashed)
-    deletedGroups = result.trashed.length
-    const [firstFailure] = result.failed
-    if (firstFailure) {
-      const failedGroups = result.failed.length
-      const stage = { operation: 'archive', step: 'delete', deletedGroups, failedGroups } as const
-      return { ok: false, report: describeFailure(stage, firstFailure.error) }
-    }
-  }
+  const deleted = await deleteMarked('archive', pairs, deps, isPermanent)
+  if (!deleted.ok) return deleted
+  const { deletedGroups } = deleted
 
   const survivors = pairs.filter((p) => p.status !== PhotoStatus.Deleted).map(toArchiveInput)
   try {
     const result = await deps.archivePhotos(folder, survivors)
     return { ok: true, deletedGroups, movedCount: result.movedCount }
   } catch (e) {
-    const stage = { operation: 'archive', step: 'move', deletedGroups } as const
+    const stage = { operation: 'archive', step: 'move', deletedGroups, isPermanent } as const
     return { ok: false, report: describeFailure(stage, toOrganizeError(e)) }
   }
+}
+
+/** Only delete the pairs marked for deletion; every other file stays put */
+export async function runDeleteOnly(
+  pairs: readonly PhotoPair[],
+  deps: Pick<ArchiveDeps, 'deletePairs' | 'dropPairs'>,
+  { isPermanent = false }: FlowOptions = {},
+): Promise<DeleteOnlyOutcome> {
+  return deleteMarked('delete', pairs, deps, isPermanent)
 }
 
 /**
