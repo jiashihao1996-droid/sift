@@ -195,7 +195,10 @@ export const useSessionStore = defineStore('session', () => {
     const status = toggledStatus(pair.status, type)
     const isMarked = status !== PhotoStatus.Unprocessed
     const { stayAfterMark } = view
-    undoStack.value.push({ type, pairId: pair.id, previousStatus: pair.status })
+    undoStack.value.push({
+      pairId: pair.id,
+      changes: [{ pairId: pair.id, previousStatus: pair.status }],
+    })
     pairs.value[idx] = { ...pair, status }
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
     if (movesOnAfterMark(status, stayAfterMark) && isLastPhoto.value) endReachedCount.value++
@@ -219,11 +222,14 @@ export const useSessionStore = defineStore('session', () => {
     const action = undoStack.value.pop()
     if (!action) return false
 
-    const index = indexOfPair(action.pairId)
-    if (index !== null) {
-      pairs.value[index] = { ...pairs.value[index], status: action.previousStatus }
-      currentIndex.value = index
+    for (const change of action.changes) {
+      const index = indexOfPair(change.pairId)
+      if (index !== null) {
+        pairs.value[index] = { ...pairs.value[index], status: change.previousStatus }
+      }
     }
+    const returnTo = indexOfPair(action.pairId)
+    if (returnTo !== null) currentIndex.value = returnTo
     return true
   }
 

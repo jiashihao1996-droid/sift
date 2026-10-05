@@ -46,6 +46,12 @@ function storeWith(statuses: PhotoStatus[], currentIndex = 0) {
   return store
 }
 
+/** The undo step of one mark key press on `pairId` */
+const undoStep = (pairId: string, previousStatus: PhotoStatus) => ({
+  pairId,
+  changes: [{ pairId, previousStatus }],
+})
+
 const statuses = (store: ReturnType<typeof useSessionStore>) => store.pairs.map((p) => p.status)
 
 beforeEach(() => {
@@ -90,30 +96,30 @@ describe('counts and progress', () => {
 
 describe('marking', () => {
   it.each([
-    ['markStar', S, 'starred', 'star'],
-    ['markDelete', D, 'deleted', 'delete'],
-  ] as const)('%s marks, records undo and advances', (action, status, outcome, type) => {
+    ['markStar', S, 'starred'],
+    ['markDelete', D, 'deleted'],
+  ] as const)('%s marks, records undo and advances', (action, status, outcome) => {
     const store = storeWith([U, U, U])
 
     expect(store[action]()).toBe(outcome)
 
     expect(statuses(store)).toEqual([status, U, U])
-    expect(store.undoStack).toEqual([{ type, pairId: 'p0', previousStatus: U }])
+    expect(store.undoStack).toEqual([undoStep('p0', U)])
     expect(store.currentIndex).toBe(1)
   })
 
   it.each([
-    ['markStar', S, 'unstarred', 'star'],
-    ['markDelete', D, 'undeleted', 'delete'],
+    ['markStar', S, 'unstarred'],
+    ['markDelete', D, 'undeleted'],
   ] as const)(
     '%s on an already-marked photo unmarks it, records undo and stays',
-    (action, status, outcome, type) => {
+    (action, status, outcome) => {
       const store = storeWith([U, status, U], 1)
 
       expect(store[action]()).toBe(outcome)
 
       expect(statuses(store)).toEqual([U, U, U])
-      expect(store.undoStack).toEqual([{ type, pairId: 'p1', previousStatus: status }])
+      expect(store.undoStack).toEqual([undoStep('p1', status)])
       expect(store.currentIndex).toBe(1)
     },
   )
@@ -122,7 +128,7 @@ describe('marking', () => {
     const store = storeWith([S, U])
     store.markDelete()
 
-    expect(store.undoStack[0]).toEqual({ type: 'delete', pairId: 'p0', previousStatus: S })
+    expect(store.undoStack[0]).toEqual(undoStep('p0', S))
     expect(store.currentIndex).toBe(1)
   })
 
@@ -377,7 +383,7 @@ describe('scanning', () => {
   it('loads pairs and resets position and undo history', async () => {
     vi.mocked(scanFolder).mockResolvedValue(scanResultOf(3))
     const store = storeWith([S, S], 1)
-    store.undoStack = [{ type: 'star', pairId: 'p0', previousStatus: U }]
+    store.undoStack = [undoStep('p0', U)]
 
     await store.startScan('/photos')
 

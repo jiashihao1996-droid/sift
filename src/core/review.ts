@@ -5,9 +5,9 @@
 // trivially testable.
 // ============================================================
 
-import { PhotoStatus, type PhotoPair, type UndoAction } from '@/types'
+import { PhotoStatus, type PhotoPair } from '@/types'
 
-export type MarkType = UndoAction['type']
+export type MarkType = 'star' | 'delete'
 
 const MARK_STATUS: Record<MarkType, PhotoStatus> = {
   star: PhotoStatus.Starred,
