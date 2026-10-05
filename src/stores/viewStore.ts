@@ -77,6 +77,11 @@ export const useViewStore = defineStore('view', () => {
   const compareMode = ref(false)
   const compareIndex = ref<number | null>(null)
 
+  // Survey (N): the current burst side by side
+  const surveyMode = ref(false)
+  /** First photo in view when the burst is longer than the survey shows */
+  const surveyStart = ref<number | null>(null)
+
   // Toast
   const toastMessage = ref('')
   const toastType = ref<ToastType>('info')
@@ -183,6 +188,7 @@ export const useViewStore = defineStore('view', () => {
     if (compareMode.value) {
       exitCompare()
     } else {
+      exitSurvey()
       compareMode.value = true
       compareIndex.value = currentIdx
       resetZoom()
@@ -192,6 +198,25 @@ export const useViewStore = defineStore('view', () => {
   function exitCompare() {
     compareMode.value = false
     compareIndex.value = null
+  }
+
+  /** Survey and compare are exclusive; panes change size, so the zoom starts at fit */
+  function toggleSurvey() {
+    if (surveyMode.value) {
+      exitSurvey()
+    } else {
+      exitCompare()
+      surveyMode.value = true
+      surveyStart.value = null
+      resetZoom()
+    }
+  }
+
+  function exitSurvey() {
+    if (!surveyMode.value) return
+    surveyMode.value = false
+    surveyStart.value = null
+    resetZoom()
   }
 
   function swapCompare(currentIdx: number) {
@@ -227,6 +252,8 @@ export const useViewStore = defineStore('view', () => {
     zoomAnchor,
     compareMode,
     compareIndex,
+    surveyMode,
+    surveyStart,
     toastMessage,
     toastType,
     toastVisible,
@@ -247,6 +274,8 @@ export const useViewStore = defineStore('view', () => {
     setBurstGapSeconds,
     toggleCompare,
     exitCompare,
+    toggleSurvey,
+    exitSurvey,
     swapCompare,
     openFilterGallery,
     closeFilterGallery,

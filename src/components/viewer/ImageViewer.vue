@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // ============================================================
 // ImageViewer - Core image preview with zoom, pan, ambient glow
-// Supports compare mode: side-by-side dual image layout
+// Supports compare mode (side-by-side with a locked base image) and the
+// survey of the current burst (SurveyView)
 // ============================================================
 
 import { ref, computed, watch } from 'vue'
@@ -11,16 +12,19 @@ import { useImageLoader } from '@/composables/useImageLoader'
 import { useImageZoom } from '@/composables/useImageZoom'
 import { useAmbientColor } from '@/composables/useAmbientColor'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { ArrowLeftRight, Columns2, RotateCw } from '@lucide/vue'
+import { ArrowLeftRight, Columns2, LayoutGrid, RotateCw } from '@lucide/vue'
 import SkeletonImage from '@/components/common/SkeletonImage.vue'
 import StatusBadge from './StatusBadge.vue'
+import SurveyView from './SurveyView.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { useContextMenu } from '@/composables/useContextMenu'
+import { useSurveyToggle } from '@/composables/useSurveyToggle'
 import { extractFileName } from '@/utils/path'
 
 const session = useSessionStore()
 const view = useViewStore()
 const contextMenu = useContextMenu()
+const { toggleSurvey } = useSurveyToggle()
 
 const containerRef = ref<HTMLElement | null>(null)
 const { isLoading, currentSrc, thumbnailSrc, loadError, naturalWidth, naturalHeight } =
@@ -86,7 +90,7 @@ function handleCompare() {
 }
 
 function handleMouseMoveNav(e: MouseEvent) {
-  if (view.compareMode) return
+  if (view.compareMode || view.surveyMode) return
   if (!containerRef.value) return
   const rect = containerRef.value.getBoundingClientRect()
   const x = e.clientX - rect.left
@@ -120,8 +124,21 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
     @mousemove="handleMouseMoveNav"
     @mouseleave="handleMouseLeaveNav"
   >
+    <!-- ==================== SURVEY ==================== -->
+    <template v-if="view.surveyMode">
+      <SurveyView />
+      <Transition name="nav-fade">
+        <div
+          v-if="isZoomed"
+          class="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+        >
+          {{ zoomPercent }}%
+        </div>
+      </Transition>
+    </template>
+
     <!-- ==================== COMPARE MODE ==================== -->
-    <template v-if="view.compareMode">
+    <template v-else-if="view.compareMode">
       <div class="absolute inset-0 flex">
         <!-- Left: Base Image (compareIndex) -->
         <div
@@ -414,6 +431,18 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
         @click.stop="view.rotateBy(90)"
       >
         <RotateCw :size="16" class="text-white/40 group-hover:text-white transition-colors" />
+      </button>
+      <button
+        class="flex items-center justify-center w-8 h-8 rounded-lg transition-all group btn-spring"
+        :class="view.surveyMode ? 'bg-sift-accent/15 hover:bg-sift-accent/25' : 'hover:bg-white/10'"
+        :title="view.surveyMode ? '退出组内对比 (N)' : '组内并排对比 (N)'"
+        @click.stop="toggleSurvey"
+      >
+        <LayoutGrid
+          :size="16"
+          class="transition-colors"
+          :class="view.surveyMode ? 'text-sift-accent' : 'text-white/40 group-hover:text-white'"
+        />
       </button>
       <button
         class="flex items-center justify-center w-8 h-8 rounded-lg transition-all group btn-spring"

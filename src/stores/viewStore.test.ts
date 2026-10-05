@@ -159,6 +159,29 @@ describe('burstGapSeconds', () => {
   })
 })
 
+describe('survey and compare', () => {
+  it('leaves compare when the survey opens, and the other way round', () => {
+    const view = useViewStore()
+    view.toggleCompare(3)
+
+    view.toggleSurvey()
+    expect([view.surveyMode, view.compareMode, view.compareIndex]).toEqual([true, false, null])
+
+    view.toggleCompare(2)
+    expect([view.surveyMode, view.compareMode, view.compareIndex]).toEqual([false, true, 2])
+  })
+
+  it('starts the survey at fit and forgets where its window was', () => {
+    const view = useViewStore()
+    view.setZoom(3)
+    view.surveyStart = 7
+
+    view.toggleSurvey()
+
+    expect([view.zoomLevel, view.surveyStart]).toEqual([1, null])
+  })
+})
+
 describe('organizing', () => {
   it('tells Rust while organizing so closing the window is refused', () => {
     const view = useViewStore()

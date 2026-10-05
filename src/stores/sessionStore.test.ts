@@ -429,6 +429,59 @@ describe('burst groups', () => {
   })
 })
 
+describe('survey', () => {
+  const SECOND = 1000
+
+  /** Bursts [0, 1, 2] and [3, 4], surveyed */
+  function surveyStore(statuses: PhotoStatus[] = [U, U, U, U, U], currentIndex = 0) {
+    const store = useSessionStore()
+    const seconds = [0, 1, 2, 10, 11]
+    store.pairs = makePairs(statuses).map((p, i) => ({
+      ...p,
+      captureTime: { localMs: seconds[i] * SECOND, offsetMinutes: null },
+    }))
+    store.currentIndex = currentIndex
+    useViewStore().surveyMode = true
+    return store
+  }
+
+  it('moves the focus within the burst and stops at its ends', () => {
+    const store = surveyStore([U, U, U, U, U], 1)
+
+    store.goNext()
+    store.goNext()
+    expect(store.currentIndex).toBe(2)
+
+    store.goPrev()
+    store.goPrev()
+    store.goPrev()
+    expect(store.currentIndex).toBe(0)
+    expect(store.endReachedCount).toBe(0)
+  })
+
+  it('moves the focus on after a mark but not out of the burst', () => {
+    const store = surveyStore([U, U, U, U, U], 1)
+
+    store.markStar()
+    expect(store.currentIndex).toBe(2)
+
+    store.markDelete()
+    expect([statuses(store), store.currentIndex]).toEqual([[U, S, D, U, U], 2])
+  })
+
+  it('does not report reaching the end when marking the last photo of the last burst', () => {
+    const store = surveyStore([U, U, U, U, U], 4)
+    store.markStar()
+    expect([store.currentIndex, store.endReachedCount]).toEqual([4, 0])
+  })
+
+  it('still moves to the next burst after deciding one, so the survey follows', () => {
+    const store = surveyStore([U, U, U, U, U], 0)
+    store.markGroup('pick')
+    expect(store.currentIndex).toBe(3)
+  })
+})
+
 describe('navigation', () => {
   it('moves forward and back within bounds', () => {
     const store = storeWith([U, U])
