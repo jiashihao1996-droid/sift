@@ -32,7 +32,7 @@ export function fileNameRanks(pairs: readonly PhotoPair[]): Map<string, number> 
  * camera clocks would order nothing reliably, so otherwise the camera clocks
  * are compared as they read.
  */
-function captureKeys(pairs: readonly PhotoPair[]): Map<string, number> {
+export function captureKeys(pairs: readonly PhotoPair[]): Map<string, number> {
   const timed = pairs.filter((p) => p.captureTime !== null)
   const isUtc = timed.length > 0 && timed.every((p) => p.captureTime?.offsetMinutes != null)
   const keys = new Map<string, number>()

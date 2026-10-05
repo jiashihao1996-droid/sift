@@ -334,6 +334,101 @@ describe('sort order', () => {
   })
 })
 
+describe('burst groups', () => {
+  const SECOND = 1000
+
+  /** Photos taken at the given seconds: [0, 1, 2] and [10, 11] are bursts at a 2 s gap */
+  function burstStore(statuses: PhotoStatus[] = [U, U, U, U, U], currentIndex = 0) {
+    const store = useSessionStore()
+    const seconds = [0, 1, 2, 10, 11]
+    store.pairs = makePairs(statuses).map((p, i) => ({
+      ...p,
+      captureTime: { localMs: seconds[i] * SECOND, offsetMinutes: null },
+    }))
+    store.currentIndex = currentIndex
+    return store
+  }
+
+  it('groups the session and tells where the current photo sits in its burst', () => {
+    const store = burstStore([U, U, U, U, U], 1)
+    expect(store.groups.starts).toEqual([0, 3])
+    expect(store.currentGroupPosition).toEqual({ index: 2, size: 3 })
+  })
+
+  it('does not regroup when a photo is marked', () => {
+    const store = burstStore()
+    const before = store.groups
+
+    store.markStar()
+
+    expect(store.groups).toBe(before)
+  })
+
+  it('regroups when the gap changes', () => {
+    const store = burstStore()
+    useViewStore().setBurstGapSeconds(0)
+    expect(store.groups.starts).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it('jumps between bursts with ] and [', () => {
+    const store = burstStore([U, U, U, U, U], 1)
+
+    store.goToNextGroup()
+    expect(store.currentIndex).toBe(3)
+
+    store.goToGroupStart()
+    expect(store.currentIndex).toBe(0)
+  })
+
+  it('reports reaching the end when there is no next burst', () => {
+    const store = burstStore([U, U, U, U, U], 3)
+
+    store.goToNextGroup()
+
+    expect([store.currentIndex, store.endReachedCount]).toEqual([3, 1])
+  })
+
+  it('picks the current photo, deletes the rest of its burst and moves to the next', () => {
+    const store = burstStore([U, U, S, U, U], 1)
+
+    const plan = store.markGroup('pick')
+
+    expect(statuses(store)).toEqual([D, S, S, U, U])
+    expect(plan).toMatchObject({ starred: 1, deleted: 1, keptStarred: 1 })
+    expect(store.currentIndex).toBe(3)
+  })
+
+  it('stays on the photo after a burst decision when set to stay', () => {
+    useViewStore().stayAfterMark = true
+    const store = burstStore([U, U, U, U, U], 1)
+
+    store.markGroup('reject')
+
+    expect(statuses(store)).toEqual([D, D, D, U, U])
+    expect(store.currentIndex).toBe(1)
+  })
+
+  it('undoes a burst decision in one step and returns to the photo', () => {
+    const store = burstStore([U, U, S, U, U], 1)
+    store.markGroup('pick')
+
+    expect(store.undoStack).toHaveLength(1)
+    store.undo()
+
+    expect(statuses(store)).toEqual([U, U, S, U, U])
+    expect(store.currentIndex).toBe(1)
+  })
+
+  it('records no undo step when there is nothing to change', () => {
+    const store = burstStore([D, D, D, U, U], 0)
+
+    store.markGroup('reject')
+
+    expect(store.undoStack).toEqual([])
+    expect(store.currentIndex).toBe(0)
+  })
+})
+
 describe('navigation', () => {
   it('moves forward and back within bounds', () => {
     const store = storeWith([U, U])

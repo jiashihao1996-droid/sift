@@ -7,12 +7,31 @@ import { onMounted, onUnmounted } from 'vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { IS_MAC } from '@/utils/platform'
+import { groupMarkToast, type GroupMarkMode } from '@/core/grouping'
 
 const KEY_ZOOM_STEP = 1.25
+
+/**
+ * `[` / `]` by physical key, so they still work while a Chinese input method
+ * turns them into 【 / 】; only unshifted, as Shift gives { / }
+ */
+function bracketKey(e: KeyboardEvent): '[' | ']' | null {
+  if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return null
+  if (e.code === 'BracketLeft') return '['
+  if (e.code === 'BracketRight') return ']'
+  return null
+}
 
 export function useKeyboard() {
   const session = useSessionStore()
   const view = useViewStore()
+
+  function markGroup(mode: GroupMarkMode) {
+    const plan = session.markGroup(mode)
+    if (!plan) return
+    const toast = groupMarkToast(plan, mode)
+    view.showToast(toast.message, toast.type)
+  }
 
   function handleKeyDown(e: KeyboardEvent) {
     // Skip if in input/textarea
@@ -70,19 +89,43 @@ export function useKeyboard() {
       return
     }
 
-    switch (e.key) {
-      // Mark keys ignore auto-repeat: holding one must not mark a run of photos
+    switch (bracketKey(e) ?? e.key) {
+      // Mark keys ignore auto-repeat: holding one must not mark a run of photos.
+      // Shift decides the whole burst; Caps Lock alone also gives 'F', so check shiftKey.
       case 'f':
       case 'F':
         e.preventDefault()
-        if (!e.repeat) session.markStar()
+        if (e.repeat) break
+        if (e.shiftKey) markGroup('pick')
+        else session.markStar()
         break
 
       case 'x':
       case 'X':
+        e.preventDefault()
+        if (e.repeat) break
+        if (e.shiftKey) markGroup('reject')
+        else session.markDelete()
+        break
+
       case 'Delete':
         e.preventDefault()
         if (!e.repeat) session.markDelete()
+        break
+
+      // Option may be needed to type a bracket on non-US layouts; Cmd/Ctrl never
+      case ']':
+        if (!isCtrlOrCmd) {
+          e.preventDefault()
+          session.goToNextGroup()
+        }
+        break
+
+      case '[':
+        if (!isCtrlOrCmd) {
+          e.preventDefault()
+          session.goToGroupStart()
+        }
         break
 
       case 'l':

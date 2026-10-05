@@ -16,6 +16,8 @@ export default {
           delete: '#EF4444',
           accent: '#3B82F6',
           success: '#10B981',
+          /** Burst groups on the strip and status bar */
+          burst: '#A78BFA',
         },
       },
       fontFamily: {

@@ -29,6 +29,15 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ],
   },
   {
+    title: '连拍组',
+    items: [
+      { keys: [[']']], label: '下一组第一张' },
+      { keys: [['[']], label: '本组第一张 / 上一组' },
+      { keys: [['Shift', 'F']], label: '精选这张，组内其余未标记的标删除' },
+      { keys: [['Shift', 'X']], label: '组内未标记的全部标删除' },
+    ],
+  },
+  {
     title: '其他',
     items: [
       { keys: [[MOD_KEY, 'Enter']], label: '打开归档' },

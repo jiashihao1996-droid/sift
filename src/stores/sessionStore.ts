@@ -4,7 +4,7 @@
 // ============================================================
 
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, shallowRef, toRaw, watch } from 'vue'
 import {
   PhotoStatus,
   type PhotoPair,
@@ -32,6 +32,16 @@ import {
 } from '@/core/review'
 import { nearestFirst } from '@/core/preload'
 import { fileNameRanks, sortPairs } from '@/core/sorting'
+import {
+  groupPairs,
+  groupPosition,
+  nextGroupStart,
+  planGroupMark,
+  prevGroupTarget,
+  type BurstGroups,
+  type GroupMarkMode,
+  type GroupMarkPlan,
+} from '@/core/grouping'
 import { withoutPairs } from '@/core/archiveFlow'
 import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
@@ -102,6 +112,23 @@ export const useSessionStore = defineStore('session', () => {
   const progress = computed(() => positionPercent(currentIndex.value, pairs.value.length))
 
   const isLastPhoto = computed(() => currentIndex.value >= pairs.value.length - 1)
+
+  /**
+   * Burst groups of the current order. Worked out again only when the order
+   * or the gap changes (a new pairs array, not a mark), so marking never pays
+   * for regrouping or for redrawing the strip's group bounds.
+   */
+  const groups = shallowRef<BurstGroups>({ starts: [], groupOf: [] })
+  watch(
+    [() => pairs.value, () => view.burstGapSeconds],
+    ([list, gapSeconds]) => {
+      groups.value = groupPairs(toRaw(list), gapSeconds * 1000)
+    },
+    { immediate: true, flush: 'sync' },
+  )
+
+  /** Where the current photo sits in its burst; null when it stands alone */
+  const currentGroupPosition = computed(() => groupPosition(groups.value, currentIndex.value))
 
   // ---- Actions ----
 
@@ -233,6 +260,48 @@ export const useSessionStore = defineStore('session', () => {
     return true
   }
 
+  /** `]`: first photo of the next burst; in the last one, report reaching the end */
+  function goToNextGroup() {
+    const target = nextGroupStart(groups.value, currentIndex.value)
+    if (target !== null) {
+      currentIndex.value = target
+    } else if (pairs.value.length > 0) {
+      endReachedCount.value++
+    }
+  }
+
+  /** `[`: back to the start of this burst, or from there to the previous one */
+  function goToGroupStart() {
+    const target = prevGroupTarget(groups.value, currentIndex.value)
+    if (target !== null) currentIndex.value = target
+  }
+
+  /**
+   * Decide the current burst in one key (Shift+F / Shift+X), as one undo step.
+   * Moves on to the next burst unless the viewer stays after marking.
+   * Returns what changed, or null if there is no photo.
+   */
+  function markGroup(mode: GroupMarkMode): GroupMarkPlan | null {
+    const idx = currentIndex.value
+    const pair = pairs.value[idx]
+    if (!pair || isArchived.value) return null
+
+    const plan = planGroupMark(pairs.value, groups.value, idx, mode)
+    if (plan.changes.length === 0) return plan
+    undoStack.value.push({
+      pairId: pair.id,
+      changes: plan.changes.map(({ index }) => ({
+        pairId: pairs.value[index].id,
+        previousStatus: pairs.value[index].status,
+      })),
+    })
+    for (const { index, status } of plan.changes) {
+      pairs.value[index] = { ...pairs.value[index], status }
+    }
+    if (!view.stayAfterMark) goToNextGroup()
+    return plan
+  }
+
   function indexOfPair(id: string): number | null {
     const index = pairs.value.findIndex((p) => p.id === id)
     return index === -1 ? null : index
@@ -331,6 +400,8 @@ export const useSessionStore = defineStore('session', () => {
     unprocessedCount,
     progress,
     isLastPhoto,
+    groups,
+    currentGroupPosition,
     // Actions
     startScan,
     goNext,
@@ -338,6 +409,9 @@ export const useSessionStore = defineStore('session', () => {
     goTo,
     markStar,
     markDelete,
+    markGroup,
+    goToNextGroup,
+    goToGroupStart,
     undo,
     restartSession,
     markArchived,
