@@ -44,12 +44,17 @@ type MissingStatuses = Exclude<GeneratedPhotoStatus, (typeof PhotoStatus)[keyof 
 const _allStatusesListed: [MissingStatuses] extends [never] ? true : MissingStatuses = true
 void _allStatusesListed
 
-/** Undo action record */
-export interface UndoAction {
-  type: 'star' | 'delete'
-  /** The photo's id: its index changes when the session is re-sorted */
+/** A photo's status before an undoable change; ids, since indexes move when re-sorted */
+export interface StatusChange {
   pairId: string
   previousStatus: PhotoStatus
+}
+
+/** One undo step: a mark key changes one photo, a burst decision several */
+export interface UndoAction {
+  /** The photo to return to */
+  pairId: string
+  changes: StatusChange[]
 }
 
 /** App page views */
