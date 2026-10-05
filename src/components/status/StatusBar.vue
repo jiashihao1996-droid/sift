@@ -4,7 +4,7 @@
 // ============================================================
 
 import { computed } from 'vue'
-import { ArrowDownUp } from 'lucide-vue-next'
+import { ArrowDownUp } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus } from '@/types'
