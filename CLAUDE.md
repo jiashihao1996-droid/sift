@@ -22,15 +22,15 @@ Node 版本只在 `.node-version` 里定义（mise/fnm/nvm 读取它，CI 用 `n
 
 Rust（`src-tauri/src/`）：
 
-| 模块        | 职责                                                                                                                                                                                                              | 依赖 Tauri |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                                                                                                                              | 是         |
-| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                                                                                                                                | 否         |
-| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`capture_time`（只读文件头取拍摄时间）、`cache_dirs`                                                                                             | 否         |
-| `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`）、`delete` / `delete_batch`（进回收站，分块批量）、`no_trash`（没有回收站时经确认永久删除）、`export`（复制精选）、`transfer`（整组移动，失败回滚） | 否         |
-| `os/`       | 交给系统：`reveal`（在文件管理器中显示）、`clipboard`（复制图片）、`trash_support`（卷有没有回收站）；路径只经参数/环境变量传入，不拼进脚本                                                                       | 否         |
-| `models/`   | 与前端共享的 serde 结构体                                                                                                                                                                                         | 否         |
-| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                                                                                                                                    | 否         |
+| 模块        | 职责                                                                                                                                                                                                                                                                                            | 依赖 Tauri |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                                                                                                                                                                                                            | 是         |
+| `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                                                                                                                                                                                                              | 否         |
+| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`capture_time`（只读文件头取拍摄时间）、`cache_dirs`                                                                                                                                                                           | 否         |
+| `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`；取消精选的移回）、`saved_preview`（取消精选时认出并丢弃归档另存的纯 RAW 预览）、`delete` / `delete_batch`（进回收站，分块批量）、`no_trash`（没有回收站时经确认永久删除）、`export`（复制精选）、`transfer`（整组移动，失败回滚） | 否         |
+| `os/`       | 交给系统：`reveal`（在文件管理器中显示）、`clipboard`（复制图片）、`trash_support`（卷有没有回收站）；路径只经参数/环境变量传入，不拼进脚本                                                                                                                                                     | 否         |
+| `models/`   | 与前端共享的 serde 结构体                                                                                                                                                                                                                                                                       | 否         |
+| `paths.rs`  | 路径安全：不覆盖的目标路径（一组 JPG/RAW/XMP 共用 `_N` 后缀）、`is_inside_dir`                                                                                                                                                                                                                  | 否         |
 
 - 新逻辑写进 `catalog/`、`media/`、`organize/` 或 `os/`，命令函数体只做参数转发。不要新建 `core/`：会遮蔽标准库 `core` crate。
 - 写缓存的函数接收 `cache_dir: &Path` 参数，测试传临时目录；缓存目录名和路径只在 `media/cache_dirs.rs` 定义（`cache_dirs::path` / `ensure`）。
@@ -43,10 +43,10 @@ Rust（`src-tauri/src/`）：
 - 与 Rust 共享的类型由 ts-rs 从 `src-tauri/src/models/` 生成到 `src/types/generated/`（不要手改，也不受 Prettier/ESLint 管）；改了 Rust 模型后运行 `npm run gen:types` 并一起提交，CI 会检查。`src/types/index.ts` 只负责转出，以及 `PhotoStatus` 常量（有编译期检查保证与 Rust 枚举一致）。
 - Tauri 命令 reject 的是**字符串**（Rust `Result<_, String>`），前端用 `getErrorMessage()`（`src/utils/error.ts`）取错误信息，不要读 `e.message`。例外：整理类命令（`archive_photos`、`export_picks`）reject `OrganizeError`（`models/organize.rs`：错误类别、卡住的文件、英文原文、失败前已处理的照片数），前端用 `src/core/organizeError.ts` 的 `toOrganizeError()` 收窄、`describeFailure()` 转成中文说明和建议，在归档对话框的失败页（`ArchiveFailure.vue`）显示。`delete_pairs` 不因单组失败而 reject，而是返回逐组结果 `DeleteResult { trashed, failed[] }`，每个失败带自己的 `OrganizeError`。错误类别在 `organize/error.rs` 按 `io::ErrorKind` 和 trash 错误判定，新的错误来源要走这里而不是拼字符串。
 - 照片只有三种状态：精选、删除、未标记（`PhotoStatus`）。`F`/`X` 切换标记，标记后前进一张、取消标记停在原地，每次改动都进撤销栈；`←`/`→`/`Space` 只导航、不改标记（规则在 `src/core/review.ts`）。
-- 归档布局（`organize/archive.rs`）：精选的 JPG + RAW + XMP 移入 `精选/`（纯 RAW 另存同名 JPG 预览）；未标记的 JPG 留在原位，RAW 和 XMP 移入 `RAW/`；只在有文件要移入时才建文件夹。扫描总会读取 `RAW/`（与原位 JPG 配对）和旧布局的 `JPG/`（与 `RAW/` 配对），其他子文件夹不读。
+- 归档布局（`organize/archive.rs`）：精选的 JPG + RAW + XMP 移入 `精选/`（纯 RAW 另存同名 JPG 预览）；未标记的 JPG 留在原位，RAW 和 XMP 移入 `RAW/`；只在有文件要移入时才建文件夹。扫描总会读取 `RAW/`（与原位 JPG 配对）和旧布局的 `JPG/`（与 `RAW/` 配对），以及 `精选/` 这一层：`精选/` 里的文件只在 `精选/` 内部配对（不与原位、`RAW/` 的同名文件配），扫出来的条目 `isArchivedPick` 为真、默认精选；`精选/` 下的子文件夹和其他子文件夹都不读。再次归档时，仍是精选的已归档照片不动、不改名；取消精选的按未标记处理，JPG 回原位、RAW 和 XMP 进 `RAW/`（纯 RAW 归档时另存的预览不回原位，见安全规则的例外）；标记删除的照片从 `精选/` 进回收站。导出包含已归档的精选。
 - 删除是延迟的：标记删除只改前端状态，真正进回收站发生在归档时。顺序由 `src/core/archiveFlow.ts::runArchive` 编排：先用 `delete_pairs` 一次删掉所有标记删除的组（Rust 端按 50 组一块调用 `trash::delete_all`，某块失败再逐组逐文件重试，遇错继续），已删掉的组立即从会话移除（`sessionStore.dropPairs`），有失败就停在归档之前；文件已经不在算删除成功，所以失败后可以直接重试。归档对话框另有「只删除，不整理」（`runDeleteOnly`）：只走删除这一步，其他文件不动，会话不冻结，删完可以接着筛。
 - 整理期间（归档、导出、删除）`viewStore.isOrganizing` 为真：对话框关不掉，「返回首页」无效；它同步给 Rust（`commands/organizing.rs`），Rust 拒绝关窗口（`CloseRequested`）和退出（`ExitRequested`，含 macOS 的 Cmd+Q），并发 `close-blocked` 事件让对话框提示。新增的整理操作都要包在 `ArchiveDialog.vue` 的 `organizing()` 里。归档成功后 `sessionStore.markArchived(folder)` 冻结会话（标记、撤销、重新开始、保存进度都不生效），文件夹路径在归档开始时就记下，清除的一定是这个文件夹的进度。
-- 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存已标记的照片和当前位置（停在第一张不算），key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，既没有标记又停在第一张时删除文件；归档成功后由 `markArchived` 清除并冻结会话。旧版本写入的已不存在的状态（如 `skipped`）在 `catalog/progress.rs` 读取时丢弃，其余标记照常恢复。
+- 筛图进度按文件夹存在应用数据目录 `progress/<路径哈希>.json`（`catalog/progress.rs`），只存与默认状态不同的标记和当前位置（停在第一张不算；默认状态见 `progress.ts::defaultStatus`：`精选/` 里的照片默认精选，所以取消它会存成「未标记」，「重新开始」把它恢复成精选），key 是文件路径（纯 RAW 用 `rawPath`，因为 pair `id` 每次扫描都会重新生成）。合并规则在 `src/core/progress.ts`；store 监听标记与位置变化后经 `utils/latestWriter.ts` 串行写入，既没有标记又停在第一张时删除文件；归档成功后由 `markArchived` 清除并冻结会话。旧版本写入的已不存在的状态（如 `skipped`）在 `catalog/progress.rs` 读取时丢弃，其余标记照常恢复。
 - 排序：默认按拍摄时间（`src/core/sorting.ts`，无拍摄时间的排末尾），可切换为按文件名；排序方式是 viewer 偏好（localStorage），不进进度。撤销条目是「回到哪张 + 改了哪些照片」（按 pair id），一次可改多张，重排不影响撤销。连拍分组（`src/core/grouping.ts`）与组内并排对比 Survey（`N`，`src/core/survey.ts`、`SurveyView.vue`）只是视图：store 在照片数组换新或间隔变化时重算，不进进度、不影响归档。设计见 `docs/design/capture-time-and-bursts.md`。
 - `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
 - asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。
@@ -54,11 +54,12 @@ Rust（`src-tauri/src/`）：
 
 ## 用户照片安全（最高优先级）
 
-- 删除用户文件**只能**用 `trash::delete` / `trash::delete_all`。`fs::remove_*` 只允许用于缓存目录里的临时文件和应用数据目录里 Sift 自己的进度文件。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。例外只有以下四条：
+- 删除用户文件**只能**用 `trash::delete` / `trash::delete_all`。`fs::remove_*` 只允许用于缓存目录里的临时文件和应用数据目录里 Sift 自己的进度文件。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。例外只有以下五条：
   - （`organize/transfer.rs`）`move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。复制失败或源文件删不掉时，只要源文件还在，就把目标（本次占用的占位）清空成 0 字节，不留第二份。
   - （`organize/transfer.rs`）整组移动或复制结束后（成功或回滚后），删除**本组 `create_new` 创建、且确认仍是 0 字节普通文件**的占位（`remove_empty_placeholders`）：被放弃的后缀、没用上的目标、回滚时重新占用但没移回的原位置。已经放进用户文件的路径（哪怕用户照片本身是 0 字节）一律不碰；符号链接不碰。
   - 导出按组原子化（`organize/export.rs::copy_group`）：一组里某个文件复制失败时，本组已复制到目标文件夹的副本先用 `discard_copy` 清空（源文件还在才清空），再按上一条作为空占位删除，目标里不留半组。
   - **没有回收站的位置**（`organize/no_trash.rs::TrashOrRemove`）：只有当 `os/trash_support.rs` 判定文件所在的卷没有回收站（网络共享；Windows 上可移动的 FAT/exFAT），**并且**用户在本次归档中勾选了「永久删除」确认（`delete_pairs` 的 `permanent`，每次归档都要重新勾选）时，才对这些文件用 `fs::remove_file`。有回收站的卷永远走回收站，`permanent` 对它不起作用；检测失败按「有回收站」处理；没有确认时返回 `TrashUnsupported`，文件不动。新增删除入口必须经过 `TrashOrRemove`。
+  - **取消精选的纯 RAW 预览**（`organize/saved_preview.rs`）：`精选/` 里一组照片被取消精选时，如果它的 JPG 与 RAW 只差扩展名，并且与从这个 RAW 重新提取的内嵌预览逐字节相同（即归档时 Sift 另存的预览），就在移动 RAW 之前把这个 JPG 经 `TrashOrRemove` 删除（有回收站进回收站，没有回收站时需要这次归档勾选永久删除确认，即 `archive_photos` 的 `permanent`）；内容不同就当作用户的 JPG 移回原位。
 - 移动/复制**永不覆盖**已有文件：目标路径一律经过 `paths::unique_paths_sharing_stem()`（归档用 `_from` 版本）：一组 JPG/RAW/XMP 共用同一个 `_N` 后缀（即使分属不同文件夹；归档时留在原位的 JPG 也同步改名），重新扫描时仍能配对。
 - 归档按组原子化（`organize/transfer.rs::move_group`）：一组里任何文件移动失败，已移走的文件按相反顺序移回原处（移回前先 `create_new` 占用原位置，原位置被别的文件占了就留在目标处并报告），然后停止归档。纯 RAW 的预览复制排在本组所有移动之后，所以永远不需要回滚复制。
 - 修改 delete / archive / export / scan 时必须附带用临时目录跑的 Rust 测试。
