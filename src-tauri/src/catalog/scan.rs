@@ -33,7 +33,7 @@ use walkdir::{DirEntry, WalkDir};
 const PREVIEW_EXTRACTION_THREADS: usize = 2;
 
 /// JPG folder of the archive layout before 精选/ (JPG/ + RAW/); its RAWs are in RAW/
-const LEGACY_JPG_DIR: &str = "JPG";
+pub(crate) const LEGACY_JPG_DIR: &str = "JPG";
 
 pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult, String> {
     if !folder.is_dir() {

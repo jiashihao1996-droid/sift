@@ -16,8 +16,10 @@
 
 use super::delete_batch::Trash;
 use super::file_name;
+use super::pair_scopes::PairScopes;
 use super::saved_preview::drop_saved_preview;
 use super::transfer::{self, MoveFn, Step, Transfer};
+use crate::catalog::scan::LEGACY_JPG_DIR;
 use crate::models::organize::OrganizeError;
 use crate::models::photo::{
     ArchivePairInput, ArchiveProgress, ArchiveResult, PhotoSource, PhotoStatus,
@@ -106,6 +108,8 @@ pub(super) fn archive_pairs_moving(
     ensure_previews_are_cached(pairs, preview_cache)?;
 
     let dirs = archive_dirs(base, preview_cache);
+    let legacy_jpg = base.join(LEGACY_JPG_DIR);
+    let mut scopes = PairScopes::read(&dirs.picks, &[base, &dirs.raw, &legacy_jpg]);
     let total = pairs.len();
     let mut moved_count: usize = 0;
 
@@ -117,13 +121,23 @@ pub(super) fn archive_pairs_moving(
             on_progress(progress(i + 1, total, primary));
         }
         drop_saved_preview(pair, &dirs.picks, trash).map_err(|e| e.with_completed(moved_count))?;
+        let mut moves = (Vec::new(), Vec::new());
         moved_count += archive_pair_choosing(
             pair,
             &dirs,
-            paths::unique_paths_sharing_stem_from,
+            |sources, candidates, stem| {
+                let dests = scopes.unique_paths(sources, candidates, stem);
+                moves = (
+                    sources.iter().map(|s| s.to_path_buf()).collect(),
+                    dests.clone(),
+                );
+                dests
+            },
             move_file,
         )
         .map_err(|e| e.with_completed(moved_count))?;
+        let sources: Vec<&Path> = moves.0.iter().map(PathBuf::as_path).collect();
+        scopes.record_moves(&sources, &moves.1);
     }
 
     Ok(ArchiveResult {
@@ -698,7 +712,8 @@ mod tests {
             &pair(&jpg, Some(&raw), PhotoSource::Jpg, &[&xmp]),
             &dirs,
             |sources, candidates, stem| {
-                let chosen = paths::unique_paths_sharing_stem_from(sources, candidates, stem);
+                let chosen =
+                    paths::unique_paths_sharing_stem_from(sources, candidates, stem, |_, _| false);
                 if std::mem::take(&mut is_first_try) {
                     fs::write(&chosen[1], "other process").unwrap();
                 }

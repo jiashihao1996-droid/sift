@@ -393,3 +393,138 @@ fn archive_open_again_unstar_archive_and_rescan_round_trip() {
     assert_eq!(two.status, PhotoStatus::Unprocessed);
     assert!(two.raw_path.unwrap().ends_with("RAW/DSC_2.ARW"));
 }
+
+/// What a rescan pairs: (JPG or RAW-only RAW, RAW) file names relative to the folder
+fn pairing_of(folder: &Folder) -> Vec<(String, Option<String>)> {
+    let rel = |p: &str| {
+        Path::new(p)
+            .strip_prefix(folder.base())
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    };
+    let mut pairs: Vec<(String, Option<String>)> = folder
+        .scan()
+        .iter()
+        .map(|p| match p.source {
+            PhotoSource::Jpg => (rel(&p.jpg_path), p.raw_path.as_deref().map(rel)),
+            PhotoSource::RawPreview => (rel(p.raw_path.as_deref().unwrap()), None),
+        })
+        .collect();
+    pairs.sort();
+    pairs
+}
+
+fn raw_with_preview() -> Vec<u8> {
+    tiff_raw_with_preview(&noise_jpeg(256, 256), None)
+}
+
+#[test]
+fn an_unstarred_raw_never_pairs_with_a_different_jpg_of_its_name() {
+    // A loose JPG-only photo and a RAW-only pick that happen to share a name
+    let folder = Folder::new(&[("dsc_2.jpg", "loose jpg")]);
+    raw_only_pick(&folder);
+    let pick = folder.pair("精选/DSC_2.jpg");
+
+    folder.archive(
+        &[input(&pick, PhotoStatus::Unprocessed)],
+        &mut BinTrash::new(),
+    );
+
+    assert_eq!(
+        pairing_of(&folder),
+        [
+            ("RAW/DSC_2_1.ARW".to_string(), None),
+            ("dsc_2.jpg".to_string(), None),
+        ]
+    );
+}
+
+#[test]
+fn an_unstarred_jpg_never_pairs_with_a_different_raw_of_its_name() {
+    let folder = Folder::new(&[("精选/DSC_3.JPG", "pick jpg")]);
+    folder.put("RAW/DSC_3.ARW", &raw_with_preview());
+    let pick = folder.pair("精选/DSC_3.JPG");
+
+    folder.archive(
+        &[input(&pick, PhotoStatus::Unprocessed)],
+        &mut BinTrash::new(),
+    );
+
+    assert_eq!(folder.read("DSC_3_1.JPG"), "pick jpg");
+    assert_eq!(
+        pairing_of(&folder),
+        [
+            ("DSC_3_1.JPG".to_string(), None),
+            ("RAW/DSC_3.ARW".to_string(), None),
+        ]
+    );
+}
+
+#[test]
+fn a_new_pick_never_pairs_with_a_different_photo_already_in_the_picks_folder() {
+    // A RAW-only pick whose saved preview is gone, and a new JPG-only pick
+    let folder = Folder::new(&[("DSC_4.JPG", "new pick")]);
+    folder.put("精选/DSC_4.ARW", &raw_with_preview());
+    let new_pick = folder.pair("DSC_4.JPG");
+    let old_pick = folder.pair("精选/DSC_4.ARW");
+
+    folder.archive(
+        &[
+            input(&new_pick, PhotoStatus::Starred),
+            input(&old_pick, PhotoStatus::Starred),
+        ],
+        &mut BinTrash::new(),
+    );
+
+    // The old pick keeps its name and gets its preview back next to it
+    assert_eq!(folder.read("精选/DSC_4_1.JPG"), "new pick");
+    assert_eq!(
+        pairing_of(&folder),
+        [
+            (
+                "精选/DSC_4.jpg".to_string(),
+                Some("精选/DSC_4.ARW".to_string())
+            ),
+            ("精选/DSC_4_1.JPG".to_string(), None),
+        ]
+    );
+}
+
+#[test]
+fn two_groups_moving_into_one_scope_in_the_same_archive_stay_apart() {
+    // Both are unstarred: a RAW-only pick and a JPG-only pick named alike
+    let folder = Folder::new(&[("精选/DSC_5.JPG", "jpg-only pick")]);
+    folder.put("精选/dsc_5.ARW", &raw_with_preview());
+    let jpg_pick = folder.pair("精选/DSC_5.JPG");
+    assert_eq!(
+        jpg_pick
+            .raw_path
+            .as_deref()
+            .map(|r| r.ends_with("dsc_5.ARW")),
+        Some(true)
+    );
+    // They were one pair in 精选/; split them as two requests to model the
+    // order in which archive meets two groups bound for the same scope
+    let raw_request = ArchivePairInput {
+        jpg_path: String::new(),
+        raw_path: jpg_pick.raw_path.clone(),
+        status: PhotoStatus::Unprocessed,
+        source: PhotoSource::RawPreview,
+        xmp_paths: vec![],
+    };
+    let jpg_request = ArchivePairInput {
+        raw_path: None,
+        ..input(&jpg_pick, PhotoStatus::Unprocessed)
+    };
+
+    folder.archive(&[raw_request, jpg_request], &mut BinTrash::new());
+
+    assert_eq!(
+        pairing_of(&folder),
+        [
+            ("DSC_5_1.JPG".to_string(), None),
+            ("RAW/dsc_5.ARW".to_string(), None),
+        ]
+    );
+}

@@ -13,6 +13,7 @@ pub mod delete_batch;
 mod error;
 pub mod export;
 pub mod no_trash;
+mod pair_scopes;
 mod saved_preview;
 mod transfer;
 

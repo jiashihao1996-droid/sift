@@ -26,7 +26,7 @@ const confirmed = defineModel<boolean>('confirmed', { required: true })
 const confirmText = computed(() => {
   const parts = []
   if (props.deletedCount > 0) parts.push(`这 ${props.deletedCount} 组照片`)
-  if (props.previewCount > 0) parts.push(`取消精选的纯 RAW 照片的预览 JPG`)
+  if (props.previewCount > 0) parts.push('取消精选后多余的预览 JPG（与 RAW 内嵌预览完全相同）')
   return `我知道${parts.join('和')}会被永久删除，无法恢复`
 })
 </script>
