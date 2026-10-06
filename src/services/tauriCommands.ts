@@ -52,12 +52,18 @@ export function onDeleteProgress(callback: (progress: ArchiveProgress) => void) 
   })
 }
 
-/** Archive picks into 精选/ and unmarked RAWs into RAW/. Rejects with an `OrganizeError`. */
+/**
+ * Archive picks into 精选/ and unmarked RAWs into RAW/; unstarred picks in
+ * 精选/ go back out. `permanent` confirms, as for `deletePairs`, that the
+ * previews dropped from unstarred RAW-only picks are deleted for good on a
+ * volume without a trash. Rejects with an `OrganizeError`.
+ */
 export async function archivePhotos(
   folderPath: string,
   pairs: ArchivePairInput[],
+  permanent = false,
 ): Promise<ArchiveResult> {
-  return invoke<ArchiveResult>('archive_photos', { folderPath, pairs })
+  return invoke<ArchiveResult>('archive_photos', { folderPath, pairs, permanent })
 }
 
 /** Export starred photos to a target directory. Rejects with an `OrganizeError`. */

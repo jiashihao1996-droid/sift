@@ -3,6 +3,9 @@
 // Sorts the folder once culling is done:
 //   starred  → JPG, RAW, XMP (and a RAW-only pair's preview) into 精选/
 //   unmarked → JPG stays where it is; RAW and its XMP into RAW/
+// A pick archived earlier stays in 精选/; one the user unstarred goes back
+// out like any unmarked pair (JPG to the folder, RAW to RAW/), except that
+// the preview saved for a RAW-only pick is dropped (`saved_preview`).
 // Deleted pairs are trashed beforehand by `delete`, never touched here.
 // Never overwrites: a pair that collides anywhere gets one shared `_N`
 // suffix on every file, including a JPG left in place, so a rescan still
@@ -11,7 +14,9 @@
 // rest go back and the archive stops, so a pair is never split.
 // ============================================================
 
+use super::delete_batch::Trash;
 use super::file_name;
+use super::saved_preview::drop_saved_preview;
 use super::transfer::{self, MoveFn, Step, Transfer};
 use crate::models::organize::OrganizeError;
 use crate::models::photo::{
@@ -29,6 +34,7 @@ pub const RAW_DIR: &str = "RAW";
 pub type OnProgress<'a> = dyn FnMut(ArchiveProgress) + 'a;
 
 struct ArchiveDirs {
+    base: PathBuf,
     picks: PathBuf,
     raw: PathBuf,
     preview_cache: PathBuf,
@@ -36,6 +42,7 @@ struct ArchiveDirs {
 
 fn archive_dirs(base: &Path, preview_cache: &Path) -> ArchiveDirs {
     ArchiveDirs {
+        base: base.to_path_buf(),
         picks: base.join(PICKS_DIR),
         raw: base.join(RAW_DIR),
         preview_cache: preview_cache.to_path_buf(),
@@ -64,20 +71,22 @@ fn ensure_previews_are_cached(
 }
 
 /// Sort every non-deleted pair under `base` into `精选/` and `RAW/`; folders
-/// are only created when something moves into them. `on_progress` is called
-/// once per pair whose primary file exists. Stops at the first pair that
-/// fails, after putting that pair back; the error counts the photos moved
-/// before it.
+/// are only created when something moves into them. `trash` takes the
+/// previews of unstarred RAW-only picks. `on_progress` is called once per
+/// pair whose primary file exists. Stops at the first pair that fails, after
+/// putting that pair back; the error counts the photos moved before it.
 pub fn archive_pairs(
     base: &Path,
     pairs: &[ArchivePairInput],
     preview_cache: &Path,
+    trash: &mut dyn Trash,
     on_progress: &mut OnProgress,
 ) -> Result<ArchiveResult, OrganizeError> {
     archive_pairs_moving(
         base,
         pairs,
         preview_cache,
+        trash,
         on_progress,
         &mut transfer::move_file,
     )
@@ -88,6 +97,7 @@ pub(super) fn archive_pairs_moving(
     base: &Path,
     pairs: &[ArchivePairInput],
     preview_cache: &Path,
+    trash: &mut dyn Trash,
     on_progress: &mut OnProgress,
     move_file: &mut MoveFn,
 ) -> Result<ArchiveResult, OrganizeError> {
@@ -106,6 +116,7 @@ pub(super) fn archive_pairs_moving(
         if let Some(primary) = primary_file(pair) {
             on_progress(progress(i + 1, total, primary));
         }
+        drop_saved_preview(pair, &dirs.picks, trash).map_err(|e| e.with_completed(moved_count))?;
         moved_count += archive_pair_choosing(
             pair,
             &dirs,
@@ -192,16 +203,21 @@ fn primary_file(pair: &ArchivePairInput) -> Option<&Path> {
 /// Where each existing file of a pair should go. Starred: everything into
 /// 精选/, plus a RAW-only pair's preview saved as `<raw stem>.jpg` so the
 /// folder can be browsed and re-opened as a proper pair. Unmarked: the RAW
-/// into RAW/, the JPG stays; XMP follows the RAW if there is one, otherwise
-/// the JPG. A file already in its target folder stays. Empty when nothing
-/// would move.
+/// into RAW/, the JPG stays, unless it is in 精选/ (an unstarred pick): then
+/// it goes back to the folder itself. XMP follows the RAW if there is one,
+/// otherwise the JPG. A file already in its target folder stays. Empty when
+/// nothing would move.
 fn plan_pair<'a>(pair: &'a ArchivePairInput, dirs: &ArchiveDirs) -> Vec<PlannedFile<'a>> {
     let is_pick = pair.status == PhotoStatus::Starred;
     let raw = pair.raw_path.as_deref().map(Path::new);
     let jpg = Path::new(&pair.jpg_path);
     // None: the file stays in its own folder
     let raw_dir = Some(if is_pick { &dirs.picks } else { &dirs.raw });
-    let jpg_dir = is_pick.then_some(&dirs.picks);
+    let jpg_dir = if is_pick {
+        Some(&dirs.picks)
+    } else {
+        is_already_in_dir(jpg, &dirs.picks).then_some(&dirs.base)
+    };
 
     let mut files = Vec::new();
     let mut add = |src: &'a Path, dir: Option<&PathBuf>, name: String, transfer, is_photo| {
@@ -332,7 +348,7 @@ fn archive_pair_choosing(
 }
 
 /// Check if a file is already located inside the target directory
-fn is_already_in_dir(file: &Path, dir: &Path) -> bool {
+pub(super) fn is_already_in_dir(file: &Path, dir: &Path) -> bool {
     let file_parent = match file.parent().and_then(|p| p.canonicalize().ok()) {
         Some(p) => p,
         None => return false,
@@ -348,6 +364,7 @@ fn is_already_in_dir(file: &Path, dir: &Path) -> bool {
 mod tests {
     use super::*;
     use crate::models::photo::PhotoStatus;
+    use crate::organize::test_trash::BinTrash;
     use tempfile::TempDir;
 
     fn touch(path: &Path) -> String {
@@ -399,7 +416,7 @@ mod tests {
         cache: &Path,
         pairs: &[ArchivePairInput],
     ) -> Result<ArchiveResult, OrganizeError> {
-        archive_pairs(base, pairs, cache, &mut |_| {})
+        archive_pairs(base, pairs, cache, &mut BinTrash::new(), &mut |_| {})
     }
 
     fn archive(
@@ -408,7 +425,9 @@ mod tests {
         pairs: &[ArchivePairInput],
     ) -> (ArchiveResult, Vec<ArchiveProgress>) {
         let mut events = Vec::new();
-        let result = archive_pairs(base, pairs, cache, &mut |p| events.push(p)).unwrap();
+        let mut trash = BinTrash::new();
+        let result =
+            archive_pairs(base, pairs, cache, &mut trash, &mut |p| events.push(p)).unwrap();
         (result, events)
     }
 

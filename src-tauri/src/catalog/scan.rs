@@ -64,7 +64,7 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
         .iter()
         .filter(|f| f.reason == SkipReason::Empty)
         .count();
-    let mut entries = entries_of(&index, preview_cache_dir, &mut skipped)?;
+    let entries = entries_of(&index, preview_cache_dir, &mut skipped)?;
     let mut picks = entries_of(&picks_index, preview_cache_dir, &mut skipped)?;
     for pair in &mut picks.pairs {
         pair.is_archived_pick = true;

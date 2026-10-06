@@ -13,10 +13,15 @@ pub mod delete_batch;
 mod error;
 pub mod export;
 pub mod no_trash;
+mod saved_preview;
 mod transfer;
 
 #[cfg(test)]
+mod archived_picks_tests;
+#[cfg(test)]
 mod rescan_tests;
+#[cfg(test)]
+mod test_trash;
 
 fn file_name(path: &Path) -> String {
     path.file_name()
