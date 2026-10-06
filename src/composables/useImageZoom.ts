@@ -140,6 +140,26 @@ export function useImageZoom(
     }
   })
 
+  /**
+   * A box laid exactly over the <img>, for marks drawn on the photo: same
+   * size, centred in the pane, moved and rotated with it. Null until measured.
+   */
+  const overlayStyle = computed(() => {
+    const fw = fitWidth.value
+    if (!fw) return null
+    const width = fw * view.zoomLevel
+    const tr =
+      isDragging.value || isGesturing.value
+        ? 'none'
+        : `transform ${ZOOM_TRANSITION}, width ${ZOOM_TRANSITION}, height ${ZOOM_TRANSITION}`
+    return {
+      width: `${width}px`,
+      height: `${(width * fitSize.value.height) / fw}px`,
+      transform: `translate(-50%, -50%) translate(${view.zoomOffsetX * view.zoomLevel}px, ${view.zoomOffsetY * view.zoomLevel}px) rotate(${view.rotation}deg)`,
+      transition: tr,
+    }
+  })
+
   /** Zoom as a percentage of actual image pixels */
   const zoomPercent = computed(() => computeZoomPercent(view.zoomLevel, view.actualZoom))
 
@@ -276,6 +296,8 @@ export function useImageZoom(
 
   return {
     imageStyle,
+    overlayStyle,
+    fitSize,
     zoomPercent,
     isZoomed,
     isDragging,

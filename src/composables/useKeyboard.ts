@@ -215,7 +215,15 @@ export function useKeyboard() {
 
       case '1':
         e.preventDefault()
-        view.zoomToActualSize()
+        if (!view.zoomToFocus()) view.zoomToActualSize()
+        break
+
+      case 'p':
+      case 'P':
+        if (!isCtrlOrCmd) {
+          e.preventDefault()
+          if (!e.repeat) view.toggleAfPoint()
+        }
         break
 
       case '=':
