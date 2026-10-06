@@ -19,6 +19,9 @@ import SurveyView from './SurveyView.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { extractFileName } from '@/utils/path'
+import { useElementSize } from '@vueuse/core'
+import { useShotComparison } from '@/composables/useShotComparison'
+import ShotStrip from '@/components/exif/ShotStrip.vue'
 
 const session = useSessionStore()
 const view = useViewStore()
@@ -30,6 +33,18 @@ const { isLoading, currentSrc, thumbnailSrc, loadError, naturalWidth, naturalHei
 const { imageStyle, zoomPercent, isZoomed, handleWheel, handleDoubleClick, handleMouseDown } =
   useImageZoom(containerRef, naturalWidth, naturalHeight)
 const { ambientStyle } = useAmbientColor()
+
+// I in compare / survey: each pane's settings, compared with the base or focus photo
+const comparison = useShotComparison(computed(() => view.showsShotStrips))
+const { width: viewerWidth } = useElementSize(containerRef)
+const baseStrip = computed(() =>
+  view.showsShotStrips && view.compareIndex !== null
+    ? comparison.stripOf(session.pairs[view.compareIndex])
+    : null,
+)
+const currentStrip = computed(() =>
+  view.showsShotStrips ? comparison.stripOf(session.currentPair) : null,
+)
 
 const showLeftNav = ref(false)
 const showRightNav = ref(false)
@@ -120,11 +135,14 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
   >
     <!-- ==================== SURVEY ==================== -->
     <template v-if="view.surveyMode">
-      <SurveyView />
+      <SurveyView :comparison="view.showsShotStrips ? comparison : null" />
       <Transition name="nav-fade">
         <div
           v-if="isZoomed"
-          class="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+          class="absolute left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+          :class="
+            view.showsShotStrips ? 'bottom-[calc(var(--shot-strip-clearance)+1rem)]' : 'bottom-16'
+          "
         >
           {{ zoomPercent }}%
         </div>
@@ -169,6 +187,12 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
             class="shrink-0"
             :style="imageStyle"
             draggable="false"
+          />
+          <ShotStrip
+            v-if="baseStrip"
+            v-bind="baseStrip"
+            class="absolute bottom-3 left-3 z-30"
+            :pane-width="viewerWidth / 2"
           />
         </div>
 
@@ -250,6 +274,12 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
             </svg>
             <p class="text-xs">加载失败</p>
           </div>
+          <ShotStrip
+            v-if="currentStrip"
+            v-bind="currentStrip"
+            class="absolute bottom-3 right-3 z-30"
+            :pane-width="viewerWidth / 2"
+          />
         </div>
 
         <!-- Center Swap Button: on the divider, vertically centered -->
@@ -268,7 +298,10 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
         <Transition name="nav-fade">
           <div
             v-if="isZoomed"
-            class="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+            class="absolute left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+            :class="
+              view.showsShotStrips ? 'bottom-[calc(var(--shot-strip-clearance)+1rem)]' : 'bottom-16'
+            "
           >
             {{ zoomPercent }}%
           </div>
