@@ -8,9 +8,12 @@ import { PhotoStatus, type FolderProgress, type PhotoPair } from '@/types'
 /**
  * Stable identity of a photo across scans (pair ids are regenerated each scan).
  * RAW-only pairs use the RAW path: their jpgPath is a temporary cache file.
+ * So do archived picks with a RAW: their JPG may be the preview archive saved,
+ * which an archive that fails partway can drop, leaving the pick RAW-only.
  */
 export function progressKey(pair: PhotoPair): string {
-  return pair.source === 'rawPreview' && pair.rawPath ? pair.rawPath : pair.jpgPath
+  const isKeyedByRaw = pair.source === 'rawPreview' || pair.isArchivedPick
+  return isKeyedByRaw && pair.rawPath ? pair.rawPath : pair.jpgPath
 }
 
 /**

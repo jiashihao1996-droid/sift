@@ -58,6 +58,15 @@ describe('progressKey', () => {
   it('uses the RAW path for RAW-only pairs, whose JPG is a cache file', () => {
     expect(progressKey(rawOnly('IMG_1'))).toBe('/photos/IMG_1.CR3')
   })
+
+  it('keys an archived pick by its RAW, so it survives losing its saved preview', () => {
+    const pick = archivedPick('IMG_1')
+    const rawOnlyAfterwards = { ...pick, jpgPath: '/tmp/cache.jpg', source: 'rawPreview' as const }
+
+    expect(progressKey(pick)).toBe('/photos/精选/IMG_1.CR3')
+    expect(progressKey(rawOnlyAfterwards)).toBe(progressKey(pick))
+    expect(progressKey({ ...pick, rawPath: null })).toBe('/photos/精选/IMG_1.jpg')
+  })
 })
 
 describe('defaultStatus', () => {
@@ -72,8 +81,8 @@ describe('snapshotProgress', () => {
     const pairs = [archivedPick('A'), archivedPick('B', U), archivedPick('C', D)]
 
     expect(snapshotProgress('/photos', pairs, 0).marks).toEqual({
-      '/photos/精选/B.jpg': U,
-      '/photos/精选/C.jpg': D,
+      '/photos/精选/B.CR3': U,
+      '/photos/精选/C.CR3': D,
     })
   })
 
@@ -178,7 +187,7 @@ describe('restoreProgress', () => {
 
     const result = restoreProgress(
       pairs,
-      saved({ '/photos/精选/A.jpg': U, '/photos/精选/B.jpg': D }),
+      saved({ '/photos/精选/A.CR3': U, '/photos/精选/B.CR3': D }),
     )
 
     expect(result.pairs.map((p) => p.status)).toEqual([U, D, S])
