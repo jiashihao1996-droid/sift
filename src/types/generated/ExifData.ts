@@ -4,4 +4,8 @@ import type { Dimensions } from "./Dimensions";
 /**
  * EXIF metadata extracted from a JPG
  */
-export type ExifData = { camera: string, lens: string, iso: number, aperture: string, shutterSpeed: string, focalLength: string, dateTaken: string, dimensions: Dimensions, fileSize: number, };
+export type ExifData = { camera: string, lens: string, iso: number, aperture: string, shutterSpeed: string, focalLength: string, 
+/**
+ * Exposure compensation in EV (ExposureBiasValue); None when not recorded
+ */
+exposureBias: number | null, dateTaken: string, dimensions: Dimensions, fileSize: number, };
