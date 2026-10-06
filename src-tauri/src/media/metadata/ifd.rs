@@ -9,7 +9,9 @@ use std::io::{Read, Seek, SeekFrom};
 
 pub const EXIF_IFD_POINTER: u16 = 0x8769;
 
+pub const TYPE_BYTE: u16 = 1;
 pub const TYPE_ASCII: u16 = 2;
+pub const TYPE_SHORT: u16 = 3;
 pub const TYPE_LONG: u16 = 4;
 pub const TYPE_UNDEFINED: u16 = 7;
 pub const TYPE_IFD: u16 = 13;
@@ -32,6 +34,12 @@ pub struct Entry {
 impl Entry {
     pub fn offset_value(&self) -> Option<u32> {
         matches!(self.kind, TYPE_LONG | TYPE_IFD).then(|| read_u32(self.value, self.little_endian))
+    }
+
+    /// Where a value too long for the entry's value field sits, counted
+    /// from the TIFF header
+    pub fn data_offset(&self) -> u32 {
+        read_u32(self.value, self.little_endian)
     }
 }
 
@@ -109,6 +117,49 @@ impl<'a, R: Read + Seek> Tiff<'a, R> {
         };
         let text = bytes.split(|&b| b == 0).next().unwrap_or_default();
         Some(String::from_utf8_lossy(text).into_owned())
+    }
+
+    /// `len` bytes `offset` bytes past the TIFF header
+    pub fn bytes_at(&mut self, offset: u32, len: usize) -> Option<Vec<u8>> {
+        read_at(self.reader, self.base + u64::from(offset), len)
+    }
+
+    /// The raw bytes of a BYTE, ASCII, SHORT, LONG or UNDEFINED value,
+    /// in the file's byte order; None for other types or values longer
+    /// than `max_len`
+    pub fn value_bytes(&mut self, entry: &Entry, max_len: usize) -> Option<Vec<u8>> {
+        let unit = match entry.kind {
+            TYPE_BYTE | TYPE_ASCII | TYPE_UNDEFINED => 1,
+            TYPE_SHORT => 2,
+            TYPE_LONG | TYPE_IFD => 4,
+            _ => return None,
+        };
+        let len = usize::try_from(entry.count).ok()?.checked_mul(unit)?;
+        if len > max_len {
+            return None;
+        }
+        if len <= entry.value.len() {
+            return Some(entry.value[..len].to_vec());
+        }
+        self.bytes_at(entry.data_offset(), len)
+    }
+
+    /// A value read as 16-bit numbers: SHORT values, or UNDEFINED bytes a
+    /// maker note packs them into
+    pub fn u16_values(&mut self, entry: &Entry, max_count: usize) -> Option<Vec<u16>> {
+        if !matches!(entry.kind, TYPE_SHORT | TYPE_UNDEFINED) {
+            return None;
+        }
+        let bytes = self.value_bytes(entry, max_count * 2)?;
+        let le = self.little_endian;
+        Some(
+            bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&b| read_u16(b, le))
+                .collect(),
+        )
     }
 }
 
