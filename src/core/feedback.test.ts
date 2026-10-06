@@ -14,6 +14,7 @@ function pair(overrides: Partial<PhotoPair> = {}): PhotoPair {
     source: 'jpg',
     xmpPaths: [],
     captureTime: null,
+    isArchivedPick: false,
     ...overrides,
   }
 }

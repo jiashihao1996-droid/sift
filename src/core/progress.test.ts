@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PhotoStatus, type FolderProgress, type PhotoPair } from '@/types'
 import {
+  defaultStatus,
   emptyProgress,
   hasProgress,
   progressKey,
@@ -22,6 +23,17 @@ function jpg(name: string, status: PhotoStatus = U): PhotoPair {
     source: 'jpg',
     xmpPaths: [],
     captureTime: null,
+    isArchivedPick: false,
+  }
+}
+
+/** A pick a previous archive moved into 精选/: starred unless changed */
+function archivedPick(name: string, status: PhotoStatus = S): PhotoPair {
+  return {
+    ...jpg(name, status),
+    jpgPath: `/photos/精选/${name}.jpg`,
+    rawPath: `/photos/精选/${name}.CR3`,
+    isArchivedPick: true,
   }
 }
 
@@ -48,7 +60,29 @@ describe('progressKey', () => {
   })
 })
 
+describe('defaultStatus', () => {
+  it('starts archived picks starred and everything else unmarked', () => {
+    expect(defaultStatus(archivedPick('A'))).toBe(S)
+    expect(defaultStatus(jpg('B'))).toBe(U)
+  })
+})
+
 describe('snapshotProgress', () => {
+  it('records archived picks only when they no longer are starred', () => {
+    const pairs = [archivedPick('A'), archivedPick('B', U), archivedPick('C', D)]
+
+    expect(snapshotProgress('/photos', pairs, 0).marks).toEqual({
+      '/photos/精选/B.jpg': U,
+      '/photos/精选/C.jpg': D,
+    })
+  })
+
+  it('saves nothing for a folder whose archived picks are untouched', () => {
+    const progress = snapshotProgress('/photos', [archivedPick('A'), jpg('B')], 0)
+
+    expect(hasProgress(progress)).toBe(false)
+  })
+
   it('records only marked photos and the current photo', () => {
     const pairs = [jpg('A', S), jpg('B'), rawOnly('C', D)]
 
@@ -137,6 +171,35 @@ describe('restoreProgress', () => {
     const result = restoreProgress([jpg('A')], saved({ '/photos/GONE.jpg': S }, '/photos/GONE.jpg'))
 
     expect(result.isResumed).toBe(false)
+  })
+
+  it('restores an archived pick that was unmarked or marked for deletion', () => {
+    const pairs = [archivedPick('A'), archivedPick('B'), archivedPick('C')]
+
+    const result = restoreProgress(
+      pairs,
+      saved({ '/photos/精选/A.jpg': U, '/photos/精选/B.jpg': D }),
+    )
+
+    expect(result.pairs.map((p) => p.status)).toEqual([U, D, S])
+    expect(result.restoredCount).toBe(2)
+    expect(result.isResumed).toBe(true)
+  })
+
+  it('keeps archived picks starred when their marks were not saved', () => {
+    const result = restoreProgress([archivedPick('A')], saved({ '/photos/B.jpg': D }))
+
+    expect(result.pairs[0].status).toBe(S)
+    expect(result.isResumed).toBe(false)
+  })
+
+  it('round-trips an unmarked archived pick through a snapshot', () => {
+    const marked = [archivedPick('A', U), jpg('B', S)]
+    const scanned = [archivedPick('A'), jpg('B')]
+
+    const result = restoreProgress(scanned, snapshotProgress('/photos', marked, 0))
+
+    expect(result.pairs.map((p) => p.status)).toEqual([U, S])
   })
 
   it('does not mutate the scanned pairs', () => {

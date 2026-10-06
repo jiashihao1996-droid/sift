@@ -45,7 +45,13 @@ import {
   type GroupMarkPlan,
 } from '@/core/grouping'
 import { withoutPairs } from '@/core/archiveFlow'
-import { emptyProgress, hasProgress, restoreProgress, snapshotProgress } from '@/core/progress'
+import {
+  defaultStatus,
+  emptyProgress,
+  hasProgress,
+  restoreProgress,
+  snapshotProgress,
+} from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
 import { createLatestWriter } from '@/utils/latestWriter'
 import { useViewStore } from './viewStore'
@@ -341,12 +347,16 @@ export const useSessionStore = defineStore('session', () => {
     },
   )
 
-  /** Drop restored marks and start the folder over (also forgets the saved progress) */
+  /**
+   * Put every mark back to its default (archived picks stay starred) and
+   * start the folder over (also forgets the saved progress)
+   */
   function restartSession() {
     if (isArchived.value) return
-    pairs.value = pairs.value.map((p) =>
-      p.status === PhotoStatus.Unprocessed ? p : { ...p, status: PhotoStatus.Unprocessed },
-    )
+    pairs.value = pairs.value.map((p) => {
+      const status = defaultStatus(p)
+      return p.status === status ? p : { ...p, status }
+    })
     currentIndex.value = 0
     undoStack.value = []
     restoredCount.value = 0

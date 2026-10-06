@@ -10,4 +10,9 @@ export type PhotoPair = { id: string, jpgPath: string, rawPath: string | null, r
 /**
  * When the photo was taken, from EXIF; None when the file doesn't say
  */
-captureTime: CaptureTime | null, };
+captureTime: CaptureTime | null, 
+/**
+ * Found in the 精选/ folder a previous archive filled: starred by
+ * default, and moved back out if the user unstars it
+ */
+isArchivedPick: boolean, };

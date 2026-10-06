@@ -23,6 +23,7 @@ function pairs(statuses: PhotoStatus[]): PhotoPair[] {
     source: 'jpg',
     xmpPaths: [],
     captureTime: null,
+    isArchivedPick: false,
   }))
 }
 
