@@ -1,3 +1,4 @@
+pub mod af_point;
 pub mod cache_dirs;
 pub mod capture_time;
 pub mod exif;
