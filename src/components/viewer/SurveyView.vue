@@ -16,6 +16,13 @@ import { fitWidth, paneSize, type Size } from '@/core/zoom'
 import { photoName } from '@/core/feedback'
 import { PhotoStatus, type PhotoPair } from '@/types'
 import StatusBadge from './StatusBadge.vue'
+import ShotStrip from '@/components/exif/ShotStrip.vue'
+import type { ShotComparison } from '@/composables/useShotComparison'
+
+const props = defineProps<{
+  /** Settings of the panes, when I shows them (compared with the focus) */
+  comparison: ShotComparison | null
+}>()
 
 /** A press that moves further than this is a drag (panning), not a click */
 const CLICK_SLOP_PX = 4
@@ -141,6 +148,15 @@ function handleClick(index: number, e: MouseEvent) {
         </span>
         <StatusBadge :status="pair.status" class="ml-auto shrink-0" />
       </div>
+
+      <!-- Settings strip in the pane's outer bottom corner, clear of the centred mark toast -->
+      <ShotStrip
+        v-if="props.comparison?.stripOf(pair)"
+        v-bind="props.comparison.stripOf(pair)!"
+        class="absolute bottom-2 z-20"
+        :class="(index - visible.start) % grid.cols === 0 ? 'left-2' : 'right-2'"
+        :pane-width="pane.width"
+      />
     </div>
 
     <!-- Which part of a long burst is in view -->
