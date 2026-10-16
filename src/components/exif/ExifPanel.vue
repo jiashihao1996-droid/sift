@@ -1,15 +1,17 @@
 <script setup lang="ts">
 // ============================================================
-// ExifPanel - Right slide-in drawer with EXIF metadata
+// ExifPanel - Right slide-in drawer with EXIF metadata. In compare and
+// survey, I shows each pane's settings strip (ShotStrip) instead.
 // ============================================================
 
 import { computed, ref, watch } from 'vue'
 import { X, Camera, Aperture, Clock, ChartArea } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
-import { readExif } from '@/services/tauriCommands'
 import type { ExifData } from '@/types'
 import { useHistogram } from '@/composables/useHistogram'
+import { loadExif } from '@/composables/usePhotoExif'
+import { formatExposureBias, formatFocalLength, formatShutter } from '@/core/shotCompare'
 import HistogramView from './HistogramView.vue'
 
 const session = useSessionStore()
@@ -18,9 +20,11 @@ const view = useViewStore()
 const exifData = ref<ExifData | null>(null)
 const isLoading = ref(false)
 
+const isShown = computed(() => view.showExifPanel && !view.showsShotStrips)
+
 const histogramState = useHistogram(
   computed(() => session.currentPair?.jpgPath ?? null),
-  computed(() => view.showExifPanel),
+  isShown,
 )
 
 const histogramSource = computed(() => {
@@ -39,16 +43,14 @@ function formatFileSize(bytes: number): string {
 }
 
 watch(
-  [() => session.currentPair, () => view.showExifPanel],
+  [() => session.currentPair, isShown],
   async ([pair, show]) => {
     if (!show || !pair) {
       return
     }
     isLoading.value = true
     try {
-      exifData.value = await readExif(pair.jpgPath, pair.rawPath, pair.source)
-    } catch {
-      exifData.value = null
+      exifData.value = await loadExif(pair)
     } finally {
       isLoading.value = false
     }
@@ -60,7 +62,7 @@ watch(
 <template>
   <Transition name="exif">
     <div
-      v-if="view.showExifPanel"
+      v-if="isShown"
       class="fixed top-nav right-0 bottom-status w-72 z-40 bg-sift-surface/95 backdrop-blur-xl border-l border-sift-border overflow-y-auto"
     >
       <!-- Header -->
@@ -127,16 +129,28 @@ watch(
             </div>
             <div>
               <p class="text-[11px] text-sift-muted">快门</p>
-              <p class="text-sm text-white font-semibold">{{ exifData.shutterSpeed || '-' }}</p>
+              <p class="text-sm text-white font-semibold">
+                {{ formatShutter(exifData.shutterSpeed) || '-' }}
+              </p>
             </div>
             <div>
               <p class="text-[11px] text-sift-muted">ISO</p>
               <p class="text-sm text-white font-semibold">{{ exifData.iso || '-' }}</p>
             </div>
           </div>
-          <div>
-            <p class="text-[11px] text-sift-muted">焦距</p>
-            <p class="text-sm text-white font-semibold">{{ exifData.focalLength || '-' }}</p>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <p class="text-[11px] text-sift-muted">焦距</p>
+              <p class="text-sm text-white font-semibold">
+                {{ formatFocalLength(exifData.focalLength) || '-' }}
+              </p>
+            </div>
+            <div class="col-span-2">
+              <p class="text-[11px] text-sift-muted">曝光补偿</p>
+              <p class="text-sm text-white font-semibold">
+                {{ formatExposureBias(exifData.exposureBias) || '-' }}
+              </p>
+            </div>
           </div>
         </div>
 

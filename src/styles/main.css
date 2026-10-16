@@ -21,6 +21,8 @@
   --thumb-strip-h: 4rem;
   --status-bar-h: 2.5rem;
   --bottom-chrome-h: calc(var(--thumb-strip-h) + var(--status-bar-h));
+  /* Room the settings strips take at the bottom of the photo area (I in compare / survey) */
+  --shot-strip-clearance: 5.25rem;
 }
 
 /* Global Styles */

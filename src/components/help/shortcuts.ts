@@ -58,7 +58,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: [['R']], label: '顺时针旋转 90°' },
       { keys: [['C']], label: '进入 / 退出对比' },
       { keys: [['P']], label: '显示 / 隐藏对焦点' },
-      { keys: [['I']], label: '显示 / 隐藏 EXIF' },
+      { keys: [['I']], label: '显示 / 隐藏 EXIF（对比、并排时为每张图的参数条）' },
     ],
   },
 ]

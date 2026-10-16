@@ -19,6 +19,13 @@ import StatusBadge from './StatusBadge.vue'
 import AfOverlay from './AfOverlay.vue'
 import AfHint from './AfHint.vue'
 import { useAfPointStore } from '@/stores/afPointStore'
+import ShotStrip from '@/components/exif/ShotStrip.vue'
+import type { ShotComparison } from '@/composables/useShotComparison'
+
+const props = defineProps<{
+  /** Settings of the panes, when I shows them (compared with the focus) */
+  comparison: ShotComparison | null
+}>()
 
 /** A press that moves further than this is a drag (panning), not a click */
 const CLICK_SLOP_PX = 4
@@ -158,7 +165,7 @@ function handleClick(index: number, e: MouseEvent) {
       />
       <template v-if="view.showAfPoint && naturalSizes.has(pair.id)">
         <AfOverlay :info="af.infoOf(pair)" :frame-style="overlayStyle(pair)" />
-        <AfHint :info="af.infoOf(pair)" class="absolute bottom-2 left-1/2 -translate-x-1/2 z-20" />
+        <AfHint :info="af.infoOf(pair)" class="absolute top-10 left-1/2 -translate-x-1/2 z-20" />
       </template>
 
       <div class="absolute top-2 left-2 right-2 z-20 flex items-center gap-2">
@@ -170,6 +177,15 @@ function handleClick(index: number, e: MouseEvent) {
         </span>
         <StatusBadge :status="pair.status" class="ml-auto shrink-0" />
       </div>
+
+      <!-- Settings strip in the pane's outer bottom corner, clear of the centred mark toast -->
+      <ShotStrip
+        v-if="props.comparison?.stripOf(pair)"
+        v-bind="props.comparison.stripOf(pair)!"
+        class="absolute bottom-2 z-20"
+        :class="(index - visible.start) % grid.cols === 0 ? 'left-2' : 'right-2'"
+        :pane-width="pane.width"
+      />
     </div>
 
     <!-- Which part of a long burst is in view -->
