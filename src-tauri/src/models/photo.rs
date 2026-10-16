@@ -123,6 +123,8 @@ pub struct ExifData {
     pub aperture: String,
     pub shutter_speed: String,
     pub focal_length: String,
+    /// Exposure compensation in EV (ExposureBiasValue); None when not recorded
+    pub exposure_bias: Option<f64>,
     pub date_taken: String,
     pub dimensions: Dimensions,
     pub file_size: u64,

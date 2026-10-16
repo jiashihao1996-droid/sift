@@ -1,9 +1,8 @@
 // ============================================================
 // Sift - EXIF Location in a JPEG
 // Walks the JPEG's segment headers, seeking over each payload, to the
-// APP1/EXIF segment. Only that segment's TIFF is read afterwards, and
-// only the parts holding the capture time: a camera's APP1 also
-// carries maker notes and a thumbnail worth tens of KB.
+// APP1/EXIF segment. Callers then read only the parts of its TIFF they
+// need: a camera's APP1 also carries a thumbnail worth tens of KB.
 // ============================================================
 
 use std::io::{Read, Seek, SeekFrom};

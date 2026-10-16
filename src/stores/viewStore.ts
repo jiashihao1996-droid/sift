@@ -4,7 +4,7 @@
 // ============================================================
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { AppView } from '@/types'
 import { PhotoStatus } from '@/types'
 import { clampZoom, isActualSize, zoomAt, type Point } from '@/core/zoom'
@@ -81,6 +81,11 @@ export const useViewStore = defineStore('view', () => {
   const surveyMode = ref(false)
   /** First photo in view when the burst is longer than the survey shows */
   const surveyStart = ref<number | null>(null)
+
+  /** I in compare or survey lays each photo's settings over its pane instead of the drawer */
+  const showsShotStrips = computed(
+    () => showExifPanel.value && (compareMode.value || surveyMode.value),
+  )
 
   // Toast
   const toastMessage = ref('')
@@ -253,6 +258,7 @@ export const useViewStore = defineStore('view', () => {
     compareMode,
     compareIndex,
     surveyMode,
+    showsShotStrips,
     surveyStart,
     toastMessage,
     toastType,

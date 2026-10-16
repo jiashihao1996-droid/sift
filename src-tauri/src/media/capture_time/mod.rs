@@ -14,12 +14,11 @@
 
 mod bmff;
 mod clock;
-mod head;
-mod jpeg;
 mod tiff;
 
+use crate::media::metadata::head::HeadCached;
+use crate::media::metadata::jpeg_exif;
 use crate::models::photo::CaptureTime;
-use head::HeadCached;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -52,7 +51,7 @@ pub fn read_capture_time(path: &Path) -> Option<CaptureTime> {
 
 /// The EXIF of a JPEG that starts `at` bytes into the reader
 fn from_jpeg<R: Read + Seek>(reader: &mut R, at: u64) -> Option<CaptureTime> {
-    let tiff_at = jpeg::find_exif_tiff(reader, at)?;
+    let tiff_at = jpeg_exif::find_exif_tiff(reader, at)?;
     tiff::read_capture_time(reader, tiff_at)
 }
 

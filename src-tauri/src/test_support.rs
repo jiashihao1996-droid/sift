@@ -181,7 +181,7 @@ pub fn flat_exif_tiff(tags: &[(u16, &str)]) -> Vec<u8> {
     out
 }
 
-fn tiff_header(le: bool) -> Vec<u8> {
+pub fn tiff_header(le: bool) -> Vec<u8> {
     let mut out = if le { b"II".to_vec() } else { b"MM".to_vec() };
     push_u16(&mut out, 0x2A, le);
     push_u32(&mut out, 8, le);
@@ -191,22 +191,76 @@ fn tiff_header(le: bool) -> Vec<u8> {
 /// An IFD at file offset `at` of ASCII entries, followed by the strings
 /// too long to sit in an entry's value field
 fn ascii_ifd(tags: &[(u16, &str)], at: u32, le: bool) -> Vec<u8> {
-    let mut data_at = at as usize + 2 + tags.len() * 12 + 4;
-    let (mut ifd, mut data) = (Vec::new(), Vec::new());
-    push_u16(&mut ifd, tags.len() as u16, le);
-    for &(tag, value) in tags {
-        let mut bytes = value.as_bytes().to_vec();
-        bytes.push(0);
-        push_u16(&mut ifd, tag, le);
-        push_u16(&mut ifd, 2, le); // ASCII
-        push_u32(&mut ifd, bytes.len() as u32, le);
-        if bytes.len() <= 4 {
-            bytes.resize(4, 0);
-            ifd.extend(bytes);
+    let entries: Vec<TiffEntry> = tags
+        .iter()
+        .map(|&(tag, value)| TiffEntry::ascii(tag, value))
+        .collect();
+    ifd_bytes(&entries, at as usize, le)
+}
+
+/// One entry of a synthetic IFD; `data` is the value in the file's byte order
+pub struct TiffEntry {
+    pub tag: u16,
+    pub kind: u16,
+    pub count: u32,
+    pub data: Vec<u8>,
+}
+
+impl TiffEntry {
+    pub fn ascii(tag: u16, value: &str) -> Self {
+        let mut data = value.as_bytes().to_vec();
+        data.push(0);
+        Self::raw(tag, 2, data.len() as u32, data)
+    }
+
+    pub fn byte(tag: u16, value: u8) -> Self {
+        Self::raw(tag, 1, 1, vec![value])
+    }
+
+    pub fn short(tag: u16, values: &[u16], le: bool) -> Self {
+        let mut data = Vec::new();
+        values.iter().for_each(|&v| push_u16(&mut data, v, le));
+        Self::raw(tag, 3, values.len() as u32, data)
+    }
+
+    pub fn long(tag: u16, value: u32, le: bool) -> Self {
+        let mut data = Vec::new();
+        push_u32(&mut data, value, le);
+        Self::raw(tag, 4, 1, data)
+    }
+
+    pub fn undefined(tag: u16, data: Vec<u8>) -> Self {
+        Self::raw(tag, 7, data.len() as u32, data)
+    }
+
+    fn raw(tag: u16, kind: u16, count: u32, data: Vec<u8>) -> Self {
+        Self {
+            tag,
+            kind,
+            count,
+            data,
+        }
+    }
+}
+
+/// An IFD at TIFF offset `at`, followed by the values too long to sit in
+/// an entry's value field
+pub fn ifd_bytes(entries: &[TiffEntry], at: usize, le: bool) -> Vec<u8> {
+    let mut data_at = at + 2 + entries.len() * 12 + 4;
+    let (mut ifd, mut data): (Vec<u8>, Vec<u8>) = (Vec::new(), Vec::new());
+    push_u16(&mut ifd, entries.len() as u16, le);
+    for entry in entries {
+        push_u16(&mut ifd, entry.tag, le);
+        push_u16(&mut ifd, entry.kind, le);
+        push_u32(&mut ifd, entry.count, le);
+        if entry.data.len() <= 4 {
+            let mut inline = entry.data.clone();
+            inline.resize(4, 0);
+            ifd.extend(inline);
         } else {
             push_u32(&mut ifd, data_at as u32, le);
-            data_at += bytes.len();
-            data.extend(bytes);
+            data_at += entry.data.len();
+            data.extend(&entry.data);
         }
     }
     push_u32(&mut ifd, 0, le); // no next IFD

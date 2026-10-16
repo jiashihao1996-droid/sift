@@ -6,6 +6,9 @@
 // into ./generated — never edit those files; run `npm run gen:types`.
 import type { PhotoStatus as GeneratedPhotoStatus } from './generated/PhotoStatus'
 
+export type { AfArea } from './generated/AfArea'
+export type { AfInfo } from './generated/AfInfo'
+export type { AfSpot } from './generated/AfSpot'
 export type { ArchivePairInput } from './generated/ArchivePairInput'
 export type { ArchiveProgress } from './generated/ArchiveProgress'
 export type { ArchiveResult } from './generated/ArchiveResult'

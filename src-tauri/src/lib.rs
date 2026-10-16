@@ -14,7 +14,8 @@ mod paths;
 mod test_support;
 
 use commands::{
-    archive, cache, delete, exif, export, file_actions, organizing, progress, scan, thumbnail,
+    af_point, archive, cache, delete, exif, export, file_actions, organizing, progress, scan,
+    thumbnail,
 };
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
@@ -59,6 +60,7 @@ pub fn run() {
             file_actions::copy_image_to_clipboard,
             cache::cleanup_cache,
             exif::read_exif,
+            af_point::read_af_point,
             progress::load_progress,
             progress::save_progress,
             progress::clear_progress,

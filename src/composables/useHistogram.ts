@@ -13,6 +13,8 @@ const SAMPLE_LONG_EDGE = 1600
 const MAX_CACHE_SIZE = 50
 
 const cache = new Map<string, Histogram>()
+/** Samples still decoding, so panes showing the same photo share one decode */
+const inFlight = new Map<string, Promise<Histogram>>()
 
 function remember(path: string, histogram: Histogram) {
   if (cache.size >= MAX_CACHE_SIZE) {
@@ -40,6 +42,27 @@ async function sampleImage(path: string): Promise<Histogram> {
   return computeHistogram(ctx.getImageData(0, 0, width, height).data)
 }
 
+/** Cached histogram for `path`, if it has been computed */
+export function cachedHistogram(path: string): Histogram | undefined {
+  return cache.get(path)
+}
+
+/** Histogram for `path`: from the cache, from a decode already running, or a new decode */
+export function loadHistogram(path: string): Promise<Histogram> {
+  const cached = cache.get(path)
+  if (cached) return Promise.resolve(cached)
+  const running = inFlight.get(path)
+  if (running) return running
+  const sampling = sampleImage(path)
+    .then((result) => {
+      remember(path, result)
+      return result
+    })
+    .finally(() => inFlight.delete(path))
+  inFlight.set(path, sampling)
+  return sampling
+}
+
 /** Histogram for `path`, computed only while `isEnabled` is true */
 export function useHistogram(path: Ref<string | null>, isEnabled: Ref<boolean>) {
   const histogram = ref<Histogram | null>(null)
@@ -65,8 +88,7 @@ export function useHistogram(path: Ref<string | null>, isEnabled: Ref<boolean>) 
       histogram.value = null
       isLoading.value = true
       try {
-        const result = await sampleImage(p)
-        remember(p, result)
+        const result = await loadHistogram(p)
         if (thisGeneration !== generation) return
         histogram.value = result
       } catch (e) {
