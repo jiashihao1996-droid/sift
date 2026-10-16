@@ -28,7 +28,7 @@ function percent(share: number): string {
 <template>
   <div
     v-if="marks && frameStyle"
-    class="absolute left-1/2 top-1/2 z-[25] pointer-events-none"
+    class="af-overlay absolute left-1/2 top-1/2 pointer-events-none"
     :style="frameStyle"
   >
     <span
@@ -51,6 +51,10 @@ function percent(share: number): string {
 </template>
 
 <style scoped>
+.af-overlay {
+  z-index: var(--z-af-overlay);
+}
+
 .af-mark {
   position: absolute;
   transform: translate(-50%, -50%);
