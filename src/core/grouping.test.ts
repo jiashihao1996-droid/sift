@@ -27,6 +27,7 @@ function shot(seconds: (number | null)[], statuses: PhotoStatus[] = []): PhotoPa
     source: 'jpg',
     xmpPaths: [],
     captureTime: s === null ? null : { localMs: s * SECOND, offsetMinutes: null },
+    isArchivedPick: false,
   }))
 }
 

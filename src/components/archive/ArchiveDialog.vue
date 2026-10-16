@@ -19,7 +19,7 @@ import {
 } from '@/services/tauriCommands'
 import { PhotoStatus, type DeletePairInput, type NoTrashReason } from '@/types'
 import { runArchive, runDeleteOnly } from '@/core/archiveFlow'
-import { needsPermanentConfirm } from '@/core/noTrash'
+import { mayDropSavedPreview, needsPermanentConfirm } from '@/core/noTrash'
 import {
   describeDeleted,
   describeFailure,
@@ -55,8 +55,11 @@ const starredPairs = computed(() => session.pairs.filter((p) => p.status === Pho
 
 const deletedPairs = computed(() => session.pairs.filter((p) => p.status === PhotoStatus.Deleted))
 
+/** Unstarred picks from 精选/ whose saved preview archiving may drop */
+const droppedPreviewCount = computed(() => session.pairs.filter(mayDropSavedPreview).length)
+
 const mustConfirmPermanent = computed(() =>
-  needsPermanentConfirm(noTrash.value, deletedPairs.value.length),
+  needsPermanentConfirm(noTrash.value, deletedPairs.value.length + droppedPreviewCount.value),
 )
 
 // Check the folder each time the dialog opens; a failed check means "has a
@@ -130,7 +133,10 @@ async function handleArchive() {
       runArchive(
         folder,
         session.pairs,
-        { ...deleteDeps(isPermanent), archivePhotos },
+        {
+          ...deleteDeps(isPermanent),
+          archivePhotos: (target, pairs) => archivePhotos(target, pairs, isPermanent),
+        },
         { isPermanent },
       ),
     )
@@ -329,6 +335,7 @@ function done() {
             v-model:confirmed="isPermanentConfirmed"
             :no-trash="noTrash"
             :deleted-count="deletedPairs.length"
+            :preview-count="droppedPreviewCount"
           />
 
           <!-- Actions -->

@@ -275,6 +275,7 @@ pub fn new_pair(
         source,
         xmp_paths,
         capture_time: None,
+        is_archived_pick: false,
     }
 }
 
