@@ -5,6 +5,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type {
+  AfInfo,
   ArchivePairInput,
   DeletePairInput,
   DeleteResult,
@@ -88,6 +89,18 @@ export async function readExif(
   source?: PhotoSource,
 ): Promise<ExifData> {
   return invoke<ExifData>('read_exif', { jpgPath, rawPath, source })
+}
+
+/**
+ * Where the camera focused, from the maker notes: the JPG's, else the RAW's
+ * (always the RAW's for a RAW-only photo, whose JPG is Sift's preview)
+ */
+export async function readAfPoint(
+  jpgPath: string,
+  rawPath?: string | null,
+  source?: PhotoSource,
+): Promise<AfInfo> {
+  return invoke<AfInfo>('read_af_point', { jpgPath, rawPath, source })
 }
 
 /** Listen for archive progress events */

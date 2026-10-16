@@ -4,7 +4,7 @@
 // zoomed to the same relative point; the focus is the current photo
 // ============================================================
 
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, watchEffect } from 'vue'
 import { useElementSize } from '@vueuse/core'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { useSessionStore } from '@/stores/sessionStore'
@@ -16,6 +16,9 @@ import { fitWidth, paneSize, type Size } from '@/core/zoom'
 import { photoName } from '@/core/feedback'
 import { PhotoStatus, type PhotoPair } from '@/types'
 import StatusBadge from './StatusBadge.vue'
+import AfOverlay from './AfOverlay.vue'
+import AfHint from './AfHint.vue'
+import { useAfPointStore } from '@/stores/afPointStore'
 import ShotStrip from '@/components/exif/ShotStrip.vue'
 import type { ShotComparison } from '@/composables/useShotComparison'
 
@@ -30,6 +33,7 @@ const CLICK_SLOP_PX = 4
 const session = useSessionStore()
 const view = useViewStore()
 const contextMenu = useContextMenu()
+const af = useAfPointStore()
 
 const rootRef = ref<HTMLElement | null>(null)
 const { width: rootWidth, height: rootHeight } = useElementSize(rootRef)
@@ -70,11 +74,17 @@ function fitOf(pair: PhotoPair | null | undefined): Size {
   return { width, height: (width * natural.height) / natural.width }
 }
 
-function imageStyle(pair: PhotoPair) {
+function paneTransform(pair: PhotoPair) {
   const fit = fitOf(pair)
-  if (!fit.width) return { maxWidth: '100%', maxHeight: '100%' }
+  if (!fit.width) return null
   const state = { zoom: view.zoomLevel, offsetX: view.zoomOffsetX, offsetY: view.zoomOffsetY }
   const t = surveyPaneTransform(fit, fitOf(session.currentPair), state)
+  return { ...t, height: (t.width * fit.height) / fit.width }
+}
+
+function imageStyle(pair: PhotoPair) {
+  const t = paneTransform(pair)
+  if (!t) return { maxWidth: '100%', maxHeight: '100%' }
   return {
     maxWidth: 'none',
     maxHeight: 'none',
@@ -82,6 +92,21 @@ function imageStyle(pair: PhotoPair) {
     transform: `translate(${t.x}px, ${t.y}px) rotate(${view.rotation}deg)`,
   }
 }
+
+/** The focus overlay's box: laid over the pane's <img> (see AfOverlay) */
+function overlayStyle(pair: PhotoPair) {
+  const t = paneTransform(pair)
+  if (!t) return null
+  return {
+    width: `${t.width}px`,
+    height: `${t.height}px`,
+    transform: `translate(-50%, -50%) translate(${t.x}px, ${t.y}px) rotate(${view.rotation}deg)`,
+  }
+}
+
+watchEffect(() => {
+  if (view.showAfPoint) af.load(panes.value.map((p) => p.pair))
+})
 
 const windowLabel = computed(() => {
   const { start, end } = burst.value
@@ -138,6 +163,10 @@ function handleClick(index: number, e: MouseEvent) {
         decoding="async"
         @load="handleLoad(pair, $event)"
       />
+      <template v-if="view.showAfPoint && naturalSizes.has(pair.id)">
+        <AfOverlay :info="af.infoOf(pair)" :frame-style="overlayStyle(pair)" />
+        <AfHint :info="af.infoOf(pair)" class="absolute top-10 left-1/2 -translate-x-1/2 z-20" />
+      </template>
 
       <div class="absolute top-2 left-2 right-2 z-20 flex items-center gap-2">
         <span

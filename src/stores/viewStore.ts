@@ -17,6 +17,7 @@ const TOAST_DURATION_MS = 3000
 const STAY_AFTER_MARK_KEY = 'sift.stayAfterMark'
 const SORT_ORDER_KEY = 'sift.sortOrder'
 const BURST_GAP_KEY = 'sift.burstGapSeconds'
+const SHOW_AF_POINT_KEY = 'sift.showAfPoint'
 
 /** Viewer preferences, not session progress: unreadable storage means the default */
 function loadPreference(key: string): string | null {
@@ -60,6 +61,10 @@ export const useViewStore = defineStore('view', () => {
   const sortOrder = ref<SortOrder>(loadSortOrder())
   /** Neighbours taken at most this far apart form a burst; 0 turns grouping off */
   const burstGapSeconds = ref(loadBurstGapSeconds())
+  /** Where the camera focused is drawn over the photo */
+  const showAfPoint = ref(loadPreference(SHOW_AF_POINT_KEY) === 'true')
+  /** Offset that centres the current photo's focus; null without one or with the overlay off */
+  const afFocusOffset = ref<Point | null>(null)
   /** Archiving, exporting or deleting is running: nothing may close or leave it */
   const isOrganizing = ref(false)
 
@@ -149,6 +154,16 @@ export const useViewStore = defineStore('view', () => {
     setZoom(actualZoom.value, anchor)
   }
 
+  /** 100% centred on where the camera focused; false (nothing done) without a focus to go to */
+  function zoomToFocus(): boolean {
+    const offset = afFocusOffset.value
+    if (!showAfPoint.value || !offset || actualZoom.value === null) return false
+    zoomLevel.value = clampZoom(actualZoom.value, actualZoom.value)
+    zoomOffsetX.value = offset.x
+    zoomOffsetY.value = offset.y
+    return true
+  }
+
   /** Lightroom-style Z: toggle between fit and 1:1 at the cursor */
   function toggleActualSize(anchor: Point = zoomAnchor.value) {
     if (isActualSize(zoomLevel.value, actualZoom.value)) {
@@ -177,6 +192,12 @@ export const useViewStore = defineStore('view', () => {
     stayAfterMark.value = !stayAfterMark.value
     savePreference(STAY_AFTER_MARK_KEY, String(stayAfterMark.value))
     showToast(stayAfterMark.value ? '标记后停在当前照片' : '标记后自动前进')
+  }
+
+  function toggleAfPoint() {
+    showAfPoint.value = !showAfPoint.value
+    savePreference(SHOW_AF_POINT_KEY, String(showAfPoint.value))
+    showToast(showAfPoint.value ? '显示对焦点（1 放大到对焦点）' : '隐藏对焦点')
   }
 
   function setSortOrder(order: SortOrder) {
@@ -245,6 +266,8 @@ export const useViewStore = defineStore('view', () => {
     showSummaryCard,
     showShortcutHelp,
     stayAfterMark,
+    showAfPoint,
+    afFocusOffset,
     sortOrder,
     burstGapSeconds,
     isOrganizing,
@@ -272,10 +295,12 @@ export const useViewStore = defineStore('view', () => {
     resetZoom,
     setZoom,
     zoomToActualSize,
+    zoomToFocus,
     toggleActualSize,
     rotateBy,
     showToast,
     toggleStayAfterMark,
+    toggleAfPoint,
     setSortOrder,
     setBurstGapSeconds,
     toggleCompare,

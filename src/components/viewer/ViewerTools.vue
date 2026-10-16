@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // ============================================================
-// ViewerTools - Rotate / Survey / Compare, docked in the top bar
+// ViewerTools - Rotate / Survey / Compare / focus points, docked in the top bar
 // ============================================================
 
-import { Columns2, LayoutGrid, RotateCw } from '@lucide/vue'
+import { Columns2, Focus, LayoutGrid, RotateCw } from '@lucide/vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { useSurveyToggle } from '@/composables/useSurveyToggle'
@@ -41,6 +41,14 @@ const ACTIVE = 'bg-sift-accent/20 text-sift-accent'
       @click="view.toggleCompare(session.currentIndex)"
     >
       <Columns2 :size="16" />
+    </button>
+    <button
+      class="p-1.5 rounded-lg transition-colors btn-spring"
+      :class="view.showAfPoint ? ACTIVE : IDLE"
+      :title="view.showAfPoint ? '隐藏对焦点 (P)' : '显示对焦点 (P)'"
+      @click="view.toggleAfPoint()"
+    >
+      <Focus :size="16" />
     </button>
   </div>
 </template>

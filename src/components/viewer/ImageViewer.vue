@@ -11,10 +11,15 @@ import { useViewStore } from '@/stores/viewStore'
 import { useImageLoader } from '@/composables/useImageLoader'
 import { useImageZoom } from '@/composables/useImageZoom'
 import { useAmbientColor } from '@/composables/useAmbientColor'
+import { useAfFocus } from '@/composables/useAfFocus'
+import { useAfPointStore } from '@/stores/afPointStore'
+import { uprightAspect } from '@/core/afPoint'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { ArrowLeftRight } from '@lucide/vue'
 import SkeletonImage from '@/components/common/SkeletonImage.vue'
 import StatusBadge from './StatusBadge.vue'
+import AfOverlay from './AfOverlay.vue'
+import AfHint from './AfHint.vue'
 import SurveyView from './SurveyView.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { useContextMenu } from '@/composables/useContextMenu'
@@ -30,8 +35,18 @@ const contextMenu = useContextMenu()
 const containerRef = ref<HTMLElement | null>(null)
 const { isLoading, currentSrc, thumbnailSrc, loadError, naturalWidth, naturalHeight } =
   useImageLoader()
-const { imageStyle, zoomPercent, isZoomed, handleWheel, handleDoubleClick, handleMouseDown } =
-  useImageZoom(containerRef, naturalWidth, naturalHeight)
+const {
+  imageStyle,
+  overlayStyle,
+  fitSize,
+  zoomPercent,
+  isZoomed,
+  handleWheel,
+  handleDoubleClick,
+  handleMouseDown,
+} = useImageZoom(containerRef, naturalWidth, naturalHeight)
+const { currentInfo } = useAfFocus(fitSize, isLoading)
+const af = useAfPointStore()
 const { ambientStyle } = useAmbientColor()
 
 // I in compare / survey: each pane's settings, compared with the base or focus photo
@@ -56,6 +71,24 @@ const compareFullSrc = computed(() => {
   if (!pair) return ''
   return convertFileSrc(pair.jpgPath)
 })
+
+const compareAfInfo = computed(() =>
+  view.compareIndex === null ? undefined : af.infoOf(session.pairs[view.compareIndex]),
+)
+
+/**
+ * The base photo shares the current one's zoom and width but keeps its own
+ * shape, so its overlay takes the base photo's aspect (a portrait base next
+ * to a landscape current photo would otherwise get the marks misplaced)
+ */
+const compareOverlayStyle = computed(() => {
+  const aspect = uprightAspect(compareAfInfo.value)
+  if (!overlayStyle.value || !aspect) return overlayStyle.value
+  return { ...overlayStyle.value, height: `${(fitSize.value.width * view.zoomLevel) / aspect}px` }
+})
+
+/** Focus marks are drawn once the photo itself is on screen */
+const showCurrentAf = computed(() => view.showAfPoint && !isLoading.value && !loadError.value)
 
 const compareFileName = computed(() => {
   if (view.compareIndex === null) return ''
@@ -188,6 +221,10 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
             :style="imageStyle"
             draggable="false"
           />
+          <template v-if="view.showAfPoint && compareFullSrc">
+            <AfOverlay :info="compareAfInfo" :frame-style="compareOverlayStyle" />
+            <AfHint :info="compareAfInfo" class="absolute top-12 left-1/2 -translate-x-1/2 z-30" />
+          </template>
           <ShotStrip
             v-if="baseStrip"
             v-bind="baseStrip"
@@ -257,6 +294,10 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
             :style="imageStyle"
             draggable="false"
           />
+          <template v-if="showCurrentAf">
+            <AfOverlay :info="currentInfo" :frame-style="overlayStyle" />
+            <AfHint :info="currentInfo" class="absolute top-12 left-1/2 -translate-x-1/2 z-30" />
+          </template>
           <!-- Error -->
           <div v-if="loadError" class="flex flex-col items-center justify-center text-sift-muted">
             <svg
@@ -363,6 +404,12 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           :style="imageStyle"
           draggable="false"
         />
+
+        <!-- Where the camera focused (P) -->
+        <template v-if="showCurrentAf">
+          <AfOverlay :info="currentInfo" :frame-style="overlayStyle" />
+          <AfHint :info="currentInfo" class="absolute top-3 left-1/2 -translate-x-1/2 z-30" />
+        </template>
 
         <!-- Error State -->
         <div

@@ -23,6 +23,10 @@
   --bottom-chrome-h: calc(var(--thumb-strip-h) + var(--status-bar-h));
   /* Room the settings strips take at the bottom of the photo area (I in compare / survey) */
   --shot-strip-clearance: 5.25rem;
+  /* Focus marks (P) over the photo: above the photo's own labels and settings strips
+     (z-30) so a box in a corner is never hidden, below the swap button and EXIF panel
+     (z-40) and the top bar, toasts and dialogs (z-50). The marks never take clicks. */
+  --z-af-overlay: 35;
 }
 
 /* Global Styles */

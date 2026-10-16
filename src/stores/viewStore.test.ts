@@ -107,6 +107,63 @@ describe('stayAfterMark', () => {
   })
 })
 
+describe('showAfPoint', () => {
+  const AF_KEY = 'sift.showAfPoint'
+
+  it('is off by default and restores the saved preference', () => {
+    expect(useViewStore().showAfPoint).toBe(false)
+    setActivePinia(createPinia())
+    stubStorage({ [AF_KEY]: 'true' })
+    expect(useViewStore().showAfPoint).toBe(true)
+  })
+
+  it('saves each toggle and announces the new state', () => {
+    const data = stubStorage()
+    const view = useViewStore()
+
+    view.toggleAfPoint()
+    expect([view.showAfPoint, data.get(AF_KEY)]).toEqual([true, 'true'])
+    expect(view.toastMessage).toContain('显示对焦点')
+
+    view.toggleAfPoint()
+    expect([view.showAfPoint, data.get(AF_KEY)]).toEqual([false, 'false'])
+    expect(view.toastMessage).toBe('隐藏对焦点')
+  })
+})
+
+describe('zoomToFocus', () => {
+  function viewWithFocus() {
+    setActivePinia(createPinia())
+    const view = useViewStore()
+    view.toggleAfPoint()
+    view.actualZoom = 3
+    view.afFocusOffset = { x: 120, y: -40 }
+    return view
+  }
+
+  it('zooms to 100% with the focus at the centre', () => {
+    const view = viewWithFocus()
+
+    expect(view.zoomToFocus()).toBe(true)
+    expect([view.zoomLevel, view.zoomOffsetX, view.zoomOffsetY]).toEqual([3, 120, -40])
+  })
+
+  it('does nothing without a focus, before the photo is measured or with the overlay off', () => {
+    const noFocus = viewWithFocus()
+    noFocus.afFocusOffset = null
+    expect(noFocus.zoomToFocus()).toBe(false)
+
+    const unmeasured = viewWithFocus()
+    unmeasured.actualZoom = null
+    expect(unmeasured.zoomToFocus()).toBe(false)
+
+    const off = viewWithFocus()
+    off.toggleAfPoint()
+    expect(off.zoomToFocus()).toBe(false)
+    expect(off.zoomLevel).toBe(1)
+  })
+})
+
 describe('sortOrder', () => {
   const SORT_KEY = 'sift.sortOrder'
 
