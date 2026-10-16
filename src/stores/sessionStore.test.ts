@@ -36,6 +36,7 @@ function makePairs(statuses: PhotoStatus[]): PhotoPair[] {
     source: 'jpg',
     xmpPaths: [],
     captureTime: null,
+    isArchivedPick: false,
   }))
 }
 
@@ -692,6 +693,16 @@ describe('saved progress', () => {
     expect(store.restoredCount).toBe(0)
     expect(store.isResumed).toBe(false)
     expect(clearProgress).toHaveBeenCalledWith('/photos')
+  })
+
+  it('restart puts archived picks back to starred', () => {
+    const store = storeWith([U, D, S], 2)
+    store.pairs = store.pairs.map((p, i) => (i < 2 ? { ...p, isArchivedPick: true } : p))
+
+    store.restartSession()
+
+    expect(statuses(store)).toEqual([S, S, U])
+    expect(store.currentIndex).toBe(0)
   })
 
   it('archiving forgets the progress and freezes marks, undo and saving', async () => {

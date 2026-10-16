@@ -27,6 +27,7 @@ function pair(id: string): PhotoPair {
     source: 'jpg',
     xmpPaths: [],
     captureTime: null,
+    isArchivedPick: false,
   }
 }
 

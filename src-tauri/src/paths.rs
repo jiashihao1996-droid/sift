@@ -23,14 +23,17 @@ pub fn unique_paths_sharing_stem(candidates: &[PathBuf], stem: &str) -> Vec<Path
 /// their candidate path (`sources[i] == candidates[i]`), such as a JPG that
 /// archive leaves in place while its RAW moves. Such a file keeps its name
 /// while the group needs no suffix, and is renamed in place to the shared
-/// `_N` once it does, so the group still pairs up.
+/// `_N` once it does, so the group still pairs up. A suffix is also skipped
+/// when `is_taken(source, candidate)` holds for one of the files (archive
+/// uses it to keep a stem from meeting another photo's: `organize::pair_scopes`).
 pub fn unique_paths_sharing_stem_from(
     sources: &[&Path],
     candidates: &[PathBuf],
     stem: &str,
+    is_taken: impl Fn(&Path, &Path) -> bool,
 ) -> Vec<PathBuf> {
     first_free_suffix(candidates, stem, |i, path| {
-        path == sources[i] || !path.exists()
+        (path == sources[i] || !path.exists()) && !is_taken(sources[i], path)
     })
 }
 
@@ -225,8 +228,12 @@ mod tests {
         let raw_dir = dir.path().join("RAW");
         let group = vec![jpg.clone(), raw_dir.join("IMG_1.ARW")];
 
-        let got =
-            unique_paths_sharing_stem_from(&[&jpg, &dir.path().join("IMG_1.ARW")], &group, "IMG_1");
+        let got = unique_paths_sharing_stem_from(
+            &[&jpg, &dir.path().join("IMG_1.ARW")],
+            &group,
+            "IMG_1",
+            |_, _| false,
+        );
 
         assert_eq!(got, group);
     }
@@ -242,8 +249,12 @@ mod tests {
         fs::write(dir.path().join("IMG_1_1.jpg"), "another photo").unwrap();
         let group = vec![jpg.clone(), raw_dir.join("IMG_1.ARW")];
 
-        let got =
-            unique_paths_sharing_stem_from(&[&jpg, &dir.path().join("IMG_1.ARW")], &group, "IMG_1");
+        let got = unique_paths_sharing_stem_from(
+            &[&jpg, &dir.path().join("IMG_1.ARW")],
+            &group,
+            "IMG_1",
+            |_, _| false,
+        );
 
         assert_eq!(
             got,

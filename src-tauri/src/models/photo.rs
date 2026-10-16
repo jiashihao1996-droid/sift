@@ -46,6 +46,10 @@ pub struct PhotoPair {
     /// When the photo was taken, from EXIF; None when the file doesn't say
     #[serde(default)]
     pub capture_time: Option<CaptureTime>,
+    /// Found in the 精选/ folder a previous archive filled: starred by
+    /// default, and moved back out if the user unstars it
+    #[serde(default)]
+    pub is_archived_pick: bool,
 }
 
 /// When a photo was taken, as the camera recorded it in EXIF

@@ -8,11 +8,23 @@ import { PhotoStatus, type FolderProgress, type PhotoPair } from '@/types'
 /**
  * Stable identity of a photo across scans (pair ids are regenerated each scan).
  * RAW-only pairs use the RAW path: their jpgPath is a temporary cache file.
+ * So do archived picks with a RAW: their JPG may be the preview archive saved,
+ * which an archive that fails partway can drop, leaving the pick RAW-only.
  */
 export function progressKey(pair: PhotoPair): string {
-  return pair.source === 'rawPreview' && pair.rawPath ? pair.rawPath : pair.jpgPath
+  const isKeyedByRaw = pair.source === 'rawPreview' || pair.isArchivedPick
+  return isKeyedByRaw && pair.rawPath ? pair.rawPath : pair.jpgPath
 }
 
+/**
+ * The mark a photo has before the user touches it: a pick already archived
+ * into 精选/ is starred, everything else unmarked.
+ */
+export function defaultStatus(pair: PhotoPair): PhotoStatus {
+  return pair.isArchivedPick ? PhotoStatus.Starred : PhotoStatus.Unprocessed
+}
+
+/** Saved marks are the ones that differ from the default, unmarking an archived pick included */
 export function snapshotProgress(
   folder: string,
   pairs: readonly PhotoPair[],
@@ -20,7 +32,7 @@ export function snapshotProgress(
 ): FolderProgress {
   const marks: Record<string, PhotoStatus> = {}
   for (const pair of pairs) {
-    if (pair.status !== PhotoStatus.Unprocessed) marks[progressKey(pair)] = pair.status
+    if (pair.status !== defaultStatus(pair)) marks[progressKey(pair)] = pair.status
   }
   // The first photo is where a fresh session starts anyway, so it is no progress
   const current = currentIndex > 0 ? pairs[currentIndex] : undefined
@@ -46,9 +58,9 @@ export interface RestoredProgress {
 }
 
 /**
- * Apply saved marks to freshly scanned pairs. Marks for files that are gone
- * are dropped; new files stay unmarked. Resumes at the saved photo, else at
- * the first one.
+ * Apply saved marks to freshly scanned pairs; a saved mark wins over the
+ * default. Marks for files that are gone are dropped; new files keep their
+ * default. Resumes at the saved photo, else at the first one.
  */
 export function restoreProgress(
   pairs: readonly PhotoPair[],
@@ -59,7 +71,7 @@ export function restoreProgress(
   let restoredCount = 0
   const restored = pairs.map((pair) => {
     const status = saved.marks[progressKey(pair)]
-    if (!status || status === PhotoStatus.Unprocessed) return pair
+    if (!status || status === pair.status) return pair
     restoredCount++
     return { ...pair, status }
   })

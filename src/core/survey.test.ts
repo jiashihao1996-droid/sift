@@ -23,6 +23,7 @@ function shot(seconds: number[]): PhotoPair[] {
     source: 'jpg',
     xmpPaths: [],
     captureTime: { localMs: s * SECOND, offsetMinutes: null },
+    isArchivedPick: false,
   }))
 }
 

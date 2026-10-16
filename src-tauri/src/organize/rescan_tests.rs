@@ -7,6 +7,7 @@
 
 use super::archive::{archive_pairs, archive_pairs_moving, PICKS_DIR};
 use super::export::export_pairs;
+use super::test_trash::BinTrash;
 use super::transfer::move_file;
 use crate::catalog::scan::scan_folder;
 use crate::models::organize::{OrganizeError, OrganizeErrorKind};
@@ -68,7 +69,14 @@ fn group_input(base: &Path, status: PhotoStatus) -> ArchivePairInput {
 fn archive_group(base: &Path, status: PhotoStatus) {
     let cache = tempdir().unwrap();
     let pair = group_input(base, status);
-    archive_pairs(base, &[pair], cache.path(), &mut |_| {}).unwrap();
+    archive_pairs(
+        base,
+        &[pair],
+        cache.path(),
+        &mut BinTrash::new(),
+        &mut |_| {},
+    )
+    .unwrap();
 }
 
 /// Archive the mixed-case group with its RAW failing to move, as on a card
@@ -88,6 +96,7 @@ fn archive_group_failing_raw(base: &Path, status: PhotoStatus) -> OrganizeError 
         base,
         &[pair],
         cache.path(),
+        &mut BinTrash::new(),
         &mut |_| {},
         &mut move_unless_raw,
     )
@@ -281,6 +290,7 @@ fn a_failure_reports_the_photos_archived_before_it() {
         base.path(),
         &[earlier, failing],
         cache.path(),
+        &mut BinTrash::new(),
         &mut |_| {},
         &mut move_unless_raw,
     )

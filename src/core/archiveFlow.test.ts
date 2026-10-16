@@ -20,6 +20,7 @@ function photo(id: string, status: Status = PhotoStatus.Unprocessed): PhotoPair 
     source: 'jpg',
     xmpPaths: [],
     captureTime: null,
+    isArchivedPick: false,
   }
 }
 

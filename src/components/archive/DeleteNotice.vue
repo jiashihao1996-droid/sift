@@ -2,22 +2,37 @@
 // ============================================================
 // DeleteNotice - What deleting will do in this folder. Without a trash
 // (network share, FAT/exFAT card on Windows) it is permanent and must be
-// confirmed; on macOS the first delete asks for Finder access.
+// confirmed; on macOS the first delete asks for Finder access. Previews
+// saved for RAW-only picks that were unstarred count too: archiving drops them.
 // ============================================================
 
+import { computed } from 'vue'
 import { TriangleAlert } from '@lucide/vue'
 import type { NoTrashReason } from '@/types'
 import { describeNoTrash } from '@/core/noTrash'
 import { IS_MAC } from '@/utils/platform'
 
-defineProps<{ noTrash: NoTrashReason | null; deletedCount: number }>()
+const props = defineProps<{
+  noTrash: NoTrashReason | null
+  deletedCount: number
+  /** Unstarred picks whose saved preview JPG archiving may delete */
+  previewCount: number
+}>()
 
 /** The user confirmed permanent deletion for this archive */
 const confirmed = defineModel<boolean>('confirmed', { required: true })
+
+/** What the checkbox confirms, naming only what will actually go */
+const confirmText = computed(() => {
+  const parts = []
+  if (props.deletedCount > 0) parts.push(`这 ${props.deletedCount} 组照片`)
+  if (props.previewCount > 0) parts.push('取消精选后多余的预览 JPG（与 RAW 内嵌预览完全相同）')
+  return `我知道${parts.join('和')}会被永久删除，无法恢复`
+})
 </script>
 
 <template>
-  <template v-if="deletedCount > 0">
+  <template v-if="deletedCount + previewCount > 0">
     <div
       v-if="noTrash"
       class="bg-sift-delete/10 border border-sift-delete/40 rounded-lg px-3 py-3 mb-5"
@@ -32,7 +47,7 @@ const confirmed = defineModel<boolean>('confirmed', { required: true })
       </div>
       <label class="flex items-start gap-2 text-xs text-white/90 cursor-pointer select-none">
         <input v-model="confirmed" type="checkbox" class="mt-0.5 accent-[var(--sift-delete)]" />
-        我知道这 {{ deletedCount }} 组照片会被永久删除，无法恢复
+        {{ confirmText }}
       </label>
     </div>
 

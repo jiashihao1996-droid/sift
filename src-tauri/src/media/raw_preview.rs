@@ -71,16 +71,29 @@ pub fn extract_raw_preview(raw_path: &str, cache_dir: &Path) -> Result<String, S
         return Ok(cache_path.to_string_lossy().to_string());
     }
 
+    let final_data = preview_with_orientation(raw_path, outer_orientation)?;
+    fs::write(&cache_path, &final_data)
+        .map_err(|e| format!("Failed to write preview cache: {}", e))?;
+    Ok(cache_path.to_string_lossy().to_string())
+}
+
+/// The bytes `extract_raw_preview` caches for `raw_path`, read fresh without
+/// touching the cache. Archive saves exactly these next to a RAW-only pick,
+/// so they identify that saved preview later.
+pub fn raw_preview_bytes(raw_path: &str) -> Result<Vec<u8>, String> {
+    preview_with_orientation(raw_path, read_orientation(raw_path).unwrap_or(1))
+}
+
+fn preview_with_orientation(raw_path: &str, outer_orientation: u16) -> Result<Vec<u8>, String> {
     let preview = extract_via_exif(raw_path)
         .ok()
         .filter(|jpeg| jpeg.len() >= MIN_PREVIEW_SIZE)
         .or_else(|| extract_via_jpeg_scan(raw_path).ok())
         .ok_or_else(|| format!("Could not extract preview from RAW file: {}", raw_path))?;
-
-    let final_data = exif_orientation::ensure_orientation(preview, outer_orientation);
-    fs::write(&cache_path, &final_data)
-        .map_err(|e| format!("Failed to write preview cache: {}", e))?;
-    Ok(cache_path.to_string_lossy().to_string())
+    Ok(exif_orientation::ensure_orientation(
+        preview,
+        outer_orientation,
+    ))
 }
 
 /// A cached preview is reusable unless it lacks the RAW's outer orientation
@@ -241,6 +254,17 @@ mod tests {
 
         assert_eq!(exif_orientation(&out), Some(6));
         assert!(image::load_from_memory(&out).is_ok());
+    }
+
+    #[test]
+    fn preview_bytes_match_what_is_cached() {
+        let dir = tempdir().unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), Some(6));
+        let raw = write(dir.path(), "a.ARW", &raw);
+
+        let bytes = raw_preview_bytes(raw.to_str().unwrap()).unwrap();
+
+        assert_eq!(bytes, extract(&raw, dir.path()).unwrap());
     }
 
     #[test]

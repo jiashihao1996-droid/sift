@@ -4,6 +4,8 @@
 // Supports: loose files, RAWs that archive moved into RAW/ (paired with the
 // JPGs left in the folder), and the older JPG/ + RAW/ archive layout, even
 // with new photos copied into the root next to it
+// Picks archived into 精选/ come back starred, paired only among themselves;
+// subfolders of 精选/ (like every other subfolder) are not read
 // RAW-only files get their embedded JPEG preview extracted; any whose
 // preview can't be extracted are reported in `skipped`, never dropped, and
 // so is anything that can't be read (a folder or one of its entries).
@@ -19,9 +21,9 @@ use crate::catalog::pairing::{self, FileIndex, RawOnly};
 use crate::media::capture_time::read_capture_time;
 use crate::media::raw_preview::extract_raw_preview;
 use crate::models::photo::{
-    CaptureTime, PhotoPair, PhotoSource, ScanResult, SkipReason, SkippedFile,
+    CaptureTime, PhotoPair, PhotoSource, PhotoStatus, ScanResult, SkipReason, SkippedFile,
 };
-use crate::organize::archive::RAW_DIR;
+use crate::organize::archive::{PICKS_DIR, RAW_DIR};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::path::Path;
@@ -31,7 +33,7 @@ use walkdir::{DirEntry, WalkDir};
 const PREVIEW_EXTRACTION_THREADS: usize = 2;
 
 /// JPG folder of the archive layout before 精选/ (JPG/ + RAW/); its RAWs are in RAW/
-const LEGACY_JPG_DIR: &str = "JPG";
+pub(crate) const LEGACY_JPG_DIR: &str = "JPG";
 
 pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult, String> {
     if !folder.is_dir() {
@@ -50,17 +52,27 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
         }
     }
 
-    let pairing = pairing::pair(&index);
+    // 精选/ is paired on its own: archive keeps a pick's files together
+    // there, and a same-named photo outside it is a different photo.
+    let mut picks_index = FileIndex::default();
+    let picks_dir = folder.join(PICKS_DIR);
+    if picks_dir.is_dir() {
+        skipped.extend(index_dir(&picks_dir, &mut picks_index));
+    }
+
     let empty_count = skipped
         .iter()
         .filter(|f| f.reason == SkipReason::Empty)
         .count();
-    let (raw_only_pairs, no_preview) = extract_previews(pairing.raw_only, preview_cache_dir)?;
-    skipped.extend(no_preview);
+    let entries = entries_of(&index, preview_cache_dir, &mut skipped)?;
+    let mut picks = entries_of(&picks_index, preview_cache_dir, &mut skipped)?;
+    for pair in &mut picks.pairs {
+        pair.is_archived_pick = true;
+        pair.status = PhotoStatus::Starred;
+    }
 
-    let raw_only_count = raw_only_pairs.len();
-    let mut pairs = pairing.pairs;
-    pairs.extend(raw_only_pairs);
+    let mut pairs = entries.pairs;
+    pairs.append(&mut picks.pairs);
     pairs.par_iter_mut().for_each(|pair| {
         pair.capture_time = capture_time_of(pair);
     });
@@ -68,11 +80,41 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
 
     Ok(ScanResult {
         pairs,
-        total_files: index.photo_count() + empty_count,
+        total_files: index.photo_count() + picks_index.photo_count() + empty_count,
+        paired_count: entries.paired_count + picks.paired_count,
+        jpg_only_count: entries.jpg_only_count + picks.jpg_only_count,
+        raw_only_count: entries.raw_only_count + picks.raw_only_count,
+        skipped,
+    })
+}
+
+/// Session entries from one pairing scope, with their counts
+struct Entries {
+    pairs: Vec<PhotoPair>,
+    paired_count: usize,
+    jpg_only_count: usize,
+    raw_only_count: usize,
+}
+
+/// Pair the files of `index` and extract previews for the RAW-only ones;
+/// RAWs without a usable preview are added to `skipped`.
+fn entries_of(
+    index: &FileIndex,
+    preview_cache_dir: &Path,
+    skipped: &mut Vec<SkippedFile>,
+) -> Result<Entries, String> {
+    let pairing = pairing::pair(index);
+    let (raw_only_pairs, no_preview) = extract_previews(pairing.raw_only, preview_cache_dir)?;
+    skipped.extend(no_preview);
+
+    let raw_only_count = raw_only_pairs.len();
+    let mut pairs = pairing.pairs;
+    pairs.extend(raw_only_pairs);
+    Ok(Entries {
+        pairs,
         paired_count: pairing.paired_count,
         jpg_only_count: pairing.jpg_only_count,
         raw_only_count,
-        skipped,
     })
 }
 
@@ -385,8 +427,125 @@ mod tests {
 
     #[test]
     fn ignores_other_subfolders() {
-        let dir = folder(&["IMG_1.JPG", "精选/IMG_3.JPG", "other/IMG_4.JPG"]);
+        let dir = folder(&[
+            "IMG_1.JPG",
+            "other/IMG_4.JPG",
+            "精选/RAW/IMG_5.ARW",
+            "精选/精选/IMG_6.JPG",
+            "精选/JPG/IMG_7.JPG",
+        ]);
         assert_eq!(names(&scan(dir.path())), ["IMG_1.JPG"]);
+    }
+
+    fn pair_named<'a>(result: &'a ScanResult, path: &str) -> &'a PhotoPair {
+        result
+            .pairs
+            .iter()
+            .find(|p| p.jpg_path.ends_with(path))
+            .unwrap_or_else(|| panic!("no pair for {}", path))
+    }
+
+    #[test]
+    fn loads_archived_picks_starred_with_their_raw_and_xmp() {
+        let dir = folder(&[
+            "IMG_1.JPG",
+            "精选/IMG_3.JPG",
+            "精选/IMG_3.ARW",
+            "精选/IMG_3.xmp",
+        ]);
+        let result = scan(dir.path());
+
+        assert_eq!(names(&result), ["IMG_1.JPG", "IMG_3.JPG"]);
+        assert_eq!(result.total_files, 3);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.jpg_only_count, 1);
+
+        let loose = pair_named(&result, "IMG_1.JPG");
+        assert_eq!(loose.status, PhotoStatus::Unprocessed);
+        assert!(!loose.is_archived_pick);
+
+        let pick = pair_named(&result, &format!("{}/IMG_3.JPG", PICKS_DIR));
+        assert_eq!(pick.status, PhotoStatus::Starred);
+        assert!(pick.is_archived_pick);
+        assert_eq!(file_name(pick.raw_path.as_deref().unwrap()), "IMG_3.ARW");
+        assert_eq!(pick.xmp_paths.len(), 1);
+    }
+
+    #[test]
+    fn never_pairs_a_pick_with_a_same_named_file_outside_the_picks_folder() {
+        let dir = folder(&[
+            // Two different photos named DSC_1: one unmarked, one archived pick
+            "DSC_1.JPG",
+            "RAW/DSC_1.ARW",
+            "精选/DSC_1.JPG",
+            "精选/DSC_1.ARW",
+            // A loose JPG whose only same-named RAW is a pick's
+            "DSC_2.JPG",
+            "精选/DSC_2.ARW",
+            // A pick's sidecar never goes with a loose photo
+            "DSC_3.JPG",
+            "精选/DSC_3.xmp",
+        ]);
+        let picks = dir.path().join(PICKS_DIR);
+        let result = scan(dir.path());
+
+        assert_eq!(result.pairs.len(), 4);
+        assert_eq!(result.paired_count, 2);
+        assert_eq!(result.jpg_only_count, 2);
+        // The pick's RAW stays RAW-only (its fixture has no preview to show)
+        assert_eq!(result.skipped.len(), 1);
+        assert!(Path::new(&result.skipped[0].path).starts_with(&picks));
+        for pair in &result.pairs {
+            let in_picks = Path::new(&pair.jpg_path).starts_with(&picks);
+            assert_eq!(pair.is_archived_pick, in_picks, "{}", pair.jpg_path);
+            if let Some(raw) = &pair.raw_path {
+                let raw_in_picks = Path::new(raw).starts_with(&picks);
+                assert_eq!(raw_in_picks, in_picks, "{} paired across folders", raw);
+            }
+            assert!(pair.xmp_paths.is_empty(), "{}", pair.jpg_path);
+        }
+    }
+
+    #[test]
+    fn a_raw_only_pick_with_its_saved_preview_is_one_entry() {
+        // Archive saves a RAW-only pick's preview next to it as <stem>.jpg
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        write(
+            dir.path(),
+            "精选/DSC_1.ARW",
+            &tiff_raw_with_preview(&preview, None),
+        );
+        write(dir.path(), "精选/DSC_1.jpg", &preview);
+        let result = scan(dir.path());
+
+        assert_eq!(result.pairs.len(), 1);
+        assert_eq!(result.paired_count, 1);
+        assert_eq!(result.raw_only_count, 0);
+        let pick = &result.pairs[0];
+        assert_eq!(pick.source, PhotoSource::Jpg);
+        assert!(pick.is_archived_pick);
+    }
+
+    #[test]
+    fn extracts_a_preview_for_a_raw_only_pick() {
+        let dir = tempdir().unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        write(dir.path(), "精选/DSC_1.ARW", &raw);
+        write(dir.path(), "精选/DSC_2.ARW", b"no preview");
+        let result = scan(dir.path());
+
+        assert_eq!(result.raw_only_count, 1);
+        let pick = &result.pairs[0];
+        assert_eq!(pick.source, PhotoSource::RawPreview);
+        assert_eq!(pick.status, PhotoStatus::Starred);
+        assert!(pick.is_archived_pick);
+        assert_eq!(
+            result.skipped.len(),
+            1,
+            "a pick without a preview is reported"
+        );
+        assert_eq!(result.skipped[0].reason, SkipReason::NoPreview);
     }
 
     #[cfg(unix)]
