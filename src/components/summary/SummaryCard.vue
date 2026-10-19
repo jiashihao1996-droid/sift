@@ -78,7 +78,7 @@ watch(
   <Transition name="modal">
     <div v-if="view.showSummaryCard" class="absolute inset-0 z-50 flex items-center justify-center">
       <!-- Backdrop -->
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div class="absolute inset-0 bg-black/60 backdrop-blur-xs" />
 
       <!-- Card -->
       <div
@@ -183,7 +183,7 @@ watch(
         <!-- CTA Buttons -->
         <div class="space-y-2.5">
           <button
-            class="w-full h-12 rounded-xl bg-linear-to-r from-sift-accent to-blue-500 text-white font-medium text-sm btn-spring btn-glow shadow-lg shadow-sift-accent/20"
+            class="w-full h-12 rounded-xl bg-linear-to-r/srgb from-sift-accent to-blue-500 text-white font-medium text-sm btn-spring btn-glow shadow-lg shadow-sift-accent/20"
             @click="openArchive"
           >
             开始归档

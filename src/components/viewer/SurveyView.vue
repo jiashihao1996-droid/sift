@@ -170,7 +170,7 @@ function handleClick(index: number, e: MouseEvent) {
 
       <div class="absolute top-2 left-2 right-2 z-20 flex items-center gap-2">
         <span
-          class="px-2 py-0.5 rounded-md bg-black/50 backdrop-blur-sm text-[10px] font-mono truncate"
+          class="px-2 py-0.5 rounded-md bg-black/50 backdrop-blur-xs text-[10px] font-mono truncate"
           :class="index === session.currentIndex ? 'text-white/90' : 'text-white/50'"
         >
           {{ photoName(pair) }}
@@ -191,7 +191,7 @@ function handleClick(index: number, e: MouseEvent) {
     <!-- Which part of a long burst is in view -->
     <div
       v-if="windowLabel"
-      class="absolute top-2 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-[11px] font-mono text-sift-burst"
+      class="absolute top-2 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-xs text-[11px] font-mono text-sift-burst"
     >
       {{ windowLabel }}
     </div>
