@@ -106,14 +106,15 @@ function startCulling() {
       <!-- Scan Complete -->
       <div v-else-if="scanComplete && session.scanResult" class="w-full">
         <div class="w-full space-y-4">
-          <!-- Stats Cards -->
+          <!-- Stats Cards. The identity transform is what Tailwind 3's `transform` class
+               set; without it WebKit draws the card text slightly differently -->
           <div
             class="grid gap-3"
             :class="session.scanResult.rawOnlyCount > 0 ? 'grid-cols-4' : 'grid-cols-3'"
           >
             <!-- Paired -->
             <div
-              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-success transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-success transform-[translate(0,0)] transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 0ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -127,7 +128,7 @@ function startCulling() {
 
             <!-- JPG Only -->
             <div
-              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-star transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-star transform-[translate(0,0)] transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -142,7 +143,7 @@ function startCulling() {
             <!-- RAW Only -->
             <div
               v-if="session.scanResult.rawOnlyCount > 0"
-              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-amber-500 transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-amber-500 transform-[translate(0,0)] transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 150ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -156,7 +157,7 @@ function startCulling() {
 
             <!-- Total Files -->
             <div
-              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-accent transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-accent transform-[translate(0,0)] transition-all duration-500"
               :style="`animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) ${session.scanResult.rawOnlyCount > 0 ? 200 : 200}ms both`"
             >
               <div class="flex items-center gap-2 mb-1">
