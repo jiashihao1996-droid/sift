@@ -172,7 +172,7 @@ onMounted(async () => {
             ]"
           />
           <div
-            class="relative h-11 w-16 rounded-md overflow-hidden cursor-pointer transition-[opacity,transform,ring-color] duration-200 ease-out group"
+            class="relative h-11 w-16 rounded-md overflow-hidden cursor-pointer transition-[opacity,scale,box-shadow] duration-200 ease-out group"
             :class="[
               index === session.currentIndex
                 ? 'ring-2 ring-sift-accent ring-offset-1 ring-offset-[#121212] opacity-100 scale-105'
