@@ -153,8 +153,10 @@ function switchCategory(key: PhotoStatus) {
             <div
               v-for="{ pair, originalIndex } in filteredPairs"
               :key="pair.id"
-              class="group relative aspect-4/3 rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-1.5 hover:ring-white/20 hover:scale-[1.02]"
-              :class="[originalIndex === session.currentIndex ? 'ring-1.5 ring-sift-accent' : '']"
+              class="group relative aspect-4/3 rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-[1.5px] hover:ring-white/20 hover:scale-[1.02]"
+              :class="[
+                originalIndex === session.currentIndex ? 'ring-[1.5px] ring-sift-accent' : '',
+              ]"
               @click="handleSelect(originalIndex)"
             >
               <!-- Only the generated thumbnail: the full-size photo is far too costly here -->
