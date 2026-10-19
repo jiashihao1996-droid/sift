@@ -282,7 +282,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           <img
             v-if="isLoading && thumbnailSrc"
             :src="thumbnailSrc"
-            class="max-w-full max-h-full object-contain blur-sm opacity-60"
+            class="max-w-full max-h-full object-contain blur-xs opacity-60"
             draggable="false"
           />
           <!-- Full image -->
@@ -390,7 +390,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           <img
             v-if="isLoading && thumbnailSrc"
             :src="thumbnailSrc"
-            class="absolute inset-0 w-full h-full object-contain z-10 blur-sm opacity-60"
+            class="absolute inset-0 w-full h-full object-contain z-10 blur-xs opacity-60"
             draggable="false"
           />
         </Transition>

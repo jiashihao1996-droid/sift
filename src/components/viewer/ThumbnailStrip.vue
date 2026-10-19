@@ -125,7 +125,7 @@ onMounted(async () => {
       <!-- Left page hotzone -->
       <div
         v-show="canScrollLeft"
-        class="absolute left-0 top-0 bottom-0 w-14 z-10 flex items-center justify-center cursor-pointer bg-gradient-to-r from-[#121212] via-[#121212]/60 to-transparent transition-opacity duration-200"
+        class="absolute left-0 top-0 bottom-0 w-14 z-10 flex items-center justify-center cursor-pointer bg-linear-to-r from-[#121212] via-[#121212]/60 to-transparent transition-opacity duration-200"
         :class="isHovering ? 'opacity-100' : 'opacity-0'"
         @click="pageLeft"
       >
@@ -139,7 +139,7 @@ onMounted(async () => {
       <!-- Right page hotzone -->
       <div
         v-show="canScrollRight"
-        class="absolute right-0 top-0 bottom-0 w-14 z-10 flex items-center justify-center cursor-pointer bg-gradient-to-l from-[#121212] via-[#121212]/60 to-transparent transition-opacity duration-200"
+        class="absolute right-0 top-0 bottom-0 w-14 z-10 flex items-center justify-center cursor-pointer bg-linear-to-l from-[#121212] via-[#121212]/60 to-transparent transition-opacity duration-200"
         :class="isHovering ? 'opacity-100' : 'opacity-0'"
         @click="pageRight"
       >

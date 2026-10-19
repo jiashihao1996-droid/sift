@@ -30,7 +30,7 @@ function folderName(path: string): string {
       <li v-for="path in folders" :key="path" class="group relative">
         <button
           type="button"
-          class="w-full flex items-center gap-3 pl-3 pr-10 py-2 rounded-lg text-left hover:bg-white/[0.04] focus-visible:bg-white/[0.06] focus-visible:outline-none transition-colors"
+          class="w-full flex items-center gap-3 pl-3 pr-10 py-2 rounded-lg text-left hover:bg-white/4 focus-visible:bg-white/6 focus-visible:outline-hidden transition-colors"
           :title="path"
           @click="emit('open', path)"
         >

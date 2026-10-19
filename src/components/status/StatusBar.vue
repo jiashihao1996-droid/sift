@@ -48,13 +48,13 @@ function handleStatusClick(status: PhotoStatus) {
       </span>
       <span
         v-if="session.currentGroupPosition"
-        class="ml-2 h-5 flex items-center rounded px-1.5 text-[11px] font-mono text-sift-burst bg-sift-burst/10 whitespace-nowrap"
+        class="ml-2 h-5 flex items-center rounded-sm px-1.5 text-[11px] font-mono text-sift-burst bg-sift-burst/10 whitespace-nowrap"
         title="当前照片在连拍组中的位置（[ / ] 跳到上一组 / 下一组）"
       >
         组 {{ session.currentGroupPosition.index }}/{{ session.currentGroupPosition.size }}
       </span>
       <button
-        class="ml-3 h-6 flex items-center gap-1 rounded px-2 text-xs text-sift-muted hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+        class="ml-3 h-6 flex items-center gap-1 rounded-sm px-2 text-xs text-sift-muted hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
         :title="
           isByCaptureTime
             ? '按拍摄时间排序（点击改为按文件名）'
@@ -79,7 +79,7 @@ function handleStatusClick(status: PhotoStatus) {
     <div class="flex-1 mx-6 relative">
       <div class="h-1 bg-sift-card rounded-full overflow-hidden">
         <div
-          class="h-full rounded-full bg-gradient-to-r from-sift-accent to-blue-400 transition-all duration-500 ease-out relative overflow-hidden"
+          class="h-full rounded-full bg-linear-to-r from-sift-accent to-blue-400 transition-all duration-500 ease-out relative overflow-hidden"
           :style="{ width: progressWidth }"
         >
           <!-- Shimmer overlay -->
@@ -93,7 +93,7 @@ function handleStatusClick(status: PhotoStatus) {
       <!-- Stay after mark: only shown while on, click to switch back -->
       <button
         v-if="view.stayAfterMark"
-        class="h-6 rounded px-2 text-xs text-sift-accent bg-sift-accent/10 hover:bg-sift-accent/20 transition-colors cursor-pointer"
+        class="h-6 rounded-sm px-2 text-xs text-sift-accent bg-sift-accent/10 hover:bg-sift-accent/20 transition-colors cursor-pointer"
         title="标记后停在当前照片（L 切换）"
         @click="view.toggleStayAfterMark()"
       >
@@ -102,7 +102,7 @@ function handleStatusClick(status: PhotoStatus) {
 
       <!-- Starred -->
       <button
-        class="flex items-center gap-1.5 h-full rounded px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
+        class="flex items-center gap-1.5 h-full rounded-sm px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
         @click="handleStatusClick(PhotoStatus.Starred)"
       >
         <span class="w-2 h-2 shrink-0 rounded-full bg-sift-star" />
@@ -111,7 +111,7 @@ function handleStatusClick(status: PhotoStatus) {
 
       <!-- Deleted -->
       <button
-        class="flex items-center gap-1.5 h-full rounded px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
+        class="flex items-center gap-1.5 h-full rounded-sm px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
         @click="handleStatusClick(PhotoStatus.Deleted)"
       >
         <span class="w-2 h-2 shrink-0 rounded-full bg-sift-delete" />
@@ -120,7 +120,7 @@ function handleStatusClick(status: PhotoStatus) {
 
       <!-- Unmarked -->
       <button
-        class="flex items-center gap-1.5 h-full rounded px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
+        class="flex items-center gap-1.5 h-full rounded-sm px-1 -mx-1 hover:bg-white/5 transition-colors cursor-pointer"
         @click="handleStatusClick(PhotoStatus.Unprocessed)"
       >
         <span class="w-2 h-2 shrink-0 rounded-full bg-sift-accent" />

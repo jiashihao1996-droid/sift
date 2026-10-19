@@ -78,14 +78,14 @@ function switchCategory(key: PhotoStatus) {
   <Teleport to="body">
     <!-- Backdrop (semi-transparent, no blur) -->
     <Transition name="backdrop">
-      <div v-if="isOpen" class="fixed inset-0 z-[100] bg-black/50" @click="handleBackdropClick" />
+      <div v-if="isOpen" class="fixed inset-0 z-100 bg-black/50" @click="handleBackdropClick" />
     </Transition>
 
     <!-- Bottom Drawer -->
     <Transition name="drawer">
       <div
         v-if="isOpen"
-        class="fixed bottom-status left-0 right-0 z-[101] max-h-[70vh] flex flex-col bg-[#161616]/95 backdrop-blur-2xl border-t border-white/[0.06] rounded-t-2xl overflow-hidden shadow-[0_-8px_40px_rgba(0,0,0,0.5)]"
+        class="fixed bottom-status left-0 right-0 z-101 max-h-[70vh] flex flex-col bg-[#161616]/95 backdrop-blur-2xl border-t border-white/6 rounded-t-2xl overflow-hidden shadow-[0_-8px_40px_rgba(0,0,0,0.5)]"
         @click.stop
       >
         <!-- Drag Handle -->
@@ -130,7 +130,7 @@ function switchCategory(key: PhotoStatus) {
         </div>
 
         <!-- Divider -->
-        <div class="h-px bg-white/[0.06] mx-4" />
+        <div class="h-px bg-white/6 mx-4" />
 
         <!-- Grid Content -->
         <div class="flex-1 overflow-y-auto p-4">
@@ -153,7 +153,7 @@ function switchCategory(key: PhotoStatus) {
             <div
               v-for="{ pair, originalIndex } in filteredPairs"
               :key="pair.id"
-              class="group relative aspect-[4/3] rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-1.5 hover:ring-white/20 hover:scale-[1.02]"
+              class="group relative aspect-4/3 rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-1.5 hover:ring-white/20 hover:scale-[1.02]"
               :class="[originalIndex === session.currentIndex ? 'ring-1.5 ring-sift-accent' : '']"
               @click="handleSelect(originalIndex)"
             >
@@ -167,7 +167,7 @@ function switchCategory(key: PhotoStatus) {
               />
               <!-- Filename overlay -->
               <div
-                class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                class="absolute bottom-0 inset-x-0 bg-linear-to-t from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <span class="text-[10px] text-white/80 truncate block">
                   {{ getFileName(pair) }}

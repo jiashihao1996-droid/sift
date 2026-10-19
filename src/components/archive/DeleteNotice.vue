@@ -46,7 +46,7 @@ const confirmText = computed(() => {
         </div>
       </div>
       <label class="flex items-start gap-2 text-xs text-white/90 cursor-pointer select-none">
-        <input v-model="confirmed" type="checkbox" class="mt-0.5 accent-[var(--sift-delete)]" />
+        <input v-model="confirmed" type="checkbox" class="mt-0.5 accent-(--sift-delete)" />
         {{ confirmText }}
       </label>
     </div>

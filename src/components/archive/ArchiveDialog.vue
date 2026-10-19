@@ -341,7 +341,7 @@ function done() {
           <!-- Actions -->
           <div class="space-y-3">
             <button
-              class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20 disabled:opacity-40 disabled:pointer-events-none"
+              class="w-full h-12 rounded-xl bg-linear-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 btn-spring btn-glow shadow-lg shadow-sift-accent/20 disabled:opacity-40 disabled:pointer-events-none"
               :disabled="mustConfirmPermanent && !isPermanentConfirmed"
               @click="handleArchive"
             >

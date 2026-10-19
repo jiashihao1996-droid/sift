@@ -58,15 +58,15 @@ function handleAction(action: () => void) {
       <div
         v-if="visible"
         ref="menuRef"
-        class="fixed z-[9999] min-w-[180px] py-1.5 bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-[0_8px_40px_rgba(0,0,0,0.6)] select-none"
+        class="fixed z-9999 min-w-[180px] py-1.5 bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/8 rounded-xl shadow-[0_8px_40px_rgba(0,0,0,0.6)] select-none"
         :style="{ left: `${adjustedX}px`, top: `${adjustedY}px` }"
       >
         <template v-for="(item, index) in items" :key="item.id">
           <!-- Separator -->
-          <div v-if="item.separator && index > 0" class="h-px bg-white/[0.06] my-1 mx-2" />
+          <div v-if="item.separator && index > 0" class="h-px bg-white/6 my-1 mx-2" />
           <!-- Menu item -->
           <button
-            class="w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-white/80 hover:bg-white/[0.08] hover:text-white transition-colors duration-100 cursor-default"
+            class="w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-white/80 hover:bg-white/8 hover:text-white transition-colors duration-100 cursor-default"
             @click.stop="handleAction(item.action)"
           >
             <component :is="item.icon" :size="15" class="text-white/40 shrink-0" />

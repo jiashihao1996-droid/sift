@@ -83,7 +83,7 @@ function startCulling() {
         <h1 class="text-4xl font-bold text-white mb-2 tracking-tight">Sift</h1>
         <p class="text-sm text-sift-muted font-light">RAW + JPG 一键筛选</p>
         <div
-          class="h-0.5 w-12 mx-auto mt-3 bg-gradient-to-r from-sift-accent to-blue-400 rounded-full"
+          class="h-0.5 w-12 mx-auto mt-3 bg-linear-to-r from-sift-accent to-blue-400 rounded-full"
         />
       </div>
 
@@ -194,7 +194,7 @@ function startCulling() {
           <!-- Start Button -->
           <button
             v-if="session.scanResult.pairs.length > 0"
-            class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-blue-500 hover:to-blue-400 btn-spring btn-glow shadow-lg shadow-sift-accent/20 transition-shadow duration-300"
+            class="w-full h-12 rounded-xl bg-linear-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-blue-500 hover:to-blue-400 btn-spring btn-glow shadow-lg shadow-sift-accent/20 transition-shadow duration-300"
             style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 300ms both"
             @click="startCulling"
           >

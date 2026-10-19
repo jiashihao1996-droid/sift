@@ -57,7 +57,7 @@ const view = useViewStore()
                     <kbd
                       v-for="key in chord"
                       :key="key"
-                      class="min-w-[20px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/10 text-[10px] text-white/60 text-center font-sans"
+                      class="min-w-[20px] px-1.5 py-0.5 rounded-sm bg-white/6 border border-white/10 text-[10px] text-white/60 text-center font-sans"
                     >
                       {{ key }}
                     </kbd>
