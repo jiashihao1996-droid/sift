@@ -42,7 +42,7 @@ watch(
         <span class="text-xs text-sift-muted">{{ isExpanded ? '收起' : '查看' }}</span>
       </button>
       <button
-        class="p-1 rounded hover:bg-white/10 text-sift-muted"
+        class="p-1 rounded-sm hover:bg-white/10 text-sift-muted"
         aria-label="关闭"
         @click="isDismissed = true"
       >

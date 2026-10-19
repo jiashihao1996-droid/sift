@@ -53,7 +53,7 @@ watch(
         :class="isStarred ? 'text-sift-star' : 'text-white/60'"
         >{{ isStarred ? '取消精选' : '精选' }}</span
       >
-      <kbd class="text-[9px] text-white/30 bg-white/[0.06] px-1 rounded">F</kbd>
+      <kbd class="text-[9px] text-white/30 bg-white/6 px-1 rounded-sm">F</kbd>
     </button>
 
     <div class="w-px h-4 bg-white/10" />
@@ -75,7 +75,7 @@ watch(
         :class="isDeleted ? 'text-sift-delete' : 'text-white/60'"
         >{{ isDeleted ? '取消删除' : '删除' }}</span
       >
-      <kbd class="text-[9px] text-white/30 bg-white/[0.06] px-1 rounded">X</kbd>
+      <kbd class="text-[9px] text-white/30 bg-white/6 px-1 rounded-sm">X</kbd>
     </button>
   </div>
 </template>

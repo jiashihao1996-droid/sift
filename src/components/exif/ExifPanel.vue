@@ -69,7 +69,7 @@ watch(
       <div class="flex items-center justify-between px-4 py-3 border-b border-sift-border">
         <span class="text-sm font-semibold text-white">拍摄信息</span>
         <button
-          class="p-1 rounded hover:bg-white/10 transition-colors btn-spring"
+          class="p-1 rounded-sm hover:bg-white/10 transition-colors btn-spring"
           @click="view.toggleExifPanel()"
         >
           <X :size="14" class="text-sift-muted" />
@@ -92,9 +92,9 @@ watch(
 
       <!-- Loading -->
       <div v-if="isLoading" class="p-4 space-y-3">
-        <div class="skeleton-pulse h-4 rounded w-3/4" />
-        <div class="skeleton-pulse h-4 rounded w-1/2" />
-        <div class="skeleton-pulse h-4 rounded w-2/3" />
+        <div class="skeleton-pulse h-4 rounded-sm w-3/4" />
+        <div class="skeleton-pulse h-4 rounded-sm w-1/2" />
+        <div class="skeleton-pulse h-4 rounded-sm w-2/3" />
       </div>
 
       <!-- No data -->

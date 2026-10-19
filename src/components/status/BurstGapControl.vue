@@ -25,7 +25,7 @@ function choose(seconds: number) {
 <template>
   <div class="relative">
     <button
-      class="h-6 flex items-center gap-1 rounded px-2 text-xs text-sift-muted hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+      class="h-6 flex items-center gap-1 rounded-sm px-2 text-xs text-sift-muted hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
       :class="{ 'text-white bg-white/5': isOpen }"
       title="连拍分组：拍摄时间相隔不超过这个间隔的相邻照片算一组"
       @click="isOpen = !isOpen"
@@ -49,7 +49,7 @@ function choose(seconds: number) {
           :key="seconds"
           role="menuitemradio"
           :aria-checked="seconds === view.burstGapSeconds"
-          class="w-full flex items-center justify-between rounded px-2 py-1 text-xs transition-colors cursor-pointer"
+          class="w-full flex items-center justify-between rounded-sm px-2 py-1 text-xs transition-colors cursor-pointer"
           :class="
             seconds === view.burstGapSeconds
               ? 'bg-sift-accent/15 text-sift-accent'

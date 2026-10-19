@@ -57,7 +57,7 @@ const lens = computed(() => props.rows.find((r) => r.param === ShotParam.Lens)?.
           v-for="cell in exposure"
           :key="cell.param"
           :title="cell.label"
-          class="whitespace-nowrap rounded px-1 py-0.5"
+          class="whitespace-nowrap rounded-sm px-1 py-0.5"
           :class="{ 'shot-differs': cell.differs }"
         >
           {{ cell.text || '—' }}
@@ -67,7 +67,7 @@ const lens = computed(() => props.rows.find((r) => r.param === ShotParam.Lens)?.
         <span
           v-if="lens"
           class="truncate"
-          :class="{ 'shot-differs rounded px-1': lens.differs }"
+          :class="{ 'shot-differs rounded-sm px-1': lens.differs }"
           title="镜头"
         >
           {{ lens.text || '未知镜头' }}

@@ -62,19 +62,19 @@ function openArchive() {
       </span>
       <span
         v-if="displayPair.source === 'rawPreview'"
-        class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-400"
+        class="px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase bg-amber-500/20 text-amber-400"
       >
         RAW 预览
       </span>
       <span
         v-else-if="displayPair.rawFormat"
-        class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-sift-success/20 text-sift-success"
+        class="px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase bg-sift-success/20 text-sift-success"
       >
         {{ displayPair.rawFormat }}
       </span>
       <span
         v-else
-        class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sift-muted/20 text-sift-muted"
+        class="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-sift-muted/20 text-sift-muted"
       >
         无 RAW
       </span>

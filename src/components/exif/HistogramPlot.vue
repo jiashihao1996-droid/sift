@@ -62,12 +62,12 @@ const shadowWarning = computed(
 
     <!-- Clipping indicators (Lightroom convention: blue = shadows, red = highlights) -->
     <span
-      class="clip-corner left-0 border-l-[10px] border-r-0"
+      class="clip-corner left-0 border-l-10 border-r-0"
       :class="shadowWarning ? 'border-l-sift-accent' : 'border-l-white/15'"
       aria-hidden="true"
     />
     <span
-      class="clip-corner right-0 border-r-[10px] border-l-0"
+      class="clip-corner right-0 border-r-10 border-l-0"
       :class="highlightWarning ? 'border-r-sift-delete' : 'border-r-white/15'"
       aria-hidden="true"
     />

@@ -151,7 +151,7 @@ function handleClick(index: number, e: MouseEvent) {
       <img
         v-if="pair.thumbnailPath && !naturalSizes.has(pair.id)"
         :src="convertFileSrc(pair.thumbnailPath)"
-        class="absolute inset-0 w-full h-full object-contain blur-sm opacity-60"
+        class="absolute inset-0 w-full h-full object-contain blur-xs opacity-60"
         draggable="false"
       />
       <img

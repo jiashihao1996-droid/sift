@@ -183,7 +183,7 @@ watch(
         <!-- CTA Buttons -->
         <div class="space-y-2.5">
           <button
-            class="w-full h-12 rounded-xl bg-gradient-to-r from-sift-accent to-blue-500 text-white font-medium text-sm btn-spring btn-glow shadow-lg shadow-sift-accent/20"
+            class="w-full h-12 rounded-xl bg-linear-to-r from-sift-accent to-blue-500 text-white font-medium text-sm btn-spring btn-glow shadow-lg shadow-sift-accent/20"
             @click="openArchive"
           >
             开始归档
