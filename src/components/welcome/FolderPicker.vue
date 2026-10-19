@@ -83,7 +83,7 @@ function startCulling() {
         <h1 class="text-4xl font-bold text-white mb-2 tracking-tight">Sift</h1>
         <p class="text-sm text-sift-muted font-light">RAW + JPG 一键筛选</p>
         <div
-          class="h-0.5 w-12 mx-auto mt-3 bg-linear-to-r from-sift-accent to-blue-400 rounded-full"
+          class="h-0.5 w-12 mx-auto mt-3 bg-linear-to-r/srgb from-sift-accent to-blue-400 rounded-full"
         />
       </div>
 
@@ -113,7 +113,7 @@ function startCulling() {
           >
             <!-- Paired -->
             <div
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-success transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-success transform transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 0ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -127,7 +127,7 @@ function startCulling() {
 
             <!-- JPG Only -->
             <div
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-star transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-star transform transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -142,7 +142,7 @@ function startCulling() {
             <!-- RAW Only -->
             <div
               v-if="session.scanResult.rawOnlyCount > 0"
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-amber-500 transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-amber-500 transform transition-all duration-500"
               style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 150ms both"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -156,7 +156,7 @@ function startCulling() {
 
             <!-- Total Files -->
             <div
-              class="bg-sift-card/80 backdrop-blur-sm rounded-xl p-4 border-l-2 border-sift-accent transform transition-all duration-500"
+              class="bg-sift-card/80 backdrop-blur-xs rounded-xl p-4 border-l-2 border-sift-accent transform transition-all duration-500"
               :style="`animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) ${session.scanResult.rawOnlyCount > 0 ? 200 : 200}ms both`"
             >
               <div class="flex items-center gap-2 mb-1">
@@ -194,7 +194,7 @@ function startCulling() {
           <!-- Start Button -->
           <button
             v-if="session.scanResult.pairs.length > 0"
-            class="w-full h-12 rounded-xl bg-linear-to-r from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-blue-500 hover:to-blue-400 btn-spring btn-glow shadow-lg shadow-sift-accent/20 transition-shadow duration-300"
+            class="w-full h-12 rounded-xl bg-linear-to-r/srgb from-sift-accent to-blue-500 text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-blue-500 hover:to-blue-400 btn-spring btn-glow shadow-lg shadow-sift-accent/20 transition-shadow duration-300"
             style="animation: slideUp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 300ms both"
             @click="startCulling"
           >

@@ -19,7 +19,7 @@ const view = useViewStore()
       aria-modal="true"
       aria-labelledby="shortcut-help-title"
     >
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="view.closeShortcutHelp" />
+      <div class="absolute inset-0 bg-black/60 backdrop-blur-xs" @click="view.closeShortcutHelp" />
 
       <div
         class="relative w-full max-w-2xl mx-4 p-6 rounded-2xl bg-sift-surface border border-white/5 shadow-2xl"

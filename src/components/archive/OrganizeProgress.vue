@@ -18,7 +18,7 @@ defineProps<{
     <h3 class="text-lg font-bold text-white text-center mb-4">{{ title }}</h3>
     <div class="h-2 bg-sift-card rounded-full overflow-hidden mb-3">
       <div
-        class="h-full rounded-full bg-linear-to-r from-sift-accent to-blue-400 transition-all duration-300 relative overflow-hidden"
+        class="h-full rounded-full bg-linear-to-r/srgb from-sift-accent to-blue-400 transition-all duration-300 relative overflow-hidden"
         :style="{ width: `${percent}%` }"
       >
         <div class="absolute inset-0 shimmer-bar" />

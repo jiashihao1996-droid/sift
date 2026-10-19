@@ -172,7 +172,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
       <Transition name="nav-fade">
         <div
           v-if="isZoomed"
-          class="absolute left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+          class="absolute left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-[11px] text-white/70 font-mono"
           :class="
             view.showsShotStrips ? 'bottom-[calc(var(--shot-strip-clearance)+1rem)]' : 'bottom-16'
           "
@@ -197,7 +197,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           <!-- Top bar: label + filename -->
           <div class="absolute top-3 left-3 right-3 z-30 flex items-center justify-between gap-2">
             <div
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm shrink-0"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs shrink-0"
             >
               <div class="w-1.5 h-1.5 rounded-full bg-blue-400" />
               <span class="text-[11px] text-white/70">基准图</span>
@@ -209,7 +209,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
               class="shrink-0 mr-auto"
             />
             <div
-              class="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[10px] text-white/50 font-mono truncate"
+              class="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-[10px] text-white/50 font-mono truncate"
             >
               {{ compareFileName }}
             </div>
@@ -241,14 +241,14 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
           <!-- Top bar: label + filename -->
           <div class="absolute top-3 left-3 right-3 z-30 flex items-center justify-between gap-2">
             <div
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm shrink-0"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs shrink-0"
             >
               <div class="w-1.5 h-1.5 rounded-full bg-sift-accent" />
               <span class="text-[11px] text-white/70">当前浏览</span>
             </div>
             <StatusBadge :status="session.currentPair?.status" class="shrink-0 mr-auto" />
             <div
-              class="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[10px] text-white/50 font-mono truncate"
+              class="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-[10px] text-white/50 font-mono truncate"
             >
               {{ currentFileName }}
             </div>
@@ -325,7 +325,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
 
         <!-- Center Swap Button: on the divider, vertically centered -->
         <button
-          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm border border-white/15 flex items-center justify-center hover:bg-white/20 hover:scale-110 transition-all group"
+          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-8 h-8 rounded-full bg-black/60 backdrop-blur-xs border border-white/15 flex items-center justify-center hover:bg-white/20 hover:scale-110 transition-all group"
           title="将当前浏览图设为基准图"
           @click="handleSwapCompare"
         >
@@ -339,7 +339,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
         <Transition name="nav-fade">
           <div
             v-if="isZoomed"
-            class="absolute left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+            class="absolute left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-[11px] text-white/70 font-mono"
             :class="
               view.showsShotStrips ? 'bottom-[calc(var(--shot-strip-clearance)+1rem)]' : 'bottom-16'
             "
@@ -436,7 +436,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
         <Transition name="nav-fade">
           <div
             v-if="isZoomed"
-            class="absolute top-3 left-3 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 font-mono"
+            class="absolute top-3 left-3 z-30 px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-[11px] text-white/70 font-mono"
           >
             {{ zoomPercent }}%
           </div>
@@ -446,7 +446,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
         <Transition name="nav-fade">
           <button
             v-if="showLeftNav"
-            class="absolute left-3 top-1/2 -translate-y-1/2 z-30 w-10 h-20 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center hover:bg-black/50 transition-colors"
+            class="absolute left-3 top-1/2 -translate-y-1/2 z-30 w-10 h-20 rounded-full bg-black/30 backdrop-blur-xs flex items-center justify-center hover:bg-black/50 transition-colors"
             @click.stop="session.goPrev()"
           >
             <svg
@@ -469,7 +469,7 @@ function handleContextMenu(e: MouseEvent, pairOverride?: typeof session.currentP
         <Transition name="nav-fade">
           <button
             v-if="showRightNav"
-            class="absolute right-3 top-1/2 -translate-y-1/2 z-30 w-10 h-20 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center hover:bg-black/50 transition-colors"
+            class="absolute right-3 top-1/2 -translate-y-1/2 z-30 w-10 h-20 rounded-full bg-black/30 backdrop-blur-xs flex items-center justify-center hover:bg-black/50 transition-colors"
             @click.stop="session.goNext()"
           >
             <svg

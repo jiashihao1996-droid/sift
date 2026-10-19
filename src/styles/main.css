@@ -1,7 +1,5 @@
 @import 'tailwindcss';
 
-@custom-variant dark (&:is(.dark *));
-
 @theme {
   --color-sift-bg: #0d0d0d;
   --color-sift-surface: #1a1a1a;
@@ -15,6 +13,15 @@
   --color-sift-success: #10b981;
   --color-sift-burst: #a78bfa;
 
+  /* Tailwind 3's sRGB values for the default colors in use: v4's oklch palette is a
+     slightly different (and on P3 screens more saturated) set of colors */
+  --color-amber-200: #fde68a;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-gray-200: #e5e7eb;
+
   --font-sans:
     -apple-system, BlinkMacSystemFont, SF Pro Display, Segoe UI, Roboto, Helvetica Neue, sans-serif;
   --font-mono: SF Mono, Fira Code, monospace;
@@ -23,32 +30,6 @@
   --spacing-strip: var(--thumb-strip-h);
   --spacing-status: var(--status-bar-h);
   --spacing-bottom-chrome: var(--bottom-chrome-h);
-
-  --backdrop-blur-xs: 2px;
-
-  --animate-pulse-slow: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  --animate-shimmer: shimmer 1.5s infinite;
-  --animate-breathe: breathe 2s ease-in-out infinite;
-
-  @keyframes shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-    100% {
-      background-position: 200% 0;
-    }
-  }
-  @keyframes breathe {
-    0%,
-    100% {
-      opacity: 0.6;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1.02);
-    }
-  }
 }
 
 /*
@@ -66,6 +47,12 @@
   ::backdrop,
   ::file-selector-button {
     border-color: var(--color-gray-200, currentcolor);
+  }
+
+  /* v4's Preflight no longer gives buttons a pointer cursor */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
   }
 }
 
@@ -96,11 +83,13 @@
   --z-af-overlay: 35;
 }
 
-/* Global Styles */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Global Styles. In the base layer so that utilities (m-*, p-*) still win over it */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
 }
 
 html,

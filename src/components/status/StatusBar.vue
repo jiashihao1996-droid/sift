@@ -79,7 +79,7 @@ function handleStatusClick(status: PhotoStatus) {
     <div class="flex-1 mx-6 relative">
       <div class="h-1 bg-sift-card rounded-full overflow-hidden">
         <div
-          class="h-full rounded-full bg-linear-to-r from-sift-accent to-blue-400 transition-all duration-500 ease-out relative overflow-hidden"
+          class="h-full rounded-full bg-linear-to-r/srgb from-sift-accent to-blue-400 transition-all duration-500 ease-out relative overflow-hidden"
           :style="{ width: progressWidth }"
         >
           <!-- Shimmer overlay -->

@@ -167,7 +167,7 @@ function switchCategory(key: PhotoStatus) {
               />
               <!-- Filename overlay -->
               <div
-                class="absolute bottom-0 inset-x-0 bg-linear-to-t from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                class="absolute bottom-0 inset-x-0 bg-linear-to-t/srgb from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <span class="text-[10px] text-white/80 truncate block">
                   {{ getFileName(pair) }}

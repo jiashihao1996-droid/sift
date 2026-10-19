@@ -15,7 +15,7 @@ const hint = computed(() => afHint(props.info))
 <template>
   <span
     v-if="hint"
-    class="px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-[11px] text-white/70 pointer-events-none whitespace-nowrap"
+    class="px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-[11px] text-white/70 pointer-events-none whitespace-nowrap"
   >
     {{ hint }}
   </span>
