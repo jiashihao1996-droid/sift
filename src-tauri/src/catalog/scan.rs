@@ -228,8 +228,8 @@ fn raw_preview_pair(raw: RawOnly, cache_dir: &Path) -> Result<PhotoPair, Skipped
 mod tests {
     use super::*;
     use crate::test_support::{
-        exif_tiff, jpeg_with_exif, noise_jpeg, raf_with_jpeg, tiff_raw_declaring_preview_len,
-        tiff_raw_with_preview, write, ExifByteOrder,
+        exif_orientation, exif_tiff, jpeg_with_exif, noise_jpeg, raf_with_jpeg,
+        tiff_raw_declaring_preview_len, tiff_raw_with_preview, write, ExifByteOrder,
     };
     use tempfile::{tempdir, TempDir};
 
@@ -299,6 +299,29 @@ mod tests {
         assert_eq!(pair.source, PhotoSource::RawPreview);
         assert_eq!(file_name(pair.raw_path.as_deref().unwrap()), "DSC_1.ARW");
         assert!(Path::new(&pair.jpg_path).exists());
+    }
+
+    #[test]
+    fn a_rescan_reuses_the_preview_until_the_raw_changes() {
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        write(
+            dir.path(),
+            "DSC_1.ARW",
+            &tiff_raw_with_preview(&preview, None),
+        );
+        let first = scan(dir.path()).pairs[0].jpg_path.clone();
+
+        assert_eq!(scan(dir.path()).pairs[0].jpg_path, first);
+
+        write(
+            dir.path(),
+            "DSC_1.ARW",
+            &tiff_raw_with_preview(&preview, Some(6)),
+        );
+        let replaced = scan(dir.path()).pairs[0].jpg_path.clone();
+        assert_ne!(replaced, first);
+        assert_eq!(exif_orientation(&std::fs::read(replaced).unwrap()), Some(6));
     }
 
     #[test]
@@ -682,14 +705,17 @@ mod tests {
         assert!(local_ms(&result.pairs[0]).is_some());
     }
 
-    /// Times scanning a real or generated folder:
+    /// Times scanning a real or generated folder; run 1 extracts RAW-only
+    /// previews, later runs find them cached:
     /// `SIFT_SCAN_BENCH_DIR=~/photos cargo test --release scan_benchmark -- --ignored --nocapture`
+    /// (`SIFT_SCAN_BENCH_RUNS` sets the number of runs, 5 by default)
     #[test]
     #[ignore = "needs SIFT_SCAN_BENCH_DIR"]
     fn scan_benchmark() {
         let dir = std::env::var("SIFT_SCAN_BENCH_DIR").expect("set SIFT_SCAN_BENCH_DIR");
+        let runs: u32 = std::env::var("SIFT_SCAN_BENCH_RUNS").map_or(5, |n| n.parse().unwrap());
         let cache = tempdir().unwrap();
-        for run in 1..=5 {
+        for run in 1..=runs {
             let started = std::time::Instant::now();
             let result = scan_folder(Path::new(&dir), cache.path()).unwrap();
             let timed = result

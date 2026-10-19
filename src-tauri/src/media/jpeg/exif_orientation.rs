@@ -5,6 +5,8 @@
 // ============================================================
 
 /// Get the Orientation tag already present in a JPEG's APP1/EXIF segment, if any.
+/// Tests use it to check what `ensure_orientation` wrote.
+#[cfg(test)]
 pub fn read_orientation(jpeg: &[u8]) -> Option<u16> {
     let (start, len) = find_jpeg_app1_tiff_range(jpeg)?;
     read_tiff_orientation(&jpeg[start..start + len])
@@ -95,6 +97,7 @@ fn find_jpeg_app1_tiff_range(jpeg: &[u8]) -> Option<(usize, usize)> {
 }
 
 /// Read Orientation (tag 0x0112) from a TIFF blob. Returns None if absent/malformed.
+#[cfg(test)]
 fn read_tiff_orientation(tiff: &[u8]) -> Option<u16> {
     let (le, ifd0_off) = parse_tiff_header(tiff)?;
     read_ifd_orientation(tiff, ifd0_off, le)
@@ -126,6 +129,7 @@ fn patch_tiff_orientation(tiff: &mut [u8], new_value: u16) -> bool {
     false
 }
 
+#[cfg(test)]
 fn read_ifd_orientation(tiff: &[u8], ifd_off: usize, le: bool) -> Option<u16> {
     if ifd_off + 2 > tiff.len() {
         return None;

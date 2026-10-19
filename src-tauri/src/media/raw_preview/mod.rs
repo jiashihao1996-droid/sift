@@ -1,15 +1,24 @@
 // ============================================================
 // Sift - RAW Preview Extraction
 // Extracts embedded JPEG previews from RAW files into a cache dir
-// Strategy: EXIF offsets -> JPEG SOI/EOI scan (fallback)
+// Strategy: the JPEGs the TIFF IFDs point to -> JPEG SOI/EOI scan (fallback)
+// A cached preview is found without opening the RAW: its name comes from
+// the RAW's path, size and modification time. Extracting reads the RAW's
+// head and the preview; only the fallback scan reads the whole file.
 // ============================================================
 
-use crate::media::exif::read_orientation;
+mod tiff_layout;
+
 use crate::media::jpeg::exif_orientation;
 use crate::media::jpeg::scan::find_largest_jpeg;
+use crate::media::metadata::head::HeadCached;
+use crate::paths::is_inside_dir;
 use std::fs::{self, File};
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::process;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::UNIX_EPOCH;
 
 /// Minimum JPEG size to consider as a preview (50KB)
 /// This filters out small EXIF thumbnails
@@ -20,16 +29,26 @@ const MIN_PREVIEW_SIZE: usize = 50 * 1024;
 /// it could exhaust memory.
 const MAX_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 
-/// Generate a cache filename for a RAW file based on its path
-/// Uses the file stem + a hash of the full path to avoid collisions
-fn cache_filename(raw_path: &Path) -> String {
+/// Covers the IFD tables of TIFF-based RAWs in practice; anything further
+/// is still read, just with extra reads
+const HEAD_LEN: usize = 64 * 1024;
+
+/// Cache filename for a RAW: its stem plus a hash of its path, size and
+/// modification time, so a changed or replaced RAW gets a fresh preview
+fn cache_filename(raw_path: &Path, meta: &fs::Metadata) -> String {
     let stem = raw_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    let path_str = raw_path.to_string_lossy();
-    let hash = simple_hash(path_str.as_bytes());
-    format!("{}_{:016x}_preview.jpg", stem, hash)
+    let modified_ns = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let mut key = raw_path.to_string_lossy().into_owned().into_bytes();
+    key.extend(meta.len().to_le_bytes());
+    key.extend(modified_ns.to_le_bytes());
+    format!("{}_{:016x}_preview.jpg", stem, simple_hash(&key))
 }
 
 /// Simple FNV-1a hash for path deduplication
@@ -46,8 +65,8 @@ fn simple_hash(data: &[u8]) -> u64 {
 /// Returns the path to the cached preview JPEG (inside `cache_dir`) on success.
 ///
 /// Strategy:
-/// 1. Try EXIF-based extraction (fast, ~5ms)
-/// 2. Fall back to JPEG SOI/EOI binary scan (~50-200ms)
+/// 1. The JPEGs the TIFF IFD chain points to (TIFF-based RAWs)
+/// 2. Fall back to JPEG SOI/EOI binary scan (CR3, RAF, NEF, ...)
 ///
 /// Orientation handling: some RAW formats (notably Sony ARW) store the
 /// embedded preview JPEG with its pixels in sensor-native orientation
@@ -57,23 +76,12 @@ fn simple_hash(data: &[u8]) -> u64 {
 /// before caching.
 pub fn extract_raw_preview(raw_path: &str, cache_dir: &Path) -> Result<String, String> {
     let path = Path::new(raw_path);
-    if !path.exists() {
-        return Err(format!("RAW file not found: {}", raw_path));
+    let meta =
+        fs::metadata(path).map_err(|e| format!("RAW file not found: {}: {}", raw_path, e))?;
+    let cache_path = cache_dir.join(cache_filename(path, &meta));
+    if !cache_path.is_file() {
+        write_cache(&cache_path, cache_dir, &raw_preview_bytes(raw_path)?)?;
     }
-
-    let cache_path = cache_dir.join(cache_filename(path));
-
-    // Orientation stored in the outer RAW's TIFF IFD0 (1 = normal, >1 = needs rotate/flip).
-    // Failing to read it is non-fatal; we just treat it as "unknown / normal".
-    let outer_orientation = read_orientation(raw_path).unwrap_or(1);
-
-    if is_cache_fresh(&cache_path, outer_orientation) {
-        return Ok(cache_path.to_string_lossy().to_string());
-    }
-
-    let final_data = preview_with_orientation(raw_path, outer_orientation)?;
-    fs::write(&cache_path, &final_data)
-        .map_err(|e| format!("Failed to write preview cache: {}", e))?;
     Ok(cache_path.to_string_lossy().to_string())
 }
 
@@ -81,12 +89,18 @@ pub fn extract_raw_preview(raw_path: &str, cache_dir: &Path) -> Result<String, S
 /// touching the cache. Archive saves exactly these next to a RAW-only pick,
 /// so they identify that saved preview later.
 pub fn raw_preview_bytes(raw_path: &str) -> Result<Vec<u8>, String> {
-    preview_with_orientation(raw_path, read_orientation(raw_path).unwrap_or(1))
-}
-
-fn preview_with_orientation(raw_path: &str, outer_orientation: u16) -> Result<Vec<u8>, String> {
-    let preview = extract_via_exif(raw_path)
-        .ok()
+    let file = File::open(raw_path).map_err(|e| format!("Failed to open RAW: {}", e))?;
+    let file_len = file
+        .metadata()
+        .map_err(|e| format!("Failed to read RAW size: {}", e))?
+        .len();
+    let mut file =
+        HeadCached::new(file, HEAD_LEN).map_err(|e| format!("Failed to read RAW: {}", e))?;
+    let layout = tiff_layout::read_layout(&mut file, file_len);
+    // Failing to read the orientation is non-fatal; it is treated as normal
+    let outer_orientation = layout.as_ref().and_then(|l| l.orientation).unwrap_or(1);
+    let preview = layout
+        .and_then(|l| largest_jpeg(&mut file, &l.jpegs, file_len))
         .filter(|jpeg| jpeg.len() >= MIN_PREVIEW_SIZE)
         .or_else(|| extract_via_jpeg_scan(raw_path).ok())
         .ok_or_else(|| format!("Could not extract preview from RAW file: {}", raw_path))?;
@@ -96,86 +110,62 @@ fn preview_with_orientation(raw_path: &str, outer_orientation: u16) -> Result<Ve
     ))
 }
 
-/// A cached preview is reusable unless it lacks the RAW's outer orientation
-/// (common on Sony ARW previews cached before 1.0.2).
-fn is_cache_fresh(cache_path: &Path, outer_orientation: u16) -> bool {
-    if !cache_path.exists() {
-        return false;
-    }
-    if outer_orientation <= 1 {
-        return true;
-    }
-    fs::read(cache_path)
-        .map(|existing| {
-            exif_orientation::read_orientation(&existing).unwrap_or(1) == outer_orientation
-        })
-        .unwrap_or(false)
+/// Write the preview under a temporary name and rename it into place, so
+/// an interrupted write never leaves a truncated file that looks cached
+fn write_cache(cache_path: &Path, cache_dir: &Path, bytes: &[u8]) -> Result<(), String> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let tmp = cache_path.with_extension(format!(
+        "{}-{}.tmp",
+        process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let written = fs::write(&tmp, bytes).and_then(|()| fs::rename(&tmp, cache_path));
+    written.map_err(|e| {
+        if is_inside_dir(&tmp, cache_dir) {
+            let _ = fs::remove_file(&tmp);
+        }
+        format!("Failed to write preview cache: {}", e)
+    })
 }
 
-/// Strategy 1: Extract JPEG preview via EXIF data
-/// Works for TIFF-based RAW formats: NEF, CR2, ARW, DNG, ORF, PEF, RW2, etc.
-/// Checks both PRIMARY and THUMBNAIL IFDs, returns the largest valid JPEG.
-fn extract_via_exif(raw_path: &str) -> Result<Vec<u8>, String> {
-    let file = File::open(raw_path).map_err(|e| format!("Failed to open RAW for EXIF: {}", e))?;
-    let mut reader = BufReader::new(file);
-
-    let exif_reader = exif::Reader::new();
-    let exif = exif_reader
-        .read_from_container(&mut reader)
-        .map_err(|e| format!("Failed to read EXIF from RAW: {}", e))?;
-
-    // Scan IFD0~IFD9: different camera brands store full-size JPEG previews in different IFDs
-    // (e.g. Nikon NEF uses IFD#2/3, Canon CR2 uses IFD#3). Extra non-existent IFDs simply return None.
-    let ifds: Vec<exif::In> = (0..10).map(exif::In).collect();
-    let mut best_jpeg: Option<Vec<u8>> = None;
-    let mut best_size: usize = 0;
-
-    for &ifd in &ifds {
-        let offset = exif
-            .get_field(exif::Tag::JPEGInterchangeFormat, ifd)
-            .and_then(|f| match &f.value {
-                exif::Value::Long(v) => v.first().map(|&x| x as u64),
-                _ => None,
-            });
-
-        let length = exif
-            .get_field(exif::Tag::JPEGInterchangeFormatLength, ifd)
-            .and_then(|f| match &f.value {
-                exif::Value::Long(v) => v.first().map(|&x| x as usize),
-                _ => None,
-            });
-
-        if let (Some(offset), Some(length)) = (offset, length) {
-            if length < 100 || length <= best_size {
-                continue;
-            }
-
-            // Read the JPEG data from the RAW file at the specified offset
-            if let Ok(jpeg_data) = read_jpeg_at_offset(raw_path, offset, length) {
-                if jpeg_data.len() > best_size {
-                    best_size = jpeg_data.len();
-                    best_jpeg = Some(jpeg_data);
-                }
+/// The largest valid JPEG of `jpegs`, (offset, length) pairs in IFD order.
+/// A JPEG no longer than one already found is never read; of equally long
+/// ones the first wins.
+fn largest_jpeg<R: Read + Seek>(
+    reader: &mut R,
+    jpegs: &[(u64, usize)],
+    file_len: u64,
+) -> Option<Vec<u8>> {
+    let mut best: Option<Vec<u8>> = None;
+    for &(offset, length) in jpegs {
+        let best_len = best.as_ref().map_or(0, Vec::len);
+        if length < 100 || length <= best_len {
+            continue;
+        }
+        if let Ok(jpeg) = read_jpeg_at_offset(reader, offset, length, file_len) {
+            if jpeg.len() > best_len {
+                best = Some(jpeg);
             }
         }
     }
-
-    best_jpeg.ok_or_else(|| "No JPEG preview found in EXIF".to_string())
+    best
 }
 
 /// Read and validate JPEG data at a specific offset in a file
-fn read_jpeg_at_offset(path: &str, offset: u64, length: usize) -> Result<Vec<u8>, String> {
-    let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
-    let file_len = file
-        .metadata()
-        .map_err(|e| format!("Failed to read file size: {}", e))?
-        .len();
+fn read_jpeg_at_offset<R: Read + Seek>(
+    reader: &mut R,
+    offset: u64,
+    length: usize,
+    file_len: u64,
+) -> Result<Vec<u8>, String> {
     let length = preview_read_len(offset, length, file_len)?;
-    file.seek(SeekFrom::Start(offset))
+    reader
+        .seek(SeekFrom::Start(offset))
         .map_err(|e| format!("Failed to seek to JPEG offset: {}", e))?;
 
     let mut jpeg_data = vec![0u8; length];
-    file.read_exact(&mut jpeg_data)
+    reader
+        .read_exact(&mut jpeg_data)
         .map_err(|e| format!("Failed to read JPEG data: {}", e))?;
 
     // Verify JPEG signature (FFD8)
@@ -322,22 +312,103 @@ mod tests {
     }
 
     #[test]
-    fn refreshes_cached_preview_missing_orientation() {
+    fn serves_a_cached_preview_without_reading_the_raw_again() {
         let dir = tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), Some(6));
+        let raw = write(dir.path(), "a.ARW", &raw);
+        let cached = extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+        fs::write(&cached, b"stand-in").unwrap();
+
+        let again = extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+
+        assert_eq!(again, cached);
+        assert_eq!(fs::read(again).unwrap(), b"stand-in");
+    }
+
+    #[test]
+    fn extracts_again_when_the_raw_changes() {
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        fs::create_dir(&cache).unwrap();
         let preview = noise_jpeg(256, 256);
         let raw = write(dir.path(), "a.ARW", &tiff_raw_with_preview(&preview, None));
-        let first = extract(&raw, dir.path()).unwrap();
+        let first = extract(&raw, &cache).unwrap();
         assert_eq!(exif_orientation(&first), None);
 
-        // Same path, now carrying an outer orientation: the stale cache must be replaced
+        // Same path, now carrying an outer orientation: the old preview is stale
         write(
             dir.path(),
             "a.ARW",
             &tiff_raw_with_preview(&preview, Some(8)),
         );
-        let second = extract(&raw, dir.path()).unwrap();
+        let second = extract(&raw, &cache).unwrap();
 
         assert_eq!(exif_orientation(&second), Some(8));
+    }
+
+    #[test]
+    fn extracts_again_when_only_the_modification_time_changes() {
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        let raw = write(dir.path(), "a.ARW", &raw);
+        let first = extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
+        File::options()
+            .write(true)
+            .open(&raw)
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        let second = extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn leaves_no_temporary_files_in_the_cache() {
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        let raw = write(dir.path(), "a.ARW", &raw);
+
+        let cached = extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+
+        let names: Vec<_> = fs::read_dir(&cache)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(names, vec![Path::new(&cached).to_path_buf()]);
+    }
+
+    #[test]
+    fn prefers_the_largest_jpeg_and_skips_invalid_ones() {
+        let small = noise_jpeg(128, 128);
+        let large = noise_jpeg(256, 256);
+        let mut file = vec![0u8; 16];
+        let small_at = file.len() as u64;
+        file.extend(&small);
+        let large_at = file.len() as u64;
+        file.extend(&large);
+        let junk_at = file.len() as u64;
+        file.extend(vec![0x42; large.len() * 2]);
+        let len = file.len() as u64;
+        let mut reader = std::io::Cursor::new(file);
+
+        let jpegs = [
+            (small_at, small.len()),
+            (junk_at, large.len() * 2),
+            (large_at, large.len()),
+            (small_at, small.len()),
+        ];
+
+        assert_eq!(largest_jpeg(&mut reader, &jpegs, len), Some(large));
+        assert_eq!(largest_jpeg(&mut reader, &[(junk_at, 500)], len), None);
     }
 
     /// Opt-in check against real camera files, which are too large for the repo:
@@ -380,7 +451,13 @@ mod tests {
         let raw_str = raw.to_str().unwrap();
         let bytes = fs::read(extract_raw_preview(raw_str, cache)?).unwrap();
         let img = image::load_from_memory(&bytes).map_err(|e| format!("undecodable: {e}"))?;
-        let outer = read_orientation(raw_str).unwrap_or(1);
+        let raw_bytes = fs::read(raw).unwrap();
+        let outer = tiff_layout::read_layout(
+            &mut std::io::Cursor::new(&raw_bytes),
+            raw_bytes.len() as u64,
+        )
+        .and_then(|layout| layout.orientation)
+        .unwrap_or(1);
         let embedded = exif_orientation::read_orientation(&bytes).unwrap_or(1);
         if outer > 1 && embedded != outer {
             return Err(format!("orientation {embedded}, RAW says {outer}"));

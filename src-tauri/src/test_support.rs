@@ -233,7 +233,7 @@ impl TiffEntry {
         Self::raw(tag, 7, data.len() as u32, data)
     }
 
-    fn raw(tag: u16, kind: u16, count: u32, data: Vec<u8>) -> Self {
+    pub fn raw(tag: u16, kind: u16, count: u32, data: Vec<u8>) -> Self {
         Self {
             tag,
             kind,
