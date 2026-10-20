@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { PhotoStatus, type PhotoPair, type ScanResult } from '@/types'
@@ -590,7 +590,7 @@ describe('saved progress', () => {
 
   async function settle(store: ReturnType<typeof useSessionStore>) {
     await nextTick()
-    await store.progressSaved()
+    await store.flushProgress()
   }
 
   it('restores saved marks and resumes at the saved photo when a folder is reopened', async () => {
@@ -760,6 +760,97 @@ describe('saved progress', () => {
     expect(store.currentPair?.id).toBe('p2')
     expect(store.undoStack).toEqual([])
     expect(saveProgress).toHaveBeenCalled()
+  })
+
+  describe('waiting for changes to settle', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('saves once marking pauses, with the latest marks', async () => {
+      const store = await scannedStore(5)
+
+      store.markStar()
+      store.markDelete()
+      store.markStar()
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(499)
+      expect(saveProgress).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+
+      expect(saveProgress).toHaveBeenCalledOnce()
+      expect(saveProgress).toHaveBeenLastCalledWith({
+        folder: '/photos',
+        currentKey: '/photos/IMG_3.jpg',
+        marks: { '/photos/IMG_0.jpg': S, '/photos/IMG_1.jpg': D, '/photos/IMG_2.jpg': S },
+      })
+    })
+
+    it('saves now when photos start being organized', async () => {
+      const store = await scannedStore(3)
+      store.markStar()
+      await nextTick()
+
+      useViewStore().isOrganizing = true
+      await nextTick()
+      await store.flushProgress()
+
+      expect(saveProgress).toHaveBeenCalledOnce()
+    })
+
+    it('saves the folder being left before scanning another', async () => {
+      const store = await scannedStore(3)
+      store.markDelete()
+      await nextTick()
+
+      vi.mocked(scanFolder).mockResolvedValue(scanResultOf(1))
+      await store.startScan('/other')
+
+      expect(saveProgress).toHaveBeenCalledWith({
+        folder: '/photos',
+        currentKey: '/photos/IMG_1.jpg',
+        marks: { '/photos/IMG_0.jpg': D },
+      })
+    })
+
+    it('saves pending marks when the session is reset', async () => {
+      const store = await scannedStore(3)
+      store.markStar()
+      await nextTick()
+
+      store.resetSession()
+      await store.flushProgress()
+
+      expect(saveProgress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ folder: '/photos', marks: { '/photos/IMG_0.jpg': S } }),
+      )
+    })
+
+    it('does not save when only thumbnails arrive', async () => {
+      const store = await scannedStore(3)
+      store.pairs[1].thumbnailPath = '/cache/p1.jpg'
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(saveProgress).not.toHaveBeenCalled()
+      expect(clearProgress).not.toHaveBeenCalled()
+    })
+
+    it('archiving drops a save still waiting', async () => {
+      const store = await scannedStore(3)
+      store.markStar()
+      await nextTick()
+
+      store.markArchived('/photos')
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(saveProgress).not.toHaveBeenCalled()
+      expect(clearProgress).toHaveBeenLastCalledWith('/photos')
+    })
   })
 
   it('does not save anything when the session is reset', async () => {

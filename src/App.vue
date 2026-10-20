@@ -6,6 +6,7 @@
 import { ref, watch, defineAsyncComponent } from 'vue'
 import { useViewStore } from '@/stores/viewStore'
 import { useKeyboard } from '@/composables/useKeyboard'
+import { useSaveOnLeave } from '@/composables/useSaveOnLeave'
 import FolderPicker from '@/components/welcome/FolderPicker.vue'
 import SkippedFilesNotice from '@/components/status/SkippedFilesNotice.vue'
 
@@ -24,6 +25,7 @@ const ShortcutHelp = defineAsyncComponent(() => import('@/components/help/Shortc
 
 const view = useViewStore()
 useKeyboard()
+useSaveOnLeave()
 
 const cullingReady = ref(false)
 

@@ -137,6 +137,16 @@ export function onCloseBlocked(callback: () => void) {
   return listen('close-blocked', () => callback())
 }
 
+/** Listen for a close or quit that waits until progress is saved (`progressSaved`) */
+export function onSaveBeforeClose(callback: () => void) {
+  return listen('flush-before-close', () => callback())
+}
+
+/** Let the waiting close or quit go ahead */
+export async function progressSaved(): Promise<void> {
+  return invoke<void>('progress_saved')
+}
+
 /** Clean up temporary cache directories (sift-thumbnails, sift-raw-previews) */
 export async function cleanupCache(): Promise<void> {
   return invoke<void>('cleanup_cache')

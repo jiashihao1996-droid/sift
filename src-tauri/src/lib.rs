@@ -13,6 +13,7 @@ mod paths;
 #[cfg(test)]
 mod test_support;
 
+use commands::closing::{self, After};
 use commands::{
     af_point, archive, cache, delete, exif, export, file_actions, organizing, progress, scan,
     thumbnail,
@@ -31,6 +32,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(organizing::Organizing::default())
+        .manage(closing::SaveGate::default())
         .setup(|app| {
             // Clean up any leftover cache from previous sessions; only the
             // single running instance gets here
@@ -43,6 +45,12 @@ pub fn run() {
             // Archiving, exporting or deleting must not be cut off mid-way
             WindowEvent::CloseRequested { api, .. }
                 if organizing::refuse_while_organizing(window.app_handle()) =>
+            {
+                api.prevent_close();
+            }
+            // The first close waits until the frontend has saved its progress
+            WindowEvent::CloseRequested { api, .. }
+                if closing::hold_for_save(window.app_handle(), After::CloseWindow) =>
             {
                 api.prevent_close();
             }
@@ -65,13 +73,17 @@ pub fn run() {
             progress::save_progress,
             progress::clear_progress,
             organizing::set_organizing,
+            closing::progress_saved,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // Quitting (Cmd+Q on macOS) is refused for the same reason as closing
+            // Quitting (Cmd+Q on macOS) is refused for the same reason as
+            // closing, and waits for progress to be saved the same way
             if let RunEvent::ExitRequested { api, .. } = event {
-                if organizing::refuse_while_organizing(app) {
+                if organizing::refuse_while_organizing(app)
+                    || closing::hold_for_save(app, After::Exit)
+                {
                     api.prevent_exit();
                 }
             }
