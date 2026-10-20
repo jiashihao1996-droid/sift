@@ -62,12 +62,16 @@ impl Folder {
         scan_folder(&self.base(), &self.cache()).unwrap().pairs
     }
 
-    /// The scanned pair whose JPG (or, RAW-only, RAW) is `rel`
+    /// The scanned pair whose JPG (or, RAW-only, RAW) is `rel`. Paths are
+    /// compared by component: on Windows `rel`'s `/` meets the scan's `\`.
     fn pair(&self, rel: &str) -> PhotoPair {
-        let path = self.path(rel).to_string_lossy().into_owned();
+        let path = self.path(rel);
         self.scan()
             .into_iter()
-            .find(|p| p.jpg_path == path || p.raw_path.as_deref() == Some(&path))
+            .find(|p| {
+                Path::new(&p.jpg_path) == path
+                    || p.raw_path.as_deref().map(Path::new) == Some(&path)
+            })
             .unwrap_or_else(|| panic!("no pair for {}", rel))
     }
 
@@ -153,7 +157,11 @@ fn an_unstarred_pick_goes_back_with_its_jpg_in_place_and_raw_in_raw_folder() {
     assert_eq!(rescanned.status, PhotoStatus::Unprocessed);
     assert!(!rescanned.is_archived_pick);
     assert_eq!(file_names(&rescanned.xmp_paths), ["DSC_1.xmp"]);
-    assert!(rescanned.raw_path.unwrap().ends_with("RAW/DSC_1.ARW"));
+    assert!(rescanned
+        .raw_path
+        .map(PathBuf::from)
+        .unwrap()
+        .ends_with("RAW/DSC_1.ARW"));
 }
 
 #[test]
@@ -197,10 +205,15 @@ fn an_unstarred_pick_never_overwrites_and_keeps_one_suffix_across_folders() {
     assert_eq!(folder.read("RAW/DSC_1_1.xmp"), "pick xmp");
 
     let back = folder.pair("DSC_1_1.JPG");
-    assert!(back.raw_path.unwrap().ends_with("RAW/DSC_1_1.ARW"));
+    assert!(back
+        .raw_path
+        .map(PathBuf::from)
+        .unwrap()
+        .ends_with("RAW/DSC_1_1.ARW"));
     assert!(folder
         .pair("DSC_1.JPG")
         .raw_path
+        .map(PathBuf::from)
         .unwrap()
         .ends_with("RAW/DSC_1.ARW"));
 }
@@ -391,17 +404,20 @@ fn archive_open_again_unstar_archive_and_rescan_round_trip() {
     let two = folder.pair("DSC_2.JPG");
     assert_eq!(one.status, PhotoStatus::Starred);
     assert_eq!(two.status, PhotoStatus::Unprocessed);
-    assert!(two.raw_path.unwrap().ends_with("RAW/DSC_2.ARW"));
+    assert!(two
+        .raw_path
+        .map(PathBuf::from)
+        .unwrap()
+        .ends_with("RAW/DSC_2.ARW"));
 }
 
 /// What a rescan pairs: (JPG or RAW-only RAW, RAW) file names relative to the folder
 fn pairing_of(folder: &Folder) -> Vec<(String, Option<String>)> {
+    // Joined with `/` on every platform, like the expected paths
     let rel = |p: &str| {
-        Path::new(p)
-            .strip_prefix(folder.base())
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
+        let rel = Path::new(p).strip_prefix(folder.base()).unwrap();
+        let parts: Vec<_> = rel.iter().map(|c| c.to_string_lossy()).collect();
+        parts.join("/")
     };
     let mut pairs: Vec<(String, Option<String>)> = folder
         .scan()
