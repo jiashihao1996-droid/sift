@@ -41,9 +41,12 @@ const isOpen = computed(() => view.filterCategory !== null)
 
 const activeCategory = computed(() => view.filterCategory)
 
-function getCategoryCount(key: PhotoStatus): number {
-  return session.pairs.filter((p) => p.status === key).length
-}
+/** From the store's counts, worked out once per change rather than three times per render */
+const categoryCounts = computed<Record<PhotoStatus, number>>(() => ({
+  [PhotoStatus.Starred]: session.starredCount,
+  [PhotoStatus.Deleted]: session.deletedCount,
+  [PhotoStatus.Unprocessed]: session.unprocessedCount,
+}))
 
 const filteredPairs = computed(() => {
   if (!view.filterCategory) return []
@@ -116,7 +119,7 @@ function switchCategory(key: PhotoStatus) {
                   : 'bg-white/5 text-sift-muted/60',
               ]"
             >
-              {{ getCategoryCount(cat.key) }}
+              {{ categoryCounts[cat.key] }}
             </span>
           </button>
 
