@@ -54,11 +54,20 @@ import {
 } from '@/core/progress'
 import type { MarkChange } from '@/core/feedback'
 import { createLatestWriter } from '@/utils/latestWriter'
+import { createDebouncedWriter } from '@/utils/debouncedWriter'
 import { useViewStore } from './viewStore'
 
 /** First thumbnail batch covers the visible viewport; the rest stream in chunks */
 const THUMBNAIL_FIRST_BATCH = 10
 const THUMBNAIL_CHUNK_SIZE = 50
+
+/**
+ * Progress is saved once marking and moving pause for half a second, and at
+ * least every 2 seconds while they go on: a fully marked 20,000-photo folder
+ * is a 1.5MB write. Leaving the folder, organizing photos, hiding or closing
+ * the window write it at once (`flushProgress`).
+ */
+const PROGRESS_SAVE_TIMING = { delayMs: 500, maxWaitMs: 2000 }
 
 /** A folder with nothing to restore is forgotten rather than saved */
 function writeProgress(progress: FolderProgress): Promise<void> {
@@ -102,9 +111,16 @@ export const useSessionStore = defineStore('session', () => {
   let fileRanks = new Map<string, number>()
   const view = useViewStore()
 
-  const progressWriter = createLatestWriter(writeProgress, (e) =>
-    console.warn('[Sift] Failed to save progress:', e),
+  const progressWriter = createDebouncedWriter(
+    createLatestWriter(writeProgress, (e) => console.warn('[Sift] Failed to save progress:', e)),
+    PROGRESS_SAVE_TIMING,
   )
+  /**
+   * Bumped whenever a mark changes in place; together with a new pairs array
+   * and the current index it tells the progress saver that something changed,
+   * without reading every pair's status on each key press
+   */
+  const marksVersion = ref(0)
 
   // ---- Getters ----
   const currentPair = computed(() => pairs.value[currentIndex.value] || null)
@@ -155,6 +171,8 @@ export const useSessionStore = defineStore('session', () => {
 
   /** Scan a folder and populate pairs */
   async function startScan(path: string) {
+    // The previous folder's last changes are saved before the session changes
+    void progressWriter.flush()
     isScanning.value = true
     folderPath.value = path
     isArchived.value = false
@@ -243,7 +261,7 @@ export const useSessionStore = defineStore('session', () => {
       pairId: pair.id,
       changes: [{ pairId: pair.id, previousStatus: pair.status }],
     })
-    pairs.value[idx] = { ...pair, status }
+    setStatus(idx, status)
     lastMark.value = { type, isMarked, index: idx, seq: (lastMark.value?.seq ?? 0) + 1 }
     if (movesOnAfterMark(status, stayAfterMark) && isLastPhoto.value && !surveyMode) {
       endReachedCount.value++
@@ -270,9 +288,7 @@ export const useSessionStore = defineStore('session', () => {
 
     for (const change of action.changes) {
       const index = indexOfPair(change.pairId)
-      if (index !== null) {
-        pairs.value[index] = { ...pairs.value[index], status: change.previousStatus }
-      }
+      if (index !== null) setStatus(index, change.previousStatus)
     }
     const returnTo = indexOfPair(action.pairId)
     if (returnTo !== null) currentIndex.value = returnTo
@@ -314,11 +330,15 @@ export const useSessionStore = defineStore('session', () => {
         previousStatus: pairs.value[index].status,
       })),
     })
-    for (const { index, status } of plan.changes) {
-      pairs.value[index] = { ...pairs.value[index], status }
-    }
+    for (const { index, status } of plan.changes) setStatus(index, status)
     if (!view.stayAfterMark) goToNextGroup()
     return plan
+  }
+
+  /** Change one photo's mark in place; every mark change goes through here */
+  function setStatus(index: number, status: PhotoStatus) {
+    pairs.value[index] = { ...pairs.value[index], status }
+    marksVersion.value++
   }
 
   function indexOfPair(id: string): number | null {
@@ -338,14 +358,30 @@ export const useSessionStore = defineStore('session', () => {
     },
   )
 
-  /** Save marks and position whenever either changes, so quitting midway loses nothing */
+  /**
+   * Save marks and position after they change, so quitting midway loses
+   * nothing. Marks change in place (marksVersion) or with a new pairs array
+   * (scan, restart, sort); the array is watched shallowly, so thumbnails
+   * arriving do not count.
+   */
+  watch([currentIndex, () => pairs.value, marksVersion], () => {
+    if (!folderPath.value || pairs.value.length === 0 || isArchived.value) return
+    const folder = folderPath.value
+    progressWriter.schedule(() => snapshotProgress(folder, pairs.value, currentIndex.value))
+  })
+
+  /** Archiving, exporting or deleting starts from saved progress */
   watch(
-    () => [currentIndex.value, pairs.value.map((p) => p.status)],
-    () => {
-      if (!folderPath.value || pairs.value.length === 0 || isArchived.value) return
-      progressWriter.schedule(snapshotProgress(folderPath.value, pairs.value, currentIndex.value))
+    () => view.isOrganizing,
+    (isOrganizing) => {
+      if (isOrganizing) void progressWriter.flush()
     },
   )
+
+  /** Write pending progress now, e.g. before the window closes or is hidden */
+  function flushProgress(): Promise<void> {
+    return progressWriter.flush()
+  }
 
   /**
    * Put every mark back to its default (archived picks stay starred) and
@@ -382,11 +418,13 @@ export const useSessionStore = defineStore('session', () => {
    */
   function markArchived(folder: string) {
     isArchived.value = true
-    progressWriter.schedule(emptyProgress(folder))
+    progressWriter.writeNow(emptyProgress(folder))
   }
 
   /** Reset session */
   function resetSession() {
+    // The folder's last changes are saved before the session is cleared
+    void progressWriter.flush()
     // Clean up cache directories
     cleanupCache().catch((e) => console.warn('Cache cleanup failed:', e))
 
@@ -440,7 +478,6 @@ export const useSessionStore = defineStore('session', () => {
     markArchived,
     dropPairs,
     resetSession,
-    /** Resolves once pending progress writes are done (tests) */
-    progressSaved: progressWriter.idle,
+    flushProgress,
   }
 })
