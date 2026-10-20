@@ -5,17 +5,23 @@
 // request is held: the frontend is asked to save now and reports back, and
 // then the window closes or the app quits. If it does not answer in time
 // the close goes ahead anyway, so quitting never hangs.
+// On macOS the app menu's Quit (Cmd+Q) terminates the process outright,
+// without an exit request anyone could hold, so it is swapped for an item
+// that asks to exit; that request is held while organizing, too.
 // ============================================================
 
 use std::sync::{Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
+use tauri::menu::MenuEvent;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Event asking the frontend to save progress now
 const FLUSH_EVENT: &str = "flush-before-close";
 /// Saving a 20,000-photo folder takes tens of milliseconds
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+/// The app menu's Quit item, which exits through an exit request
+const QUIT_MENU_ID: &str = "sift-quit";
 
 /// What to do once progress is saved
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +102,46 @@ pub fn hold_for_save(app: &AppHandle, after: After) -> bool {
 #[tauri::command]
 pub fn progress_saved(app: AppHandle) {
     proceed(&app);
+}
+
+/// Replace the default app menu's Quit with an item that requests an exit.
+/// Leaves the menu alone if its layout is not the expected one.
+#[cfg(target_os = "macos")]
+pub fn install_quit_item(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let handle = app.handle();
+    let menu = Menu::default(handle)?;
+    let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() else {
+        return Ok(());
+    };
+    let Some(MenuItemKind::Predefined(quit)) = app_menu.items()?.pop() else {
+        return Ok(());
+    };
+    let text = quit.text()?;
+    if !text.starts_with("Quit") {
+        eprintln!(
+            "[Sift] Unexpected last app menu item {:?}; Quit not replaced",
+            text
+        );
+        return Ok(());
+    }
+    app_menu.remove(&quit)?;
+    app_menu.append(&MenuItem::with_id(
+        handle,
+        QUIT_MENU_ID,
+        text,
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?)?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+pub fn on_menu_event(app: &AppHandle, event: MenuEvent) {
+    if event.id() == QUIT_MENU_ID {
+        app.exit(0);
+    }
 }
 
 fn proceed(app: &AppHandle) {

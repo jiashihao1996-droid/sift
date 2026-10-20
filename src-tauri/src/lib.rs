@@ -39,8 +39,11 @@ pub fn run() {
             cache::cleanup_cache_sync();
             cache::allow_cache_dirs(app)?;
             scan::restore_folder_grants(app);
+            #[cfg(target_os = "macos")]
+            closing::install_quit_item(app)?;
             Ok(())
         })
+        .on_menu_event(closing::on_menu_event)
         .on_window_event(|window, event| match event {
             // Archiving, exporting or deleting must not be cut off mid-way
             WindowEvent::CloseRequested { api, .. }
