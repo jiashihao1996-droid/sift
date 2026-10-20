@@ -6,6 +6,7 @@
 
 use crate::catalog;
 use crate::catalog::folder_grants::{self, Access};
+use crate::commands;
 use crate::media::cache_dirs;
 use crate::models::photo::ScanResult;
 use std::path::{Path, PathBuf};
@@ -22,6 +23,7 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
     tokio::task::spawn_blocking(move || {
         let folder = Path::new(&folder_path);
         authorize(&app, folder)?;
+        commands::cache::wait_for_trim();
         let cache_dir = cache_dirs::ensure(cache_dirs::RAW_PREVIEWS)?;
         catalog::scan::scan_folder(folder, &cache_dir)
     })

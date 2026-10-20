@@ -3,7 +3,6 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { PhotoStatus, type PhotoPair, type ScanResult } from '@/types'
 import {
-  cleanupCache,
   clearProgress,
   generateThumbnails,
   loadProgress,
@@ -16,7 +15,6 @@ import { useViewStore } from './viewStore'
 vi.mock('@/services/tauriCommands', () => ({
   scanFolder: vi.fn(),
   generateThumbnails: vi.fn(async () => []),
-  cleanupCache: vi.fn(async () => {}),
   loadProgress: vi.fn(async () => null),
   saveProgress: vi.fn(async () => {}),
   clearProgress: vi.fn(async () => {}),
@@ -566,14 +564,13 @@ describe('scanning', () => {
     expect(store.pairs[119].thumbnailPath).toBe('/cache/p119.jpg')
   })
 
-  it('reset clears the session and cleans the cache', () => {
+  it('reset clears the session', () => {
     const store = storeWith([S, U], 1)
     store.resetSession()
 
     expect(store.pairs).toEqual([])
     expect(store.currentIndex).toBe(0)
     expect(store.folderPath).toBe('')
-    expect(cleanupCache).toHaveBeenCalledOnce()
   })
 })
 

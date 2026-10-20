@@ -26,7 +26,7 @@ Rust（`src-tauri/src/`）：
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | `commands/` | IPC 薄层：`spawn_blocking` → 调用下层 → 错误转字符串                                                                                                                                                                                                                                            | 是         |
 | `catalog/`  | 扫描与配对：`pairing.rs`（纯规则）、`scan.rs`（读目录）；`progress.rs`（筛图进度）                                                                                                                                                                                                              | 否         |
-| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`metadata/`（只读文件头：头部缓存、JPEG 的 EXIF 段、TIFF IFD）、`capture_time`（拍摄时间）、`af_point/`（厂商 MakerNote 里的对焦点，按厂商分文件）、`cache_dirs`                                                               | 否         |
+| `media/`    | 图像处理：`jpeg/`（字节级）、`raw_preview`、`thumbnail`、`exif`、`metadata/`（只读文件头：头部缓存、JPEG 的 EXIF 段、TIFF IFD）、`capture_time`（拍摄时间）、`af_point/`（厂商 MakerNote 里的对焦点，按厂商分文件）、`cache_dirs`（缓存位置）、`cache_lru`（缓存总大小上限）                    | 否         |
 | `organize/` | 整理用户照片：`archive`（精选 → `精选/`，未标记 RAW → `RAW/`；取消精选的移回）、`saved_preview`（取消精选时认出并丢弃归档另存的纯 RAW 预览）、`delete` / `delete_batch`（进回收站，分块批量）、`no_trash`（没有回收站时经确认永久删除）、`export`（复制精选）、`transfer`（整组移动，失败回滚） | 否         |
 | `os/`       | 交给系统：`reveal`（在文件管理器中显示）、`clipboard`（复制图片）、`trash_support`（卷有没有回收站）；路径只经参数/环境变量传入，不拼进脚本                                                                                                                                                     | 否         |
 | `models/`   | 与前端共享的 serde 结构体                                                                                                                                                                                                                                                                       | 否         |
@@ -50,13 +50,13 @@ Rust（`src-tauri/src/`）：
 - 对焦点（`P`，默认关闭）：Rust `media/af_point/` 按厂商读 MakerNote（目前只有索尼，只用不加密的标签、只读文件前 64KB），坐标是存储方向的像素；前端 `src/core/afPoint.ts` 按 EXIF Orientation 换算，`AfOverlay.vue` 与 `<img>` 同尺寸同 transform 叠加，开关打开时才按需读取（`afPointStore`）。设计见 `docs/design/af-point.md`。
 - 排序：默认按拍摄时间（`src/core/sorting.ts`，无拍摄时间的排末尾），可切换为按文件名；排序方式是 viewer 偏好（localStorage），不进进度。撤销条目是「回到哪张 + 改了哪些照片」（按 pair id），一次可改多张，重排不影响撤销。连拍分组（`src/core/grouping.ts`）与组内并排对比 Survey（`N`，`src/core/survey.ts`、`SurveyView.vue`）只是视图：store 在照片数组换新或间隔变化时重算，不进进度、不影响归档。设计见 `docs/design/capture-time-and-bursts.md`。
 - 底部缩略条（`ThumbnailStrip.vue`）只渲染可视范围加前后各 10 张，每张按 `src/core/stripLayout.ts` 算出的位置绝对定位（宽度、间距、连拍组额外间隔与类名对应的像素值写在组件的 `METRICS` 里，改样式时一起改）；跳得远时滚动直接跳过去，不做平滑动画。
-- `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的临时预览图，不是用户文件。
+- `source === 'rawPreview'` 表示纯 RAW：`jpgPath` 指向缓存目录里的预览图，不是用户文件。
 - asset 协议（`convertFileSrc`）静态放行范围为空。用户目录的授权只来自用户操作：文件夹对话框和原生拖拽会由 Tauri 放行；`scan_folder` 先用 `catalog/folder_grants.rs::is_granted` 确认授权，再递归放行子目录并记入应用数据目录的 `granted-folders.json`，启动时恢复（「最近文件夹」靠它跨重启可用）。缓存目录在启动时放行。**不要**根据前端传入的任意路径放行。
-- 缓存目录在启动和窗口销毁时同步清理（`commands/cache.rs`，目录名见 `media/cache_dirs.rs`）。
+- 缓存（缩略图、纯 RAW 预览）在应用缓存目录（Tauri `app_cache_dir`，如 macOS 的 `~/Library/Caches/com.sift.app/`）的 `thumbnails/`、`raw-previews/` 里，跨重启保留，「返回首页」也不清。文件名由源文件的路径 + 大小 + 修改时间决定，源文件变了就换新文件。总大小上限 5GB（`media/cache_lru.rs::MAX_CACHE_BYTES`），按最近使用淘汰：缓存命中时更新文件的访问时间，不改修改时间（纯 RAW 的缩略图 key 含预览图的修改时间）。淘汰只在没有会话在用缓存的时候做：启动时在后台（`scan_folder`、`generate_thumbnails` 先等它做完），以及窗口销毁时（`commands/cache.rs`）；会话期间缓存可以超过上限。启动时删除 1.0.2 及以前留在系统临时目录的 `sift-thumbnails`、`sift-raw-previews`。
 
 ## 用户照片安全（最高优先级）
 
-- 删除用户文件**只能**用 `trash::delete` / `trash::delete_all`。`fs::remove_*` 只允许用于缓存目录里的临时文件和应用数据目录里 Sift 自己的进度文件。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。例外只有以下五条：
+- 删除用户文件**只能**用 `trash::delete` / `trash::delete_all`。`fs::remove_*` 只允许用于缓存目录里的文件和应用数据目录里 Sift 自己的进度文件。删缓存文件前先用 `paths::is_inside_dir` 确认确实在缓存目录内。例外只有以下五条：
   - （`organize/transfer.rs`）`move_file` 在 `rename` 失败（跨卷）时先 `fs::copy`，成功后才删除源文件——这是移动，不是删除。复制失败或源文件删不掉时，只要源文件还在，就把目标（本次占用的占位）清空成 0 字节，不留第二份。
   - （`organize/transfer.rs`）整组移动或复制结束后（成功或回滚后），删除**本组 `create_new` 创建、且确认仍是 0 字节普通文件**的占位（`remove_empty_placeholders`）：被放弃的后缀、没用上的目标、回滚时重新占用但没移回的原位置。已经放进用户文件的路径（哪怕用户照片本身是 0 字节）一律不碰；符号链接不碰。
   - 导出按组原子化（`organize/export.rs::copy_group`）：一组里某个文件复制失败时，本组已复制到目标文件夹的副本先用 `discard_copy` 清空（源文件还在才清空），再按上一条作为空占位删除，目标里不留半组。

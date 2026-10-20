@@ -9,6 +9,7 @@
 
 mod tiff_layout;
 
+use crate::media::cache_lru;
 use crate::media::jpeg::exif_orientation;
 use crate::media::jpeg::scan::find_largest_jpeg;
 use crate::media::metadata::head::HeadCached;
@@ -79,8 +80,9 @@ pub fn extract_raw_preview(raw_path: &str, cache_dir: &Path) -> Result<String, S
     let meta =
         fs::metadata(path).map_err(|e| format!("RAW file not found: {}: {}", raw_path, e))?;
     let cache_path = cache_dir.join(cache_filename(path, &meta));
-    if !cache_path.is_file() {
-        write_cache(&cache_path, cache_dir, &raw_preview_bytes(raw_path)?)?;
+    match fs::metadata(&cache_path) {
+        Ok(cached) if cached.is_file() => cache_lru::mark_used(&cache_path, &cached),
+        _ => write_cache(&cache_path, cache_dir, &raw_preview_bytes(raw_path)?)?,
     }
     Ok(cache_path.to_string_lossy().to_string())
 }
@@ -325,6 +327,33 @@ mod tests {
 
         assert_eq!(again, cached);
         assert_eq!(fs::read(again).unwrap(), b"stand-in");
+    }
+
+    #[test]
+    fn a_cache_hit_marks_the_preview_used_but_keeps_its_modification_time() {
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        let raw = write(dir.path(), "a.ARW", &raw);
+        let cached = extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 86_400);
+        let times = std::fs::FileTimes::new()
+            .set_accessed(long_ago)
+            .set_modified(long_ago);
+        File::options()
+            .write(true)
+            .open(&cached)
+            .unwrap()
+            .set_times(times)
+            .unwrap();
+
+        extract_raw_preview(raw.to_str().unwrap(), &cache).unwrap();
+
+        // Its thumbnail is keyed by the preview's modification time
+        let meta = fs::metadata(&cached).unwrap();
+        assert_eq!(meta.modified().unwrap(), long_ago);
+        assert!(meta.accessed().unwrap() > long_ago);
     }
 
     #[test]
