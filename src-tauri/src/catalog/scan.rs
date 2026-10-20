@@ -231,6 +231,7 @@ mod tests {
         exif_orientation, exif_tiff, jpeg_with_exif, noise_jpeg, raf_with_jpeg,
         tiff_raw_declaring_preview_len, tiff_raw_with_preview, write, ExifByteOrder,
     };
+    use std::path::PathBuf;
     use tempfile::{tempdir, TempDir};
 
     fn scan(dir: &Path) -> ScanResult {
@@ -708,16 +709,21 @@ mod tests {
     /// Times scanning a real or generated folder; run 1 extracts RAW-only
     /// previews, later runs find them cached:
     /// `SIFT_SCAN_BENCH_DIR=~/photos cargo test --release scan_benchmark -- --ignored --nocapture`
-    /// (`SIFT_SCAN_BENCH_RUNS` sets the number of runs, 5 by default)
+    /// (`SIFT_SCAN_BENCH_RUNS` sets the number of runs, 5 by default;
+    /// `SIFT_BENCH_CACHE` keeps the cache in that folder across runs of the
+    /// benchmark, like a restart)
     #[test]
     #[ignore = "needs SIFT_SCAN_BENCH_DIR"]
     fn scan_benchmark() {
         let dir = std::env::var("SIFT_SCAN_BENCH_DIR").expect("set SIFT_SCAN_BENCH_DIR");
         let runs: u32 = std::env::var("SIFT_SCAN_BENCH_RUNS").map_or(5, |n| n.parse().unwrap());
-        let cache = tempdir().unwrap();
+        let temp_cache = tempdir().unwrap();
+        let cache =
+            std::env::var("SIFT_BENCH_CACHE").map_or(temp_cache.path().into(), PathBuf::from);
+        std::fs::create_dir_all(&cache).unwrap();
         for run in 1..=runs {
             let started = std::time::Instant::now();
-            let result = scan_folder(Path::new(&dir), cache.path()).unwrap();
+            let result = scan_folder(Path::new(&dir), &cache).unwrap();
             let timed = result
                 .pairs
                 .iter()

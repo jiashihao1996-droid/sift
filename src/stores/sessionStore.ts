@@ -16,7 +16,6 @@ import {
 import {
   scanFolder,
   generateThumbnails,
-  cleanupCache,
   loadProgress,
   saveProgress,
   clearProgress,
@@ -425,8 +424,8 @@ export const useSessionStore = defineStore('session', () => {
   function resetSession() {
     // The folder's last changes are saved before the session is cleared
     void progressWriter.flush()
-    // Clean up cache directories
-    cleanupCache().catch((e) => console.warn('Cache cleanup failed:', e))
+    // The thumbnail and preview caches are kept: reopening a folder reuses
+    // them, and Rust trims them to their size limit
 
     folderPath.value = ''
     pairs.value = []
