@@ -441,7 +441,7 @@ mod tests {
         result
             .pairs
             .iter()
-            .find(|p| p.jpg_path.ends_with(path))
+            .find(|p| Path::new(&p.jpg_path).ends_with(path))
             .unwrap_or_else(|| panic!("no pair for {}", path))
     }
 
