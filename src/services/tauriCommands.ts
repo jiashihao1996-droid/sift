@@ -164,11 +164,6 @@ export async function progressSaved(): Promise<void> {
   return invoke<void>('progress_saved')
 }
 
-/** Clean up temporary cache directories (sift-thumbnails, sift-raw-previews) */
-export async function cleanupCache(): Promise<void> {
-  return invoke<void>('cleanup_cache')
-}
-
 /** Saved culling progress for a folder, or null if there is none */
 export async function loadProgress(folderPath: string): Promise<FolderProgress | null> {
   return invoke<FolderProgress | null>('load_progress', { folderPath })

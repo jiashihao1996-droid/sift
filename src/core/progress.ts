@@ -7,7 +7,8 @@ import { PhotoStatus, type FolderProgress, type PhotoPair } from '@/types'
 
 /**
  * Stable identity of a photo across scans (pair ids are regenerated each scan).
- * RAW-only pairs use the RAW path: their jpgPath is a temporary cache file.
+ * RAW-only pairs use the RAW path: their jpgPath is a cache file, named after
+ * the RAW's size and modification time too.
  * So do archived picks with a RAW: their JPG may be the preview archive saved,
  * which an archive that fails partway can drop, leaving the pick RAW-only.
  */

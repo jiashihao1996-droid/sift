@@ -19,7 +19,6 @@ import {
   cancelScan as cancelScanCommand,
   onScanProgress,
   generateThumbnails,
-  cleanupCache,
   loadProgress,
   saveProgress,
   clearProgress,
@@ -474,8 +473,8 @@ export const useSessionStore = defineStore('session', () => {
     // The folder's last changes are saved before the session is cleared
     void progressWriter.flush()
     cancelScan()
-    // Clean up cache directories
-    cleanupCache().catch((e) => console.warn('Cache cleanup failed:', e))
+    // The thumbnail and preview caches are kept: reopening a folder reuses
+    // them, and Rust trims them to their size limit
     clearSession()
   }
 

@@ -26,7 +26,7 @@ pub fn run() {
     tauri::Builder::default()
         // Must come first: a second instance exits inside this plugin's setup,
         // before anything below runs. The cache dirs have fixed names, so a
-        // second instance would otherwise wipe the first one's RAW previews.
+        // second instance would otherwise trim the first one's RAW previews.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             focus_main_window(app)
         }))
@@ -36,10 +36,11 @@ pub fn run() {
         .manage(closing::SaveGate::default())
         .manage(ScanGate::default())
         .setup(|app| {
-            // Clean up any leftover cache from previous sessions; only the
-            // single running instance gets here
-            cache::cleanup_cache_sync();
+            // Only the single running instance gets here
+            cache::init_cache_root(app);
+            cache::remove_legacy_caches();
             cache::allow_cache_dirs(app)?;
+            cache::start_trim();
             scan::restore_folder_grants(app);
             #[cfg(target_os = "macos")]
             closing::install_quit_item(app)?;
@@ -59,7 +60,7 @@ pub fn run() {
             {
                 api.prevent_close();
             }
-            WindowEvent::Destroyed => cache::cleanup_cache_sync(),
+            WindowEvent::Destroyed => cache::trim_sync(),
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -72,7 +73,6 @@ pub fn run() {
             thumbnail::generate_thumbnails,
             file_actions::show_in_folder,
             file_actions::copy_image_to_clipboard,
-            cache::cleanup_cache,
             exif::read_exif,
             af_point::read_af_point,
             progress::load_progress,

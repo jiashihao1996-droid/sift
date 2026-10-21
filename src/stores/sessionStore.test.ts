@@ -4,7 +4,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { PhotoStatus, type PhotoPair, type ScanProgress, type ScanResult } from '@/types'
 import {
   cancelScan,
-  cleanupCache,
   clearProgress,
   generateThumbnails,
   loadProgress,
@@ -20,7 +19,6 @@ vi.mock('@/services/tauriCommands', () => ({
   cancelScan: vi.fn(async () => {}),
   onScanProgress: vi.fn(async () => () => {}),
   generateThumbnails: vi.fn(async () => []),
-  cleanupCache: vi.fn(async () => {}),
   loadProgress: vi.fn(async () => null),
   saveProgress: vi.fn(async () => {}),
   clearProgress: vi.fn(async () => {}),
@@ -570,14 +568,13 @@ describe('scanning', () => {
     expect(store.pairs[119].thumbnailPath).toBe('/cache/p119.jpg')
   })
 
-  it('reset clears the session and cleans the cache', () => {
+  it('reset clears the session', () => {
     const store = storeWith([S, U], 1)
     store.resetSession()
 
     expect(store.pairs).toEqual([])
     expect(store.currentIndex).toBe(0)
     expect(store.folderPath).toBe('')
-    expect(cleanupCache).toHaveBeenCalledOnce()
   })
 })
 
@@ -643,17 +640,6 @@ describe('scan progress and cancelling', () => {
     await expect(started).resolves.toBe(false)
     expect(store.pairs).toEqual([])
     expect(store.scanResult).toBeNull()
-  })
-
-  it('cancelling keeps the preview cache', async () => {
-    pendingScan()
-    const store = useSessionStore()
-
-    void store.startScan('/raws')
-    await vi.waitFor(() => expect(scanFolder).toHaveBeenCalled())
-    store.cancelScan()
-
-    expect(cleanupCache).not.toHaveBeenCalled()
   })
 
   it('a newer scan replaces the running one, whose result is ignored', async () => {

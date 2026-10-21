@@ -9,6 +9,7 @@
 use crate::catalog;
 use crate::catalog::folder_grants::{self, Access};
 use crate::catalog::scan_control::{ScanControl, ScanGate};
+use crate::commands;
 use crate::media::cache_dirs;
 use crate::models::photo::{ScanProgress, ScanResult};
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ pub async fn scan_folder(
     tokio::task::spawn_blocking(move || {
         let folder = Path::new(&folder_path);
         authorize(&app, folder)?;
+        commands::cache::wait_for_trim();
         let cache_dir = cache_dirs::ensure(cache_dirs::RAW_PREVIEWS)?;
         let gate = app.state::<ScanGate>();
         let is_cancelled = || !gate.is_current(scan_id);

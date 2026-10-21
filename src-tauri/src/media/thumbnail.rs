@@ -5,6 +5,7 @@
 // thumbnail) and only decodes the full photo when there is none.
 // ============================================================
 
+use crate::media::cache_lru;
 use crate::media::jpeg::header::{self, ImageRange, JpegHeader};
 use crate::models::photo::{ThumbnailInput, ThumbnailResult};
 use image::{DynamicImage, GenericImageView, ImageFormat};
@@ -61,7 +62,9 @@ pub fn process_thumbnail(
     let source = Path::new(&input.jpg_path);
     let thumb_path = cache_dir.join(cache_filename(source)?);
 
-    let dominant_color = if thumb_path.exists() {
+    let cached = fs::metadata(&thumb_path).ok().filter(fs::Metadata::is_file);
+    let dominant_color = if let Some(cached) = cached {
+        cache_lru::mark_used(&thumb_path, &cached);
         extract_dominant_color_from_file(&thumb_path)?
     } else {
         let thumb = render_thumbnail(source)?;
@@ -234,6 +237,36 @@ mod tests {
     use crate::test_support::{jpeg_with_mpf_preview, solid_jpeg, write};
     use image::{DynamicImage, Rgb, RgbImage};
     use tempfile::tempdir;
+
+    /// Times generating thumbnails for every JPG in a folder, then again
+    /// from the cache (`SIFT_BENCH_CACHE` keeps the cache in that folder
+    /// across runs of the benchmark, like a restart):
+    /// `SIFT_THUMB_BENCH_DIR=~/photos cargo test --release thumbnail_benchmark -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs SIFT_THUMB_BENCH_DIR"]
+    fn thumbnail_benchmark() {
+        let dir = std::env::var("SIFT_THUMB_BENCH_DIR").expect("set SIFT_THUMB_BENCH_DIR");
+        let temp_cache = tempdir().unwrap();
+        let cache = std::env::var("SIFT_BENCH_CACHE")
+            .map_or(temp_cache.path().into(), std::path::PathBuf::from);
+        fs::create_dir_all(&cache).unwrap();
+        let inputs: Vec<ThumbnailInput> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg")))
+            .enumerate()
+            .map(|(i, p)| ThumbnailInput {
+                id: i.to_string(),
+                jpg_path: p.to_string_lossy().into(),
+            })
+            .collect();
+        for run in 1..=2 {
+            let started = std::time::Instant::now();
+            let done = generate_thumbnails(&inputs, &cache).len();
+            println!("run {run}: {done} thumbnails in {:?}", started.elapsed());
+        }
+    }
 
     fn thumbnail_for(jpeg: &[u8]) -> (ThumbnailResult, tempfile::TempDir) {
         let dir = tempdir().unwrap();
