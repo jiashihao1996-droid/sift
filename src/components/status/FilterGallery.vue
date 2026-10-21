@@ -1,17 +1,28 @@
 <script setup lang="ts">
 // ============================================================
 // FilterGallery - Bottom drawer gallery filtered by photo status
+// Only the rows in view (plus a few) are rendered, placed by
+// core/gridLayout.ts: a 20,000-photo category would otherwise mount
+// 20,000 tiles each time the gallery opens.
 // ============================================================
 
-import { computed } from 'vue'
+import { computed, ref, shallowRef, watch, onBeforeUnmount } from 'vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { PhotoStatus } from '@/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { Star, Trash2, Circle, X } from '@lucide/vue'
+import { layoutGrid, visibleTiles } from '@/core/gridLayout'
 
 const session = useSessionStore()
 const view = useViewStore()
+
+/** Narrowest tile (minmax(110px, 1fr)), gap between tiles (gap-2), tile height over width (aspect-4/3) */
+const METRICS = { minItemWidth: 110, gap: 8, aspect: 3 / 4 }
+/** Padding of the scroll area on each side (p-4) */
+const PADDING = 16
+/** Rows rendered beyond each edge of the view, so scrolling never shows a gap */
+const OVERSCAN_ROWS = 3
 
 const categories = [
   {
@@ -48,11 +59,69 @@ const categoryCounts = computed<Record<PhotoStatus, number>>(() => ({
   [PhotoStatus.Unprocessed]: session.unprocessedCount,
 }))
 
-const filteredPairs = computed(() => {
-  if (!view.filterCategory) return []
-  return session.pairs
-    .map((pair, index) => ({ pair, originalIndex: index }))
-    .filter(({ pair }) => pair.status === view.filterCategory)
+/** Positions in `session.pairs` of the photos in the open category */
+const filteredIndices = computed(() => {
+  const category = view.filterCategory
+  if (!category) return []
+  const indices: number[] = []
+  session.pairs.forEach((pair, index) => {
+    if (pair.status === category) indices.push(index)
+  })
+  return indices
+})
+
+const scrollContainer = ref<HTMLElement | null>(null)
+const scrollTop = ref(0)
+/** Until the drawer is measured: it spans the window and is at most 70vh tall */
+const contentWidth = ref(window.innerWidth - 2 * PADDING)
+const viewportHeight = ref(window.innerHeight * 0.7)
+
+const layout = computed(() => layoutGrid(filteredIndices.value.length, contentWidth.value, METRICS))
+
+const range = computed(() =>
+  visibleTiles(
+    layout.value,
+    filteredIndices.value.length,
+    scrollTop.value - PADDING,
+    viewportHeight.value,
+    OVERSCAN_ROWS,
+  ),
+)
+
+/** The tiles to render; reads only their pairs, so marks elsewhere cost nothing here */
+const visible = computed(() => {
+  const { start, end } = range.value
+  return filteredIndices.value
+    .slice(start, end)
+    .map((originalIndex) => ({ pair: session.pairs[originalIndex], originalIndex }))
+})
+
+function updateScrollState() {
+  const container = scrollContainer.value
+  if (!container) return
+  scrollTop.value = container.scrollTop
+  contentWidth.value = Math.max(0, container.clientWidth - 2 * PADDING)
+  viewportHeight.value = container.clientHeight
+}
+
+/** The drawer comes and goes with the gallery; follow its scroll area */
+const resizeObserver = shallowRef<ResizeObserver | null>(null)
+watch(scrollContainer, (container, previous) => {
+  previous?.removeEventListener('scroll', updateScrollState)
+  resizeObserver.value?.disconnect()
+  if (!container) return
+  container.addEventListener('scroll', updateScrollState, { passive: true })
+  resizeObserver.value = new ResizeObserver(updateScrollState)
+  resizeObserver.value.observe(container)
+  updateScrollState()
+})
+
+/** A shorter category pulls the scroll position back; pick up where it landed */
+watch(filteredIndices, updateScrollState, { flush: 'post' })
+
+onBeforeUnmount(() => {
+  scrollContainer.value?.removeEventListener('scroll', updateScrollState)
+  resizeObserver.value?.disconnect()
 })
 
 function getFileName(pair: { jpgPath: string; rawPath?: string | null; source?: string }): string {
@@ -136,9 +205,9 @@ function switchCategory(key: PhotoStatus) {
         <div class="h-px bg-white/6 mx-4" />
 
         <!-- Grid Content -->
-        <div class="flex-1 overflow-y-auto p-4">
+        <div ref="scrollContainer" class="flex-1 overflow-y-auto p-4">
           <div
-            v-if="filteredPairs.length === 0"
+            v-if="filteredIndices.length === 0"
             class="flex flex-col items-center justify-center h-32 gap-2"
           >
             <component
@@ -148,35 +217,40 @@ function switchCategory(key: PhotoStatus) {
             />
             <span class="text-sift-muted/50 text-xs">暂无图片</span>
           </div>
-          <div
-            v-else
-            class="grid gap-2"
-            style="grid-template-columns: repeat(auto-fill, minmax(110px, 1fr))"
-          >
+          <!-- As tall as every row; holds only the rows in view, as a grid of the same columns -->
+          <div v-else class="relative" :style="{ height: `${layout.height}px` }">
             <div
-              v-for="{ pair, originalIndex } in filteredPairs"
-              :key="pair.id"
-              class="group relative aspect-4/3 rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-[1.5px] hover:ring-white/20 hover:scale-[1.02]"
-              :class="[
-                originalIndex === session.currentIndex ? 'ring-[1.5px] ring-sift-accent' : '',
-              ]"
-              @click="handleSelect(originalIndex)"
+              class="absolute inset-x-0 grid gap-2"
+              :style="{
+                top: `${range.top}px`,
+                gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+              }"
             >
-              <!-- Only the generated thumbnail: the full-size photo is far too costly here -->
-              <img
-                v-if="pair.thumbnailPath"
-                :src="convertFileSrc(pair.thumbnailPath)"
-                :alt="getFileName(pair)"
-                class="w-full h-full object-cover"
-                loading="lazy"
-              />
-              <!-- Filename overlay -->
               <div
-                class="absolute bottom-0 inset-x-0 bg-linear-to-t/srgb from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                v-for="{ pair, originalIndex } in visible"
+                :key="pair.id"
+                class="group relative aspect-4/3 rounded-lg overflow-hidden cursor-pointer bg-sift-card/50 transition-all duration-200 hover:ring-[1.5px] hover:ring-white/20 hover:scale-[1.02]"
+                :class="[
+                  originalIndex === session.currentIndex ? 'ring-[1.5px] ring-sift-accent' : '',
+                ]"
+                @click="handleSelect(originalIndex)"
               >
-                <span class="text-[10px] text-white/80 truncate block">
-                  {{ getFileName(pair) }}
-                </span>
+                <!-- Only the generated thumbnail: the full-size photo is far too costly here -->
+                <img
+                  v-if="pair.thumbnailPath"
+                  :src="convertFileSrc(pair.thumbnailPath)"
+                  :alt="getFileName(pair)"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <!-- Filename overlay -->
+                <div
+                  class="absolute bottom-0 inset-x-0 bg-linear-to-t/srgb from-black/70 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <span class="text-[10px] text-white/80 truncate block">
+                    {{ getFileName(pair) }}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
