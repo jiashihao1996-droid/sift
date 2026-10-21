@@ -147,6 +147,17 @@ pub struct ArchiveResult {
     pub raw_folder: String,
 }
 
+/// Scan progress event payload: RAW-only previews extracted so far
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanProgress {
+    /// The scan these previews belong to, as numbered by the frontend
+    pub scan_id: u32,
+    pub done: usize,
+    pub total: usize,
+}
+
 /// Archive/Export progress event payload
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]

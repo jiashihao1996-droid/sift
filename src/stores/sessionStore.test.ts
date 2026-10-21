@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { PhotoStatus, type PhotoPair, type ScanResult } from '@/types'
+import { PhotoStatus, type PhotoPair, type ScanProgress, type ScanResult } from '@/types'
 import {
+  cancelScan,
   clearProgress,
   generateThumbnails,
   loadProgress,
+  onScanProgress,
   saveProgress,
   scanFolder,
 } from '@/services/tauriCommands'
@@ -14,6 +16,8 @@ import { useViewStore } from './viewStore'
 
 vi.mock('@/services/tauriCommands', () => ({
   scanFolder: vi.fn(),
+  cancelScan: vi.fn(async () => {}),
+  onScanProgress: vi.fn(async () => () => {}),
   generateThumbnails: vi.fn(async () => []),
   loadProgress: vi.fn(async () => null),
   saveProgress: vi.fn(async () => {}),
@@ -571,6 +575,116 @@ describe('scanning', () => {
     expect(store.pairs).toEqual([])
     expect(store.currentIndex).toBe(0)
     expect(store.folderPath).toBe('')
+  })
+})
+
+describe('scan progress and cancelling', () => {
+  /** A scan that settles when the test says so */
+  function pendingScan() {
+    let resolve: (result: ScanResult) => void = () => {}
+    let reject: (error: unknown) => void = () => {}
+    const promise = new Promise<ScanResult>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    vi.mocked(scanFolder).mockReturnValueOnce(promise)
+    return { resolve, reject }
+  }
+
+  /** Lets the test send `scan-progress` events */
+  function progressEvents() {
+    const listeners: ((progress: ScanProgress) => void)[] = []
+    vi.mocked(onScanProgress).mockImplementation(async (callback) => {
+      listeners.push(callback)
+      return () => listeners.splice(listeners.indexOf(callback), 1)
+    })
+    return {
+      send: (progress: ScanProgress) => listeners.forEach((listener) => listener(progress)),
+      count: () => listeners.length,
+    }
+  }
+
+  const scanIdOf = (call: number) => vi.mocked(scanFolder).mock.calls[call][1]
+
+  it("shows the running scan's progress and stops listening once it is done", async () => {
+    const events = progressEvents()
+    const scan = pendingScan()
+    const store = useSessionStore()
+
+    const started = store.startScan('/raws')
+    await vi.waitFor(() => expect(scanFolder).toHaveBeenCalled())
+    const scanId = scanIdOf(0)
+    events.send({ scanId, done: 3, total: 10 })
+    events.send({ scanId: scanId + 1, done: 9, total: 9 })
+
+    expect(store.scanProgress).toEqual({ scanId, done: 3, total: 10 })
+    scan.resolve(scanResultOf(10))
+    await expect(started).resolves.toBe(true)
+    expect(store.scanProgress).toBeNull()
+    expect(events.count()).toBe(0)
+  })
+
+  it('cancelling returns to an empty session and ignores the late result', async () => {
+    const scan = pendingScan()
+    const store = storeWith([S, U])
+
+    const started = store.startScan('/raws')
+    await vi.waitFor(() => expect(scanFolder).toHaveBeenCalled())
+    store.cancelScan()
+
+    expect(cancelScan).toHaveBeenCalledWith(scanIdOf(0))
+    expect(store.isScanning).toBe(false)
+    expect(store.folderPath).toBe('')
+    expect(store.pairs).toEqual([])
+    scan.reject('Scan cancelled')
+    await expect(started).resolves.toBe(false)
+    expect(store.pairs).toEqual([])
+    expect(store.scanResult).toBeNull()
+  })
+
+  it('a newer scan replaces the running one, whose result is ignored', async () => {
+    const first = pendingScan()
+    const second = pendingScan()
+    const store = useSessionStore()
+
+    const firstStarted = store.startScan('/old')
+    await vi.waitFor(() => expect(scanFolder).toHaveBeenCalledTimes(1))
+    const secondStarted = store.startScan('/new')
+    await vi.waitFor(() => expect(scanFolder).toHaveBeenCalledTimes(2))
+    expect(scanIdOf(1)).not.toBe(scanIdOf(0))
+
+    first.resolve(scanResultOf(5))
+    await expect(firstStarted).resolves.toBe(false)
+    expect(store.isScanning).toBe(true)
+    expect(store.folderPath).toBe('/new')
+
+    second.resolve(scanResultOf(2))
+    await expect(secondStarted).resolves.toBe(true)
+    expect(store.pairs).toHaveLength(2)
+    expect(store.isScanning).toBe(false)
+  })
+
+  it('going back home cancels the running scan', async () => {
+    const scan = pendingScan()
+    const store = useSessionStore()
+
+    const started = store.startScan('/raws')
+    await vi.waitFor(() => expect(scanFolder).toHaveBeenCalled())
+    store.resetSession()
+
+    expect(cancelScan).toHaveBeenCalledWith(scanIdOf(0))
+    scan.resolve(scanResultOf(3))
+    await expect(started).resolves.toBe(false)
+    expect(store.pairs).toEqual([])
+  })
+
+  it('does nothing when no scan is running', () => {
+    const store = storeWith([S])
+
+    store.cancelScan()
+
+    expect(cancelScan).not.toHaveBeenCalled()
+    expect(store.pairs).toHaveLength(1)
   })
 })
 

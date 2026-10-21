@@ -8,6 +8,7 @@ import { ref, computed, shallowRef, toRaw, watch } from 'vue'
 import {
   PhotoStatus,
   type PhotoPair,
+  type ScanProgress,
   type ScanResult,
   type ThumbnailResult,
   type FolderProgress,
@@ -15,6 +16,8 @@ import {
 } from '@/types'
 import {
   scanFolder,
+  cancelScan as cancelScanCommand,
+  onScanProgress,
   generateThumbnails,
   loadProgress,
   saveProgress,
@@ -89,6 +92,8 @@ export const useSessionStore = defineStore('session', () => {
   const pairs = ref<PhotoPair[]>([])
   const currentIndex = ref(0)
   const isScanning = ref(false)
+  /** RAW-only previews extracted so far by the running scan; null until it starts */
+  const scanProgress = ref<ScanProgress | null>(null)
   const scanResult = ref<ScanResult | null>(null)
   const undoStack = ref<UndoAction[]>([])
   const isGeneratingThumbnails = ref(false)
@@ -108,6 +113,13 @@ export const useSessionStore = defineStore('session', () => {
 
   /** Each pair's place in file-name order, from the scan; not reactive */
   let fileRanks = new Map<string, number>()
+  /**
+   * Scans are numbered; only the active one may change the session. Another
+   * scan or a cancel makes it stale, and Rust stops it before its next photo.
+   * 0 means none is running.
+   */
+  let lastScanId = 0
+  let activeScanId = 0
   const view = useViewStore()
 
   const progressWriter = createDebouncedWriter(
@@ -168,26 +180,49 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** Scan a folder and populate pairs */
-  async function startScan(path: string) {
+  /**
+   * Scan a folder and populate pairs. Resolves to false, leaving the session
+   * alone, when the scan was cancelled or another one started meanwhile.
+   */
+  async function startScan(path: string): Promise<boolean> {
     // The previous folder's last changes are saved before the session changes
     void progressWriter.flush()
+    const scanId = ++lastScanId
+    const isActive = () => activeScanId === scanId
+    activeScanId = scanId
     isScanning.value = true
+    scanProgress.value = null
     folderPath.value = path
     isArchived.value = false
+    let stopListening = () => {}
     try {
-      const result = await scanFolder(path)
+      stopListening = await onScanProgress((progress) => {
+        if (progress.scanId === scanId && isActive()) scanProgress.value = progress
+      })
+      if (!isActive()) return false
+      const result = await scanFolder(path, scanId)
+      const saved = isActive() ? await loadProgressOrNone(path) : null
+      if (!isActive()) return false
       fileRanks = fileNameRanks(result.pairs)
       const sorted = sortPairs(result.pairs, view.sortOrder, fileRanks)
-      const restored = restoreProgress(sorted, await loadProgressOrNone(path))
+      const restored = restoreProgress(sorted, saved)
       scanResult.value = result
       pairs.value = restored.pairs
       currentIndex.value = restored.currentIndex
       restoredCount.value = restored.restoredCount
       isResumed.value = restored.isResumed
       undoStack.value = []
+    } catch (e) {
+      // A stale scan rejects once Rust stops it; nobody waits for it any more
+      if (!isActive()) return false
+      throw e
     } finally {
-      isScanning.value = false // 扫描完立即停止转圈，不等缩略图
+      stopListening()
+      if (isActive()) {
+        activeScanId = 0
+        isScanning.value = false // 扫描完立即停止转圈，不等缩略图
+        scanProgress.value = null
+      }
     }
 
     // 分批生成缩略图（后台异步，不阻塞 startScan 返回）
@@ -195,6 +230,19 @@ export const useSessionStore = defineStore('session', () => {
       const inputs = pairs.value.map((p) => ({ id: p.id, jpgPath: p.jpgPath }))
       void generateAllThumbnails(nearestFirst(inputs, currentIndex.value))
     }
+    return true
+  }
+
+  /**
+   * Stop the running scan and go back to an empty session. Previews it
+   * already extracted stay in the cache.
+   */
+  function cancelScan() {
+    const scanId = activeScanId
+    if (scanId === 0) return
+    activeScanId = 0
+    cancelScanCommand(scanId).catch((e) => console.warn('[Sift] Failed to cancel scan:', e))
+    clearSession()
   }
 
   async function generateAllThumbnails(inputs: { id: string; jpgPath: string }[]) {
@@ -420,17 +468,22 @@ export const useSessionStore = defineStore('session', () => {
     progressWriter.writeNow(emptyProgress(folder))
   }
 
-  /** Reset session */
+  /** Reset session; a running scan is cancelled */
   function resetSession() {
     // The folder's last changes are saved before the session is cleared
     void progressWriter.flush()
+    cancelScan()
     // The thumbnail and preview caches are kept: reopening a folder reuses
     // them, and Rust trims them to their size limit
+    clearSession()
+  }
 
+  function clearSession() {
     folderPath.value = ''
     pairs.value = []
     currentIndex.value = 0
     isScanning.value = false
+    scanProgress.value = null
     scanResult.value = null
     undoStack.value = []
     restoredCount.value = 0
@@ -444,6 +497,7 @@ export const useSessionStore = defineStore('session', () => {
     pairs,
     currentIndex,
     isScanning,
+    scanProgress,
     scanResult,
     undoStack,
     isGeneratingThumbnails,
@@ -464,6 +518,7 @@ export const useSessionStore = defineStore('session', () => {
     currentGroupPosition,
     // Actions
     startScan,
+    cancelScan,
     goNext,
     goPrev,
     goTo,
