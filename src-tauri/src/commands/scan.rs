@@ -1,15 +1,20 @@
 // ============================================================
 // Sift - Scan Command
 // Only scans folders the user granted (folder dialog or drag-and-drop);
-// see catalog/folder_grants.rs.
+// see catalog/folder_grants.rs. Sends `scan-progress` while RAW-only
+// previews are extracted; a newer scan or `cancel_scan` stops it (see
+// catalog/scan_control.rs).
 // ============================================================
 
 use crate::catalog;
 use crate::catalog::folder_grants::{self, Access};
+use crate::catalog::scan_control::{ScanControl, ScanGate};
 use crate::media::cache_dirs;
-use crate::models::photo::ScanResult;
+use crate::models::photo::{ScanProgress, ScanResult};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+const PROGRESS_EVENT: &str = "scan-progress";
 
 const GRANTS_FILE: &str = "granted-folders.json";
 
@@ -17,16 +22,45 @@ const MISSING: &str = "文件夹不存在，可能已被删除、移动，或所
 
 const NOT_GRANTED: &str = "没有访问该文件夹的权限，请点击「选择文件夹」或把文件夹拖进窗口重新打开";
 
+/// Scan a folder; `scan_id` (from the frontend, never 0) makes any earlier
+/// scan stale and tags this one's progress events.
 #[tauri::command]
-pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResult, String> {
+pub async fn scan_folder(
+    app: AppHandle,
+    folder_path: String,
+    scan_id: u32,
+) -> Result<ScanResult, String> {
+    app.state::<ScanGate>().begin(scan_id);
     tokio::task::spawn_blocking(move || {
         let folder = Path::new(&folder_path);
         authorize(&app, folder)?;
         let cache_dir = cache_dirs::ensure(cache_dirs::RAW_PREVIEWS)?;
-        catalog::scan::scan_folder(folder, &cache_dir)
+        let gate = app.state::<ScanGate>();
+        let is_cancelled = || !gate.is_current(scan_id);
+        let on_progress = |done, total| {
+            if gate.is_current(scan_id) {
+                let progress = ScanProgress {
+                    scan_id,
+                    done,
+                    total,
+                };
+                let _ = app.emit(PROGRESS_EVENT, progress);
+            }
+        };
+        let control = ScanControl {
+            is_cancelled: &is_cancelled,
+            on_progress: &on_progress,
+        };
+        catalog::scan::scan_folder_with(folder, &cache_dir, &control)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Stop scan `scan_id` before its next photo, unless a newer scan began
+#[tauri::command]
+pub fn cancel_scan(gate: State<ScanGate>, scan_id: u32) {
+    gate.cancel(scan_id);
 }
 
 /// Refuse folders the user never granted; for granted ones, extend the asset

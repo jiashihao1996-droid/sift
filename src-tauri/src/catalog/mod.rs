@@ -4,3 +4,4 @@ pub mod pairing;
 pub mod preview_extraction;
 pub mod progress;
 pub mod scan;
+pub mod scan_control;

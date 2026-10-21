@@ -14,11 +14,14 @@
 // would push the real photo with the same name out of its pair.
 // Each pair gets its capture time, from the JPG first and the RAW when the
 // JPG doesn't record one; the session sorts by it.
+// Preview extraction reports its progress, and a scan can be cancelled
+// (see scan_control.rs): it then errs instead of returning part of the folder.
 // ============================================================
 
 use crate::catalog::file_types::{is_jpg, is_raw};
-use crate::catalog::pairing::{self, FileIndex};
+use crate::catalog::pairing::{self, FileIndex, Pairing};
 use crate::catalog::preview_extraction::extract_previews;
+use crate::catalog::scan_control::{PreviewProgress, ScanControl};
 use crate::media::capture_time::read_capture_time;
 use crate::models::photo::{
     CaptureTime, PhotoPair, PhotoSource, PhotoStatus, ScanResult, SkipReason, SkippedFile,
@@ -31,7 +34,20 @@ use walkdir::{DirEntry, WalkDir};
 /// JPG folder of the archive layout before 精选/ (JPG/ + RAW/); its RAWs are in RAW/
 pub(crate) const LEGACY_JPG_DIR: &str = "JPG";
 
+/// `scan_folder_with`, run to the end without reporting progress
+#[cfg(test)]
 pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult, String> {
+    scan_folder_with(folder, preview_cache_dir, &ScanControl::UNCONTROLLED)
+}
+
+/// Scan `folder`, reporting RAW-only previews extracted so far and stopping
+/// once `control` says so; a cancelled scan errs rather than return part of
+/// the folder.
+pub fn scan_folder_with(
+    folder: &Path,
+    preview_cache_dir: &Path,
+    control: &ScanControl,
+) -> Result<ScanResult, String> {
     if !folder.is_dir() {
         return Err(format!("Folder does not exist: {}", folder.display()));
     }
@@ -60,8 +76,12 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
         .iter()
         .filter(|f| f.reason == SkipReason::Empty)
         .count();
-    let entries = entries_of(&index, preview_cache_dir, &mut skipped)?;
-    let mut picks = entries_of(&picks_index, preview_cache_dir, &mut skipped)?;
+    let root = pairing::pair(&index);
+    let picks = pairing::pair(&picks_index);
+    let progress = PreviewProgress::start(control, root.raw_only.len() + picks.raw_only.len());
+    let extract = |pairing| entries_of(pairing, preview_cache_dir, control, &progress);
+    let entries = extract(root)?;
+    let mut picks = extract(picks)?;
     for pair in &mut picks.pairs {
         pair.is_archived_pick = true;
         pair.status = PhotoStatus::Starred;
@@ -70,8 +90,11 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
     let mut pairs = entries.pairs;
     pairs.append(&mut picks.pairs);
     pairs.par_iter_mut().for_each(|pair| {
-        pair.capture_time = capture_time_of(pair);
+        if control.check().is_ok() {
+            pair.capture_time = capture_time_of(pair);
+        }
     });
+    control.check()?;
     pairing::sort_naturally(&mut pairs);
 
     Ok(ScanResult {
@@ -80,7 +103,7 @@ pub fn scan_folder(folder: &Path, preview_cache_dir: &Path) -> Result<ScanResult
         paired_count: entries.paired_count + picks.paired_count,
         jpg_only_count: entries.jpg_only_count + picks.jpg_only_count,
         raw_only_count: entries.raw_only_count + picks.raw_only_count,
-        skipped,
+        skipped: [skipped, entries.no_preview, picks.no_preview].concat(),
     })
 }
 
@@ -90,19 +113,20 @@ struct Entries {
     paired_count: usize,
     jpg_only_count: usize,
     raw_only_count: usize,
+    /// RAW-only files without a usable preview
+    no_preview: Vec<SkippedFile>,
 }
 
-/// Pair the files of `index` and extract previews for the RAW-only ones;
-/// RAWs without a usable preview are added to `skipped`.
+/// The entries of one pairing scope, with previews extracted for its
+/// RAW-only files
 fn entries_of(
-    index: &FileIndex,
+    pairing: Pairing,
     preview_cache_dir: &Path,
-    skipped: &mut Vec<SkippedFile>,
+    control: &ScanControl,
+    progress: &PreviewProgress,
 ) -> Result<Entries, String> {
-    let pairing = pairing::pair(index);
-    let (raw_only_pairs, no_preview) = extract_previews(pairing.raw_only, preview_cache_dir)?;
-    skipped.extend(no_preview);
-
+    let (raw_only_pairs, no_preview) =
+        extract_previews(pairing.raw_only, preview_cache_dir, control, progress)?;
     let raw_only_count = raw_only_pairs.len();
     let mut pairs = pairing.pairs;
     pairs.extend(raw_only_pairs);
@@ -111,6 +135,7 @@ fn entries_of(
         paired_count: pairing.paired_count,
         jpg_only_count: pairing.jpg_only_count,
         raw_only_count,
+        no_preview,
     })
 }
 
@@ -174,17 +199,23 @@ fn unreadable_entry(dir: &Path, error: &walkdir::Error) -> SkippedFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::scan_control::SCAN_CANCELLED;
     use crate::test_support::{
         exif_orientation, exif_tiff, jpeg_with_exif, noise_jpeg, raf_with_jpeg,
         tiff_raw_declaring_preview_len, tiff_raw_with_preview, write, ExifByteOrder,
     };
+    use std::path::PathBuf;
     use tempfile::{tempdir, TempDir};
 
-    fn scan(dir: &Path) -> ScanResult {
-        // Previews land in a subfolder of the scanned dir so they outlive this call
+    /// Previews land in a subfolder of the scanned dir so they outlive the scan
+    fn cache_dir(dir: &Path) -> PathBuf {
         let cache = dir.join(".cache");
         std::fs::create_dir_all(&cache).unwrap();
-        scan_folder(dir, &cache).unwrap()
+        cache
+    }
+
+    fn scan(dir: &Path) -> ScanResult {
+        scan_folder(dir, &cache_dir(dir)).unwrap()
     }
 
     fn file_name(path: &str) -> &str {
@@ -676,6 +707,57 @@ mod tests {
                 started.elapsed()
             );
         }
+    }
+
+    #[test]
+    fn a_cancelled_scan_returns_no_photos_rather_than_part_of_the_folder() {
+        let dir = tempdir().unwrap();
+        write(dir.path(), "IMG_1.jpg", &noise_jpeg(64, 64));
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        write(dir.path(), "DSC_1.ARW", &raw);
+        let control = ScanControl {
+            is_cancelled: &|| true,
+            on_progress: &|_, _| {},
+        };
+
+        let result = scan_folder_with(dir.path(), dir.path(), &control);
+
+        assert_eq!(result.unwrap_err(), SCAN_CANCELLED);
+    }
+
+    #[test]
+    fn a_folder_without_raw_only_photos_can_be_cancelled_too() {
+        let dir = folder(&["IMG_1.jpg", "IMG_2.jpg"]);
+        let control = ScanControl {
+            is_cancelled: &|| true,
+            on_progress: &|_, _| {},
+        };
+
+        let result = scan_folder_with(dir.path(), dir.path(), &control);
+
+        assert_eq!(result.unwrap_err(), SCAN_CANCELLED);
+    }
+
+    #[test]
+    fn reports_preview_progress_across_the_folder_and_its_picks() {
+        let dir = tempdir().unwrap();
+        let raw = tiff_raw_with_preview(&noise_jpeg(256, 256), None);
+        write(dir.path(), "DSC_1.ARW", &raw);
+        write(&dir.path().join(PICKS_DIR), "DSC_2.ARW", &raw);
+        write(dir.path(), "IMG_1.jpg", b"x");
+        let events = std::sync::Mutex::new(Vec::new());
+        let on_progress = |done, total| events.lock().unwrap().push((done, total));
+        let control = ScanControl {
+            is_cancelled: &|| false,
+            on_progress: &on_progress,
+        };
+
+        let result = scan_folder_with(dir.path(), &cache_dir(dir.path()), &control).unwrap();
+
+        assert_eq!(result.raw_only_count, 2);
+        let events = events.into_inner().unwrap();
+        assert_eq!(events.first(), Some(&(0, 2)));
+        assert_eq!(events.last(), Some(&(2, 2)));
     }
 
     #[test]

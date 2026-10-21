@@ -13,6 +13,7 @@ mod paths;
 #[cfg(test)]
 mod test_support;
 
+use catalog::scan_control::ScanGate;
 use commands::closing::{self, After};
 use commands::{
     af_point, archive, cache, delete, exif, export, file_actions, organizing, progress, scan,
@@ -33,6 +34,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(organizing::Organizing::default())
         .manage(closing::SaveGate::default())
+        .manage(ScanGate::default())
         .setup(|app| {
             // Clean up any leftover cache from previous sessions; only the
             // single running instance gets here
@@ -62,6 +64,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             scan::scan_folder,
+            scan::cancel_scan,
             delete::delete_pairs,
             delete::folder_no_trash_reason,
             archive::archive_photos,

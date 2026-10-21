@@ -10,6 +10,7 @@ import { FolderOpen, Camera, Image, Layers, ArrowRight, History } from '@lucide/
 import { useSessionStore } from '@/stores/sessionStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getErrorMessage } from '@/utils/error'
+import { describeScanProgress } from '@/core/scanProgress'
 import { useFolderDrop } from '@/composables/useFolderDrop'
 import { useRecentFolders } from '@/composables/useRecentFolders'
 import RecentFolders from './RecentFolders.vue'
@@ -28,6 +29,8 @@ const resumeMessage = computed(() => {
   return `已恢复上次进度：${marked}从第 ${session.currentIndex + 1} 张继续`
 })
 
+const scanStatus = computed(() => describeScanProgress(session.scanProgress))
+
 const isHovering = ref(false)
 const scanComplete = ref(false)
 const scanError = ref('')
@@ -35,12 +38,13 @@ const recentFolders = useRecentFolders()
 
 const { isDragOver } = useFolderDrop(openFolder)
 
+/** Opening a folder while another one is scanned switches to it */
 async function openFolder(path: string) {
-  if (session.isScanning) return
   scanError.value = ''
   scanComplete.value = false
   try {
-    await session.startScan(path)
+    // False when the scan was cancelled or replaced by a newer one
+    if (!(await session.startScan(path))) return
     scanComplete.value = true
     recentFolders.remember(path)
   } catch (e) {
@@ -99,7 +103,29 @@ function startCulling() {
               class="absolute inset-0 rounded-full border-2 border-transparent border-t-sift-accent animate-spin"
             />
           </div>
-          <p class="text-sift-muted text-sm">正在扫描文件...</p>
+          <div class="w-full flex flex-col items-center gap-3">
+            <p class="text-sift-muted text-sm tabular-nums">{{ scanStatus.label }}</p>
+            <div
+              v-if="scanStatus.percent !== null"
+              class="w-full h-1 rounded-full bg-sift-border overflow-hidden"
+              role="progressbar"
+              :aria-valuenow="scanStatus.percent"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div
+                class="h-full bg-sift-accent transition-[width] duration-200"
+                :style="{ width: `${scanStatus.percent}%` }"
+              />
+            </div>
+            <p class="text-xs text-sift-muted/70 truncate max-w-full">{{ session.folderPath }}</p>
+          </div>
+          <button
+            class="h-9 px-6 rounded-xl border border-sift-border text-sift-muted text-sm hover:text-white hover:border-sift-muted/50 transition-colors btn-spring"
+            @click="session.cancelScan()"
+          >
+            取消
+          </button>
         </div>
       </div>
 

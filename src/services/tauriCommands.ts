@@ -10,6 +10,7 @@ import type {
   DeletePairInput,
   DeleteResult,
   NoTrashReason,
+  ScanProgress,
   ScanResult,
   ExifData,
   ThumbnailResult,
@@ -20,9 +21,25 @@ import type {
   FolderProgress,
 } from '@/types'
 
-/** Scan a folder for JPG+RAW pairs */
-export async function scanFolder(folderPath: string): Promise<ScanResult> {
-  return invoke<ScanResult>('scan_folder', { folderPath })
+/**
+ * Scan a folder for JPG+RAW pairs. `scanId` (never 0) tags the scan's
+ * progress events; starting another scan or `cancelScan` stops this one,
+ * which then rejects.
+ */
+export async function scanFolder(folderPath: string, scanId: number): Promise<ScanResult> {
+  return invoke<ScanResult>('scan_folder', { folderPath, scanId })
+}
+
+/** Stop scan `scanId` before its next photo; previews it extracted stay cached */
+export async function cancelScan(scanId: number): Promise<void> {
+  return invoke('cancel_scan', { scanId })
+}
+
+/** Listen for scan progress events (RAW-only previews extracted so far) */
+export function onScanProgress(callback: (progress: ScanProgress) => void) {
+  return listen<ScanProgress>('scan-progress', (event) => {
+    callback(event.payload)
+  })
 }
 
 /**
