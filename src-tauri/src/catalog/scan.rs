@@ -17,20 +17,16 @@
 // ============================================================
 
 use crate::catalog::file_types::{is_jpg, is_raw};
-use crate::catalog::pairing::{self, FileIndex, RawOnly};
+use crate::catalog::pairing::{self, FileIndex};
+use crate::catalog::preview_extraction::extract_previews;
 use crate::media::capture_time::read_capture_time;
-use crate::media::raw_preview::extract_raw_preview;
 use crate::models::photo::{
     CaptureTime, PhotoPair, PhotoSource, PhotoStatus, ScanResult, SkipReason, SkippedFile,
 };
 use crate::organize::archive::{PICKS_DIR, RAW_DIR};
 use rayon::prelude::*;
-use rayon::ThreadPoolBuilder;
 use std::path::Path;
 use walkdir::{DirEntry, WalkDir};
-
-/// RAW files are 25-60MB each; unbounded parallel preview extraction can exhaust memory
-const PREVIEW_EXTRACTION_THREADS: usize = 2;
 
 /// JPG folder of the archive layout before 精选/ (JPG/ + RAW/); its RAWs are in RAW/
 pub(crate) const LEGACY_JPG_DIR: &str = "JPG";
@@ -172,55 +168,6 @@ fn unreadable_entry(dir: &Path, error: &walkdir::Error) -> SkippedFile {
     SkippedFile {
         path: path.to_string_lossy().to_string(),
         reason: SkipReason::Unreadable,
-    }
-}
-
-/// Extract embedded previews for RAW-only files. RAWs whose preview can't be
-/// extracted are returned as skipped so the user is told about them.
-fn extract_previews(
-    raw_only: Vec<RawOnly>,
-    cache_dir: &Path,
-) -> Result<(Vec<PhotoPair>, Vec<SkippedFile>), String> {
-    if raw_only.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
-    }
-
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(PREVIEW_EXTRACTION_THREADS)
-        .build()
-        .map_err(|e| format!("Failed to build thread pool: {}", e))?;
-
-    let results: Vec<Result<PhotoPair, SkippedFile>> = pool.install(|| {
-        raw_only
-            .into_par_iter()
-            .map(|raw| raw_preview_pair(raw, cache_dir))
-            .collect()
-    });
-    let (pairs, skipped): (Vec<_>, Vec<_>) = results.into_iter().partition(Result::is_ok);
-    Ok((
-        pairs.into_iter().filter_map(Result::ok).collect(),
-        skipped.into_iter().filter_map(Result::err).collect(),
-    ))
-}
-
-fn raw_preview_pair(raw: RawOnly, cache_dir: &Path) -> Result<PhotoPair, SkippedFile> {
-    match extract_raw_preview(&raw.raw_path, cache_dir) {
-        Ok(preview_path) => Ok(pairing::new_pair(
-            preview_path,
-            Some((raw.raw_path, raw.ext.as_str())),
-            PhotoSource::RawPreview,
-            raw.xmp_paths,
-        )),
-        Err(e) => {
-            eprintln!(
-                "[Sift] Failed to extract preview from {}: {}",
-                raw.raw_path, e
-            );
-            Err(SkippedFile {
-                path: raw.raw_path,
-                reason: SkipReason::NoPreview,
-            })
-        }
     }
 }
 
