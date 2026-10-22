@@ -37,6 +37,15 @@ pub fn find_box<R: Read + Seek>(
     None
 }
 
+/// The first box of `kind` inside `parent`
+pub fn find_child<R: Read + Seek>(
+    reader: &mut R,
+    parent: &BoxHeader,
+    kind: &[u8; 4],
+) -> Option<BoxHeader> {
+    find_box(reader, parent.payload, parent.end, |b, _| &b.kind == kind)
+}
+
 /// The 16-byte usertype that opens the contents of a `uuid` box at `at`
 pub fn read_usertype<R: Read + Seek>(reader: &mut R, at: u64) -> Option<[u8; 16]> {
     reader.seek(SeekFrom::Start(at)).ok()?;

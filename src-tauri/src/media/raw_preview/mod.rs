@@ -1,12 +1,15 @@
 // ============================================================
 // Sift - RAW Preview Extraction
 // Extracts embedded JPEG previews from RAW files into a cache dir
-// Strategy: the JPEGs the TIFF IFDs point to -> JPEG SOI/EOI scan (fallback)
+// Strategy: the JPEGs the TIFF IFDs point to -> a JPEG SOI/EOI scan of the
+// regions the format says hold its JPEGs (CR3, RAF, NEF; located/) -> the
+// same scan of the whole file (fallback)
 // A cached preview is found without opening the RAW: its name comes from
 // the RAW's path, size and modification time. Extracting reads the RAW's
 // head and the preview; only the fallback scan reads the whole file.
 // ============================================================
 
+mod located;
 mod tiff_layout;
 
 use crate::media::cache_lru;
@@ -14,6 +17,7 @@ use crate::media::jpeg::exif_orientation;
 use crate::media::jpeg::scan::find_largest_jpeg;
 use crate::media::metadata::head::HeadCached;
 use crate::paths::is_inside_dir;
+use std::cmp::Reverse;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -67,7 +71,9 @@ fn simple_hash(data: &[u8]) -> u64 {
 ///
 /// Strategy:
 /// 1. The JPEGs the TIFF IFD chain points to (TIFF-based RAWs)
-/// 2. Fall back to JPEG SOI/EOI binary scan (CR3, RAF, NEF, ...)
+/// 2. JPEG SOI/EOI binary scan of the regions the format points to (CR3,
+///    RAF, NEF)
+/// 3. Fall back to the same scan of the whole file
 ///
 /// Orientation handling: some RAW formats (notably Sony ARW) store the
 /// embedded preview JPEG with its pixels in sensor-native orientation
@@ -91,6 +97,30 @@ pub fn extract_raw_preview(raw_path: &str, cache_dir: &Path) -> Result<String, S
 /// touching the cache. Archive saves exactly these next to a RAW-only pick,
 /// so they identify that saved preview later.
 pub fn raw_preview_bytes(raw_path: &str) -> Result<Vec<u8>, String> {
+    preview_bytes(raw_path, Search::Located)
+}
+
+/// The preview versions before the located search cached for `raw_path`,
+/// when it may differ from `raw_preview_bytes` (the format points to its
+/// JPEGs, so the whole file was scanned); None otherwise. Reads the whole
+/// RAW.
+pub fn earlier_preview_bytes(raw_path: &str) -> Option<Vec<u8>> {
+    preview_bytes(raw_path, Search::Earlier).ok()
+}
+
+/// `Search::Earlier` finds what `Search::Located` does
+const SAME_AS_LOCATED: &str = "Earlier versions extracted the same preview";
+
+#[derive(Clone, Copy, PartialEq)]
+enum Search {
+    /// IFD chain, then the regions the format points to, then the whole file
+    Located,
+    /// IFD chain, then the whole file, only when `Located` would have
+    /// looked at regions instead
+    Earlier,
+}
+
+fn preview_bytes(raw_path: &str, search: Search) -> Result<Vec<u8>, String> {
     let file = File::open(raw_path).map_err(|e| format!("Failed to open RAW: {}", e))?;
     let file_len = file
         .metadata()
@@ -101,15 +131,73 @@ pub fn raw_preview_bytes(raw_path: &str) -> Result<Vec<u8>, String> {
     let layout = tiff_layout::read_layout(&mut file, file_len);
     // Failing to read the orientation is non-fatal; it is treated as normal
     let outer_orientation = layout.as_ref().and_then(|l| l.orientation).unwrap_or(1);
-    let preview = layout
+    let from_chain = layout
         .and_then(|l| largest_jpeg(&mut file, &l.jpegs, file_len))
-        .filter(|jpeg| jpeg.len() >= MIN_PREVIEW_SIZE)
-        .or_else(|| extract_via_jpeg_scan(raw_path).ok())
-        .ok_or_else(|| format!("Could not extract preview from RAW file: {}", raw_path))?;
+        .filter(|jpeg| jpeg.len() >= MIN_PREVIEW_SIZE);
+    let preview = match (from_chain, search) {
+        (Some(jpeg), Search::Located) => jpeg,
+        (Some(_), Search::Earlier) => return Err(SAME_AS_LOCATED.to_string()),
+        (None, _) => preview_outside_ifds(&mut file, raw_path, file_len, search)?,
+    };
     Ok(exif_orientation::ensure_orientation(
         preview,
         outer_orientation,
     ))
+}
+
+/// A RAW whose IFD chain doesn't point to a preview
+fn preview_outside_ifds<R: Read + Seek>(
+    reader: &mut R,
+    raw_path: &str,
+    file_len: u64,
+    search: Search,
+) -> Result<Vec<u8>, String> {
+    let regions = located::preview_regions(reader, Path::new(raw_path), file_len);
+    let from_regions = match search {
+        Search::Located => largest_in_regions(reader, &regions, file_len),
+        // Located scans the whole file too
+        Search::Earlier if regions.is_empty() => return Err(SAME_AS_LOCATED.to_string()),
+        Search::Earlier => None,
+    };
+    from_regions
+        .or_else(|| extract_via_jpeg_scan(raw_path).ok())
+        .ok_or_else(|| format!("Could not extract preview from RAW file: {}", raw_path))
+}
+
+/// The largest JPEG of at least `MIN_PREVIEW_SIZE` found by scanning each
+/// region; of equally long ones the one in the earlier region wins, as in
+/// a scan of the whole file. Regions are read longest first, and one too
+/// short to hold a larger JPEG than the best so far is not read at all.
+/// Regions that can't be read are skipped.
+fn largest_in_regions<R: Read + Seek>(
+    reader: &mut R,
+    regions: &[(u64, usize)],
+    file_len: u64,
+) -> Option<Vec<u8>> {
+    let mut longest_first = regions.to_vec();
+    longest_first.sort_unstable_by_key(|&(offset, length)| (Reverse(length), offset));
+    // (offset of its region, bytes) of the best JPEG so far
+    let mut best: Option<(u64, Vec<u8>)> = None;
+    for (offset, length) in longest_first {
+        let best_len = best.as_ref().map_or(0, |(_, jpeg)| jpeg.len());
+        if length < best_len.max(MIN_PREVIEW_SIZE) {
+            continue;
+        }
+        let Ok(bytes) = read_region(reader, offset, length, file_len) else {
+            continue;
+        };
+        let Some(jpeg) = find_largest_jpeg(&bytes, best_len.max(MIN_PREVIEW_SIZE)) else {
+            continue;
+        };
+        // It is at least as long as the best so far
+        let is_better = best
+            .as_ref()
+            .is_none_or(|(best_at, best)| jpeg.len() > best.len() || offset < *best_at);
+        if is_better {
+            best = Some((offset, jpeg.to_vec()));
+        }
+    }
+    best.map(|(_, jpeg)| jpeg)
 }
 
 /// Write the preview under a temporary name and rename it into place, so
@@ -160,15 +248,7 @@ fn read_jpeg_at_offset<R: Read + Seek>(
     length: usize,
     file_len: u64,
 ) -> Result<Vec<u8>, String> {
-    let length = preview_read_len(offset, length, file_len)?;
-    reader
-        .seek(SeekFrom::Start(offset))
-        .map_err(|e| format!("Failed to seek to JPEG offset: {}", e))?;
-
-    let mut jpeg_data = vec![0u8; length];
-    reader
-        .read_exact(&mut jpeg_data)
-        .map_err(|e| format!("Failed to read JPEG data: {}", e))?;
+    let jpeg_data = read_region(reader, offset, length, file_len)?;
 
     // Verify JPEG signature (FFD8)
     if jpeg_data.len() >= 2 && jpeg_data[0] == 0xFF && jpeg_data[1] == 0xD8 {
@@ -176,6 +256,24 @@ fn read_jpeg_at_offset<R: Read + Seek>(
     } else {
         Err("Data at offset is not a valid JPEG".to_string())
     }
+}
+
+/// The `length` bytes at `offset`, cut short at the end of the file
+fn read_region<R: Read + Seek>(
+    reader: &mut R,
+    offset: u64,
+    length: usize,
+    file_len: u64,
+) -> Result<Vec<u8>, String> {
+    let length = preview_read_len(offset, length, file_len)?;
+    reader
+        .seek(SeekFrom::Start(offset))
+        .map_err(|e| format!("Failed to seek to JPEG offset: {}", e))?;
+    let mut bytes = vec![0u8; length];
+    reader
+        .read_exact(&mut bytes)
+        .map_err(|e| format!("Failed to read JPEG data: {}", e))?;
+    Ok(bytes)
 }
 
 /// How many bytes to read for a preview that EXIF says is `length` bytes at
@@ -206,8 +304,8 @@ fn extract_via_jpeg_scan(raw_path: &str) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
     use crate::test_support::{
-        exif_orientation, noise_jpeg, opaque_raw_with_preview, tiff_raw_declaring_preview_len,
-        tiff_raw_with_preview, write,
+        cr3_with_jpegs, exif_orientation, nef_with_jpegs, noise_jpeg, opaque_raw_with_preview,
+        raf_with_jpeg, tiff_raw_declaring_preview_len, tiff_raw_with_preview, write,
     };
     use tempfile::tempdir;
 
@@ -266,6 +364,95 @@ mod tests {
         let raw = write(dir.path(), "a.CR3", &opaque_raw_with_preview(&preview));
 
         assert_eq!(extract(&raw, dir.path()).unwrap(), preview);
+    }
+
+    /// A CR3, RAF and NEF each holding `big` (their largest JPEG) and, for
+    /// CR3 and NEF, `small` where the format points to, followed by `tail`
+    fn located_raws(big: &[u8], small: &[u8], tail: &[u8]) -> [(&'static str, Vec<u8>); 3] {
+        let with_tail = |mut raw: Vec<u8>| {
+            raw.extend(tail);
+            raw
+        };
+        [
+            ("a.CR3", with_tail(cr3_with_jpegs(big, small, true))),
+            ("a.RAF", with_tail(raf_with_jpeg(big))),
+            ("a.NEF", with_tail(nef_with_jpegs(&[small, big], true))),
+        ]
+    }
+
+    #[test]
+    fn finds_the_same_preview_as_earlier_versions_where_the_format_points() {
+        let dir = tempdir().unwrap();
+        let (big, small) = (noise_jpeg(320, 320), noise_jpeg(256, 256));
+        for (name, bytes) in located_raws(&big, &small, b"") {
+            let raw = write(dir.path(), name, &bytes);
+            let raw = raw.to_str().unwrap();
+
+            assert_eq!(raw_preview_bytes(raw).unwrap(), big, "{name}");
+            assert_eq!(earlier_preview_bytes(raw).unwrap(), big, "{name}");
+        }
+    }
+
+    #[test]
+    fn reads_only_the_regions_the_format_points_to() {
+        // Earlier versions scanned the whole file and took this larger one
+        let outside = noise_jpeg(400, 400);
+        let dir = tempdir().unwrap();
+        let (big, small) = (noise_jpeg(320, 320), noise_jpeg(256, 256));
+        for (name, bytes) in located_raws(&big, &small, &outside) {
+            let raw = write(dir.path(), name, &bytes);
+            let raw = raw.to_str().unwrap();
+
+            assert_eq!(raw_preview_bytes(raw).unwrap(), big, "{name}");
+            assert_eq!(earlier_preview_bytes(raw).unwrap(), outside, "{name}");
+        }
+    }
+
+    #[test]
+    fn picks_the_largest_jpeg_of_the_regions_and_the_earlier_of_equals() {
+        let (a, b, larger) = (
+            noise_jpeg(256, 256),
+            noise_jpeg(256, 256),
+            noise_jpeg(320, 320),
+        );
+        assert_eq!(a.len(), b.len());
+        let file = [a.as_slice(), b"junk", &b, &larger].concat();
+        let at = |offset: usize, jpeg: &[u8]| (offset as u64, jpeg.len());
+        let (a_at, b_at) = (at(0, &a), at(a.len() + 4, &b));
+        let larger_at = at(a.len() + 4 + b.len(), &larger);
+        let unreadable = (file.len() as u64 + 10, 100_000);
+        let largest = |regions: &[(u64, usize)]| {
+            let mut reader = std::io::Cursor::new(&file);
+            largest_in_regions(&mut reader, regions, file.len() as u64)
+        };
+
+        assert_eq!(largest(&[b_at, a_at]), Some(a.clone()));
+        assert_eq!(largest(&[b_at]), Some(b));
+        assert_eq!(largest(&[a_at, unreadable, larger_at, b_at]), Some(larger));
+        assert_eq!(largest(&[unreadable]), None);
+    }
+
+    #[test]
+    fn scans_the_whole_file_when_the_format_points_to_no_preview() {
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let mut raf = raf_with_jpeg(b"not a jpeg");
+        raf.extend(&preview);
+        let raw = write(dir.path(), "a.RAF", &raf);
+
+        assert_eq!(extract(&raw, dir.path()).unwrap(), preview);
+    }
+
+    #[test]
+    fn earlier_versions_extracted_the_same_preview_from_other_raws() {
+        let dir = tempdir().unwrap();
+        let preview = noise_jpeg(256, 256);
+        let arw = write(dir.path(), "a.ARW", &tiff_raw_with_preview(&preview, None));
+        let orf = write(dir.path(), "a.ORF", &opaque_raw_with_preview(&preview));
+
+        for raw in [arw, orf] {
+            assert_eq!(earlier_preview_bytes(raw.to_str().unwrap()), None);
+        }
     }
 
     #[test]
@@ -492,8 +679,20 @@ mod tests {
             return Err(format!("orientation {embedded}, RAW says {outer}"));
         }
         let taken = crate::media::capture_time::read_capture_time(raw).ok_or("no capture time")?;
+        // Archived previews of earlier versions must still be recognized
+        let read = match earlier_preview_bytes(raw_str) {
+            Some(earlier) if earlier != bytes => {
+                return Err(format!(
+                    "located preview ({} KB) differs from the whole-file scan ({} KB)",
+                    bytes.len() / 1024,
+                    earlier.len() / 1024
+                ))
+            }
+            Some(_) => "located, same as the whole-file scan",
+            None => "IFD chain or whole-file scan",
+        };
         Ok(format!(
-            "{}x{}, {} KB, orientation {embedded}, taken at {} ms",
+            "{}x{}, {} KB, orientation {embedded}, taken at {} ms, {read}",
             img.width(),
             img.height(),
             bytes.len() / 1024,
