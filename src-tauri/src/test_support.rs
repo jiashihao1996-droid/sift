@@ -319,3 +319,87 @@ pub fn cr3_with_cmt2(cmt2: &[u8]) -> Vec<u8> {
     out.extend(bmff_box(b"moov", &bmff_box(b"uuid", &canon)));
     out
 }
+
+/// A Canon CR3 skeleton holding `full` as the first track's sample in mdat
+/// (its offset in co64, or in stco when `is_co64` is false) and `small` in
+/// the PRVW uuid box, laid out like a real CR3: ftyp, moov, uuid, mdat
+pub fn cr3_with_jpegs(full: &[u8], small: &[u8], is_co64: bool) -> Vec<u8> {
+    const PREVIEW_UUID: [u8; 16] = [
+        0xEA, 0xF4, 0x2B, 0x5E, 0x1C, 0x98, 0x4B, 0x88, 0xB9, 0xFB, 0xB7, 0xDC, 0x40, 0x6E, 0x4D,
+        0x16,
+    ];
+    let head_with = |mdat_at: u64| {
+        let mut stsz = vec![0u8; 4];
+        stsz.extend((full.len() as u32).to_be_bytes());
+        stsz.extend(1u32.to_be_bytes());
+        let mut chunks = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        let offsets = if is_co64 {
+            chunks.extend((mdat_at + 8).to_be_bytes());
+            bmff_box(b"co64", &chunks)
+        } else {
+            chunks.extend(((mdat_at + 8) as u32).to_be_bytes());
+            bmff_box(b"stco", &chunks)
+        };
+        let mut stbl = bmff_box(b"stsd", b"CRAW");
+        stbl.extend(bmff_box(b"stsz", &stsz));
+        stbl.extend(offsets);
+        let trak = bmff_box(b"mdia", &bmff_box(b"minf", &bmff_box(b"stbl", &stbl)));
+        let mut moov = bmff_box(b"mvhd", &[0; 8]);
+        moov.extend(bmff_box(b"trak", &trak));
+        moov.extend(bmff_box(b"trak", &bmff_box(b"mdia", b"raw track")));
+
+        let mut prvw = vec![0u8; 4];
+        prvw.extend([0x06, 0x54, 0x04, 0x38, 0, 1]); // 1620 x 1080
+        prvw.extend((small.len() as u32).to_be_bytes());
+        prvw.extend(small);
+        let mut uuid = PREVIEW_UUID.to_vec();
+        uuid.extend([0u8; 8]);
+        uuid.extend(bmff_box(b"PRVW", &prvw));
+
+        let mut out = bmff_box(b"ftyp", b"crx \0\0\0\x01crx isom");
+        out.extend(bmff_box(b"moov", &moov));
+        out.extend(bmff_box(b"uuid", &uuid));
+        out
+    };
+    let mdat_at = head_with(0).len() as u64;
+    let mut mdat = full.to_vec();
+    mdat.extend([0x5A; 4096]); // raw data
+    let mut out = head_with(mdat_at);
+    out.extend(bmff_box(b"mdat", &mdat));
+    out
+}
+
+/// A Nikon NEF skeleton: IFD0 lists one SubIFD per JPEG, each pointing at
+/// its JPEG with JPEGInterchangeFormat / ...Length
+pub fn nef_with_jpegs(jpegs: &[&[u8]], le: bool) -> Vec<u8> {
+    const SUB_IFD_LEN: usize = 2 + 2 * 12 + 4;
+    let ifd0_with = |offsets: &[u32]| {
+        let mut data = Vec::new();
+        offsets.iter().for_each(|&o| push_u32(&mut data, o, le));
+        let entries: Vec<TiffEntry> = match offsets.len() {
+            0 => vec![TiffEntry::short(0x0112, &[1], le)],
+            n => vec![TiffEntry::raw(0x014A, 4, n as u32, data)],
+        };
+        ifd_bytes(&entries, 8, le)
+    };
+    let sub_ifds_at = 8 + ifd0_with(&vec![0; jpegs.len()]).len();
+    let jpegs_at = sub_ifds_at + jpegs.len() * SUB_IFD_LEN;
+    let offsets: Vec<u32> = (0..jpegs.len())
+        .map(|i| (sub_ifds_at + i * SUB_IFD_LEN) as u32)
+        .collect();
+
+    let mut out = tiff_header(le);
+    out.extend(ifd0_with(&offsets));
+    let mut jpeg_at = jpegs_at;
+    for (i, jpeg) in jpegs.iter().enumerate() {
+        let entries = [
+            TiffEntry::long(0x0201, jpeg_at as u32, le),
+            TiffEntry::long(0x0202, jpeg.len() as u32, le),
+        ];
+        out.extend(ifd_bytes(&entries, offsets[i] as usize, le));
+        jpeg_at += jpeg.len();
+    }
+    jpegs.iter().for_each(|jpeg| out.extend(*jpeg));
+    out.extend([0x5A; 4096]); // raw data
+    out
+}
